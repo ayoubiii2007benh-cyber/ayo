@@ -562,6 +562,8 @@
   @media (max-width: 460px) {
     .live-users__label { display: none; }
   }
+  .lounge-chip { border: 1px solid var(--border); cursor: pointer; font-weight: 700; color: var(--text); }
+  .lounge-chip:hover { background: rgba(36, 31, 28, 0.08); }
 
   /* ---------- study lounge ---------- */
   #view-lounge {
@@ -588,6 +590,22 @@
   .lounge-inline-form select {
     padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
     background: var(--surface); color: var(--text); font-size: 1rem;
+  }
+  .lounge-active-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+  .lounge-room-code { font-family: ui-monospace, monospace; font-size: 1.1rem; font-weight: 800; letter-spacing: 0.04em; margin-right: 8px; }
+  .lounge-members-list { list-style: none; margin: 0 0 20px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .lounge-member-item {
+    display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--radius-md);
+    background: rgba(36, 31, 28, 0.04); font-size: 0.86rem; flex-wrap: wrap;
+  }
+  .lounge-member-item__avatar { font-size: 1.2rem; }
+  .lounge-member-item__name { font-weight: 700; min-width: 70px; }
+  .lounge-member-item__level { color: var(--text-muted); font-size: 0.76rem; white-space: nowrap; }
+  .lounge-member-item__status { white-space: nowrap; }
+  .lounge-member-item__metrics { margin-left: auto; color: var(--text-muted); font-size: 0.78rem; white-space: nowrap; }
+  @media (max-width: 600px) {
+    .lounge-member-item { font-size: 0.8rem; }
+    .lounge-member-item__metrics { margin-left: 0; flex-basis: 100%; }
   }
 
   /* ---------- AI chat ---------- */
@@ -843,6 +861,7 @@
       <span id="live-users-count" class="live-users__count">—</span>
       <span class="live-users__label">online</span>
     </div>
+    <button type="button" id="lounge-chip" class="live-users lounge-chip" hidden></button>
     <button id="settings-btn" type="button" class="icon-btn" aria-label="Open settings" aria-haspopup="dialog">&#9881;</button>
   </div>
 </header>
@@ -998,7 +1017,18 @@
       </section>
     </div>
   </div>
-  <div id="lounge-active" hidden></div>
+  <div id="lounge-active" hidden>
+    <div class="lounge-active-header">
+      <div>
+        <span class="lounge-room-code" id="lounge-room-code"></span>
+        <button type="button" class="btn btn-secondary" id="lounge-copy-code">Copy</button>
+        <p class="field-hint" id="lounge-room-goal"></p>
+      </div>
+      <button type="button" class="btn btn-secondary" id="lounge-leave-room">Leave Room</button>
+    </div>
+    <ul class="lounge-members-list" id="lounge-members-list"></ul>
+    <div id="lounge-mission"></div>
+  </div>
 </div>
 </main>
 
@@ -2852,6 +2882,7 @@ const Lounge = {
       }
       Lounge._tickBot(m, room);
     }
+    if (typeof UI !== 'undefined') { UI.renderLoungeChip(); if (state.currentView === 'lounge') UI.renderLoungeRoom(); }
   },
   _tickBot(m, room) {
     if (m.status === 'idle') {
@@ -3016,7 +3047,60 @@ const UI = {
     }
   },
 
-  renderLoungeRoom() { /* replaced in Task 4 */ },
+  renderLoungeRoom() {
+    const room = state.lounge.room;
+    if (!room) return;
+    document.getElementById('lounge-room-code').textContent = room.code;
+    document.getElementById('lounge-room-goal').textContent = room.goal || 'No goal set.';
+
+    const list = document.getElementById('lounge-members-list');
+    list.replaceChildren();
+    for (const m of room.members) {
+      const li = document.createElement('li');
+      li.className = 'lounge-member-item';
+
+      const avatar = document.createElement('span');
+      avatar.className = 'lounge-member-item__avatar';
+      avatar.textContent = m.avatar;
+
+      const name = document.createElement('span');
+      name.className = 'lounge-member-item__name';
+      name.textContent = m.name;
+
+      const level = m.isSelf ? Skills.progress(state.stats.focusXP).level : Skills.progress(m.simXP || 0).level;
+      const levelEl = document.createElement('span');
+      levelEl.className = 'lounge-member-item__level';
+      levelEl.textContent = `Lv. ${level} · ${Lounge.titleForLevel(level)}`;
+
+      const status = document.createElement('span');
+      status.className = 'lounge-member-item__status';
+      status.textContent = Lounge.statusLabel(m);
+
+      const metrics = document.createElement('span');
+      metrics.className = 'lounge-member-item__metrics';
+      const h = Math.floor(m.studyMinutesToday / 60), min = m.studyMinutesToday % 60;
+      metrics.textContent = `${h > 0 ? `${h}h ${min}m` : `${min}m`} study · ${m.restMinutesToday}m rest · ${m.pomodorosToday} 🍅`;
+
+      li.append(avatar, name, levelEl, status, metrics);
+      list.appendChild(li);
+    }
+  },
+
+  renderLoungeChip() {
+    const chip = document.getElementById('lounge-chip');
+    if (!chip) return;
+    const room = state.lounge.room;
+    if (!room) { chip.hidden = true; return; }
+    chip.hidden = false;
+    const activeCount = room.members.filter((m) => m.status !== 'idle').length;
+    chip.replaceChildren();
+    const dot = document.createElement('span');
+    dot.className = 'live-users__dot';
+    const text = document.createElement('span');
+    text.className = 'live-users__count';
+    text.textContent = `Group: ${room.code} · ${activeCount} active`;
+    chip.append(dot, text);
+  },
 
   renderLoungeView() {
     const lobby = document.getElementById('lounge-lobby');
@@ -3954,6 +4038,7 @@ const UI = {
       Lounge.createRoom(goalInput.value);
       goalInput.value = '';
       UI.renderLoungeView();
+      UI.renderLoungeChip();
     });
     document.getElementById('lounge-join-room-form').addEventListener('submit', (e) => {
       e.preventDefault();
@@ -3963,10 +4048,23 @@ const UI = {
         codeInput.value = '';
         setFieldStatus(status, '', '');
         UI.renderLoungeView();
+        UI.renderLoungeChip();
       } else {
         setFieldStatus(status, 'Please enter a room code.', 'error');
       }
     });
+    document.getElementById('lounge-copy-code').addEventListener('click', () => {
+      const code = state.lounge.room ? state.lounge.room.code : '';
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).catch(() => {});
+      }
+    });
+    document.getElementById('lounge-leave-room').addEventListener('click', () => {
+      Lounge.leaveRoom();
+      UI.renderLoungeView();
+      UI.renderLoungeChip();
+    });
+    document.getElementById('lounge-chip').addEventListener('click', () => UI.selectView('lounge'));
     UI.renderLoungeLobby();
 
     UI.renderAppearanceUI();
