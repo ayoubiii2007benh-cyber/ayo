@@ -486,25 +486,11 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .user-profile__name:hover { background: rgba(36, 31, 28, 0.06); }
-  .user-profile__name-input {
-    max-width: 120px; min-height: 32px; padding: 2px 8px; border: 1px solid var(--border);
-    border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 0.88rem;
-  }
   @media (max-width: 560px) {
-    .user-profile__name, .user-profile__name-input { display: none; }
+    .user-profile__name { display: none; }
   }
   .user-profile__avatar--emoji { font-size: 1.05rem; background: rgba(36, 31, 28, 0.06); color: inherit; }
-  .user-profile__emoji-picker {
-    position: absolute; top: 100%; right: 0; margin-top: 6px; z-index: 20;
-    display: flex; flex-wrap: wrap; gap: 4px; width: 168px; padding: 8px;
-    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
-    box-shadow: var(--shadow-md);
-  }
-  .user-profile__emoji-picker button {
-    border: none; background: transparent; font-size: 1.1rem; width: 32px; height: 32px;
-    border-radius: var(--radius-sm); cursor: pointer;
-  }
-  .user-profile__emoji-picker button:hover { background: rgba(36, 31, 28, 0.08); }
+  .user-profile__avatar--photo { background-size: cover; background-position: center; color: transparent; }
 
   /* ---------- top nav ---------- */
   .top-nav {
@@ -608,6 +594,46 @@
   }
 
   .lounge-friend-item__chat { flex-shrink: 0; }
+
+  /* ---------- profile modal ---------- */
+  dialog#profile-modal {
+    border: none; border-radius: var(--radius-lg); padding: 0;
+    width: min(400px, calc(100vw - 32px)); max-height: min(640px, calc(100vh - 48px));
+    box-shadow: var(--shadow-lg); background: var(--surface);
+  }
+  dialog#profile-modal::backdrop { background: rgba(20, 16, 14, 0.45); }
+  .profile-modal__form { padding: 22px clamp(20px, 5vw, 28px); overflow-y: auto; max-height: inherit; }
+  .profile-modal__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .profile-modal__header h2 { font-size: 1.1rem; }
+  #profile-modal-view, #profile-modal-edit { display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+  .profile-modal__pfp {
+    width: 96px; height: 96px; border-radius: 50%; background: var(--primary); color: var(--accent-contrast);
+    display: flex; align-items: center; justify-content: center; font-size: 2.4rem; font-weight: 700;
+    background-size: cover; background-position: center; flex-shrink: 0;
+  }
+  .profile-modal__username { font-size: 1.15rem; font-weight: 700; }
+  .profile-modal__bio { color: var(--text-muted); font-size: 0.9rem; max-width: 320px; }
+  .profile-modal__title-badge {
+    background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 0.78rem;
+    padding: 4px 12px; border-radius: 999px;
+  }
+  .profile-modal__stats { display: flex; gap: 22px; margin: 8px 0; }
+  .profile-modal__stat { display: flex; flex-direction: column; align-items: center; }
+  .profile-modal__stat-value { font-size: 1.1rem; font-weight: 800; color: var(--accent); }
+  .profile-modal__stat-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  .profile-modal__emoji-picker { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; max-width: 260px; }
+  .profile-modal__emoji-picker button {
+    border: none; background: rgba(36, 31, 28, 0.06); font-size: 1.1rem; width: 34px; height: 34px;
+    border-radius: var(--radius-sm); cursor: pointer;
+  }
+  .profile-modal__emoji-picker button:hover { background: rgba(36, 31, 28, 0.12); }
+  .profile-modal__upload-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  #profile-modal-edit label { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); }
+  #profile-edit-username, #profile-edit-bio {
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface); color: var(--text); font: inherit; resize: vertical;
+  }
+  .profile-modal__edit-actions { display: flex; gap: 8px; justify-content: center; margin-top: 4px; }
 
   /* ---------- study lounge ---------- */
   #view-lounge {
@@ -943,10 +969,8 @@
   <h1 id="app-title">Pomodoro</h1>
   <div class="header-right">
     <div class="user-profile" id="user-profile">
-      <button type="button" class="user-profile__avatar" id="user-avatar" aria-label="Edit your name">Y</button>
-      <button type="button" class="user-profile__name" id="user-name-display" aria-label="Edit your name">You</button>
-      <input type="text" class="user-profile__name-input" id="user-name-input" maxlength="24" aria-label="Your name" hidden>
-      <div class="user-profile__emoji-picker" id="user-profile-emoji-picker" role="group" aria-label="Choose an avatar" hidden></div>
+      <button type="button" class="user-profile__avatar" id="user-avatar" aria-label="Open your profile" aria-haspopup="dialog">Y</button>
+      <button type="button" class="user-profile__name" id="user-name-display" aria-label="Open your profile" aria-haspopup="dialog">You</button>
     </div>
     <button id="darkmode-toggle" type="button" class="icon-btn" aria-label="Switch to dark mode">&#127769;</button>
     <button id="mute-toggle" type="button" class="icon-btn" aria-label="Mute background music" aria-pressed="false">&#128266;</button>
@@ -1396,6 +1420,50 @@
   </div>
 </div>
 
+<dialog id="profile-modal" aria-labelledby="profile-modal-title">
+  <form method="dialog" class="profile-modal__form">
+    <div class="profile-modal__header">
+      <h2 id="profile-modal-title">Profile</h2>
+      <button type="button" id="profile-modal-close" class="icon-btn" aria-label="Close profile">&#10005;</button>
+    </div>
+
+    <div id="profile-modal-view">
+      <div class="profile-modal__pfp" id="profile-modal-pfp"></div>
+      <div class="profile-modal__username" id="profile-modal-username"></div>
+      <p class="profile-modal__bio" id="profile-modal-bio"></p>
+      <div class="profile-modal__title-badge" id="profile-modal-title-badge"></div>
+      <div class="profile-modal__stats">
+        <div class="profile-modal__stat"><span class="profile-modal__stat-value" id="profile-stat-xp"></span><span class="profile-modal__stat-label">XP</span></div>
+        <div class="profile-modal__stat"><span class="profile-modal__stat-value" id="profile-stat-friends"></span><span class="profile-modal__stat-label">Friends</span></div>
+        <div class="profile-modal__stat"><span class="profile-modal__stat-value" id="profile-stat-followers"></span><span class="profile-modal__stat-label">Followers</span></div>
+        <div class="profile-modal__stat"><span class="profile-modal__stat-value" id="profile-stat-hours"></span><span class="profile-modal__stat-label">Hours</span></div>
+      </div>
+      <button type="button" class="btn btn-secondary" id="profile-modal-edit-btn">Edit Profile</button>
+    </div>
+
+    <div id="profile-modal-edit" hidden>
+      <div class="profile-modal__pfp" id="profile-modal-pfp-edit-preview"></div>
+      <div class="profile-modal__emoji-picker" id="profile-modal-emoji-picker" role="group" aria-label="Choose an avatar emoji"></div>
+      <div class="profile-modal__upload-row">
+        <button type="button" class="btn btn-secondary" id="profile-upload-btn">Upload Photo</button>
+        <input type="file" id="profile-upload-input" accept="image/*" hidden>
+        <button type="button" class="btn btn-secondary" id="profile-remove-photo-btn">Remove Photo</button>
+      </div>
+      <span class="field-status" id="status-profile-upload"></span>
+      <label for="profile-edit-username">Username
+        <input type="text" id="profile-edit-username" maxlength="24">
+      </label>
+      <label for="profile-edit-bio">Bio
+        <textarea id="profile-edit-bio" maxlength="160" rows="3"></textarea>
+      </label>
+      <div class="profile-modal__edit-actions">
+        <button type="button" class="btn btn-secondary" id="profile-edit-cancel">Cancel</button>
+        <button type="button" class="btn btn-primary" id="profile-edit-save">Save</button>
+      </div>
+    </div>
+  </form>
+</dialog>
+
 <div id="media-panel" class="glass" hidden role="group" aria-label="Background media controls">
   <button id="media-play" type="button" aria-label="Play or pause background media" aria-pressed="false">&#9654;</button>
   <button id="media-mute" type="button" aria-label="Mute or unmute background media" aria-pressed="false">&#128266;</button>
@@ -1454,7 +1522,7 @@ const state = {
   timer: { mode: 'pomodoro', running: false, endAt: null, remainingMs: DEFAULT_SETTINGS.pomodoro * 60000, cyclesCompleted: 0, _completing: false },
   chatSettings: { apiKey: '' },
   chatHistory: [],
-  profile: { username: 'You' },
+  profile: { username: 'You', avatar: '', bio: '', localAvatarId: null, _avatarUrl: null },
   dailyHistory: [],
   currentView: 'dashboard',
   lounge: { friends: [], room: null, chats: {}, activeChatFriendId: null, pendingInvite: null },
@@ -1597,9 +1665,13 @@ const Storage = {
     const raw = safeParse('profile') || {};
     const name = typeof raw.username === 'string' ? raw.username.trim().slice(0, 24) : '';
     const avatar = typeof raw.avatar === 'string' ? raw.avatar.trim().slice(0, 4) : '';
-    return { username: name || 'You', avatar };
+    const bio = typeof raw.bio === 'string' ? raw.bio.trim().slice(0, 160) : '';
+    const localAvatarId = typeof raw.localAvatarId === 'number' ? raw.localAvatarId : null;
+    return { username: name || 'You', avatar, bio, localAvatarId };
   },
-  saveProfile(p) { safeSet('profile', p); },
+  saveProfile(p) {
+    safeSet('profile', { username: p.username, avatar: p.avatar, bio: p.bio || '', localAvatarId: p.localAvatarId ?? null });
+  },
 
   loadLoungeFriends() {
     const raw = safeParse('loungeFriends');
@@ -2010,6 +2082,18 @@ const State = {
     state.dailyHistory = Storage.loadDailyHistory();
     state.timer.remainingMs = Timer.durationMs(state.timer.mode);
     State.restoreMusic();
+    State.restoreProfileAvatar();
+  },
+  async restoreProfileAvatar() {
+    const id = state.profile.localAvatarId;
+    if (id == null) return;
+    try {
+      const record = await LocalMediaDB.get(id);
+      if (record) {
+        state.profile._avatarUrl = ObjectURLRegistry.set('profile-avatar', record.blob);
+        if (typeof UI !== 'undefined') UI.renderProfile();
+      }
+    } catch { /* IndexedDB unavailable or record missing; fall back to emoji/letter */ }
   },
   async restoreMusic() {
     const m = state.musicSettings;
@@ -3353,16 +3437,63 @@ const UI = {
     if (el) el.textContent = `Today's Pomodoros: ${state.stats.pomodorosCompletedToday}`;
   },
 
+  _applyAvatarVisual(el, photoClass) {
+    if (!el) return;
+    const name = state.profile.username;
+    const emoji = state.profile.avatar;
+    if (state.profile._avatarUrl) {
+      el.textContent = '';
+      el.style.backgroundImage = `url(${state.profile._avatarUrl})`;
+      if (photoClass) el.classList.add(photoClass);
+      el.classList.remove('user-profile__avatar--emoji');
+    } else {
+      el.style.backgroundImage = '';
+      if (photoClass) el.classList.remove(photoClass);
+      el.textContent = emoji || (name.trim().charAt(0).toUpperCase() || 'Y');
+      el.classList.toggle('user-profile__avatar--emoji', !!emoji);
+    }
+  },
+
   renderProfile() {
     const avatar = document.getElementById('user-avatar');
     const nameDisplay = document.getElementById('user-name-display');
-    const name = state.profile.username;
-    if (avatar) {
-      const emoji = state.profile.avatar;
-      avatar.textContent = emoji || (name.trim().charAt(0).toUpperCase() || 'Y');
-      avatar.classList.toggle('user-profile__avatar--emoji', !!emoji);
-    }
-    if (nameDisplay) nameDisplay.textContent = name;
+    UI._applyAvatarVisual(avatar, 'user-profile__avatar--photo');
+    if (nameDisplay) nameDisplay.textContent = state.profile.username;
+    UI.renderProfileModalView();
+  },
+
+  renderProfileModalView() {
+    const pfp = document.getElementById('profile-modal-pfp');
+    if (!pfp) return;
+    UI._applyAvatarVisual(pfp, null);
+    const level = Skills.progress(state.stats.focusXP).level;
+    document.getElementById('profile-modal-username').textContent = state.profile.username;
+    document.getElementById('profile-modal-bio').textContent = state.profile.bio || 'No bio yet.';
+    document.getElementById('profile-modal-title-badge').textContent = `Lv. ${level} · ${Lounge.titleForLevel(level)}`;
+    document.getElementById('profile-stat-xp').textContent = String(state.stats.focusXP);
+    document.getElementById('profile-stat-friends').textContent = String(state.lounge.friends.length);
+    const followers = Math.max(0, level * 4 + state.stats.currentStreak * 2 + state.lounge.friends.length);
+    document.getElementById('profile-stat-followers').textContent = String(followers);
+    const hours = state.stats.totalFocusMinutes / 60;
+    document.getElementById('profile-stat-hours').textContent = hours >= 10 ? String(Math.round(hours)) : hours.toFixed(1);
+  },
+
+  openProfileModal() {
+    UI.renderProfileModalView();
+    document.getElementById('profile-modal-view').hidden = false;
+    document.getElementById('profile-modal-edit').hidden = true;
+    document.getElementById('profile-modal').showModal();
+  },
+
+  openProfileEdit() {
+    document.getElementById('profile-edit-username').value = state.profile.username;
+    document.getElementById('profile-edit-bio').value = state.profile.bio || '';
+    UI._applyAvatarVisual(document.getElementById('profile-modal-pfp-edit-preview'), null);
+    document.getElementById('profile-modal-view').hidden = true;
+    document.getElementById('profile-modal-edit').hidden = false;
+    UI._pendingAvatarEmoji = null;
+    UI._pendingAvatarPhoto = null;
+    setFieldStatus(document.getElementById('status-profile-upload'), '', '');
   },
 
   renderLoungeFriends() {
@@ -4307,66 +4438,94 @@ const UI = {
       if (typeof UI.renderMusicUI === 'function') UI.renderMusicUI();
     });
 
-    const emojiPicker = document.getElementById('user-profile-emoji-picker');
+    // ---- Profile modal ----
+    document.getElementById('user-avatar').addEventListener('click', () => UI.openProfileModal());
+    document.getElementById('user-name-display').addEventListener('click', () => UI.openProfileModal());
+    document.getElementById('profile-modal-close').addEventListener('click', () => document.getElementById('profile-modal').close());
+    document.getElementById('profile-modal-edit-btn').addEventListener('click', () => UI.openProfileEdit());
+    document.getElementById('profile-edit-cancel').addEventListener('click', () => {
+      if (UI._pendingAvatarPhoto instanceof File) ObjectURLRegistry.revoke('profile-avatar-preview');
+      document.getElementById('profile-modal-view').hidden = false;
+      document.getElementById('profile-modal-edit').hidden = true;
+    });
+
+    const emojiPickerEl = document.getElementById('profile-modal-emoji-picker');
     Lounge.PROFILE_EMOJI.forEach((emoji) => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = emoji;
       btn.setAttribute('aria-label', `Use ${emoji} as your avatar`);
-      btn.addEventListener('mousedown', (e) => e.preventDefault());
       btn.addEventListener('click', () => {
-        state.profile = { ...state.profile, avatar: emoji };
-        Storage.saveProfile(state.profile);
-        UI.renderProfile();
+        UI._pendingAvatarEmoji = emoji;
+        UI._pendingAvatarPhoto = null;
+        const preview = document.getElementById('profile-modal-pfp-edit-preview');
+        preview.style.backgroundImage = '';
+        preview.classList.remove('user-profile__avatar--photo');
+        preview.textContent = emoji;
+        setFieldStatus(document.getElementById('status-profile-upload'), '', '');
       });
-      emojiPicker.appendChild(btn);
+      emojiPickerEl.appendChild(btn);
     });
 
-    const startEditingName = () => {
-      const nameInput = document.getElementById('user-name-input');
-      const nameDisplay = document.getElementById('user-name-display');
-      nameInput.value = state.profile.username;
-      nameDisplay.hidden = true;
-      nameInput.hidden = false;
-      emojiPicker.hidden = false;
-      nameInput.focus();
-      nameInput.select();
-    };
-    const closeNameEditor = () => {
-      document.getElementById('user-name-input').hidden = true;
-      document.getElementById('user-name-display').hidden = false;
-      emojiPicker.hidden = true;
-    };
-    const commitName = () => {
-      const nameInput = document.getElementById('user-name-input');
-      const name = nameInput.value.trim().slice(0, 24) || 'You';
-      state.profile = { ...state.profile, username: name };
+    document.getElementById('profile-upload-btn').addEventListener('click', () => {
+      document.getElementById('profile-upload-input').click();
+    });
+    document.getElementById('profile-upload-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const status = document.getElementById('status-profile-upload');
+      setFieldStatus(status, 'Loading…', '');
+      const result = await MediaService.validateLocalFile(file, 'image');
+      if (!result.ok) { setFieldStatus(status, result.reason, 'error'); return; }
+      UI._pendingAvatarPhoto = file;
+      UI._pendingAvatarEmoji = null;
+      const previewUrl = ObjectURLRegistry.set('profile-avatar-preview', file);
+      const preview = document.getElementById('profile-modal-pfp-edit-preview');
+      preview.textContent = '';
+      preview.style.backgroundImage = `url(${previewUrl})`;
+      setFieldStatus(status, 'Looks good ✓', 'success');
+    });
+    document.getElementById('profile-remove-photo-btn').addEventListener('click', () => {
+      UI._pendingAvatarPhoto = 'remove';
+      UI._pendingAvatarEmoji = null;
+      const preview = document.getElementById('profile-modal-pfp-edit-preview');
+      preview.style.backgroundImage = '';
+      preview.textContent = (state.profile.username.trim().charAt(0).toUpperCase() || 'Y');
+      setFieldStatus(document.getElementById('status-profile-upload'), 'Photo will be removed on Save.', '');
+    });
+
+    document.getElementById('profile-edit-save').addEventListener('click', async () => {
+      const username = document.getElementById('profile-edit-username').value.trim().slice(0, 24) || 'You';
+      const bio = document.getElementById('profile-edit-bio').value.trim().slice(0, 160);
+      let { avatar, localAvatarId } = state.profile;
+
+      if (UI._pendingAvatarPhoto === 'remove') {
+        if (localAvatarId != null) await LocalMediaDB.delete(localAvatarId);
+        localAvatarId = null;
+        state.profile._avatarUrl = null;
+        ObjectURLRegistry.revoke('profile-avatar');
+      } else if (UI._pendingAvatarPhoto instanceof File) {
+        if (localAvatarId != null) await LocalMediaDB.delete(localAvatarId);
+        localAvatarId = await LocalMediaDB.save('image', UI._pendingAvatarPhoto);
+        const record = await LocalMediaDB.get(localAvatarId);
+        state.profile._avatarUrl = ObjectURLRegistry.set('profile-avatar', record.blob);
+        ObjectURLRegistry.revoke('profile-avatar-preview');
+      } else if (UI._pendingAvatarEmoji) {
+        avatar = UI._pendingAvatarEmoji;
+        if (localAvatarId != null) await LocalMediaDB.delete(localAvatarId);
+        localAvatarId = null;
+        state.profile._avatarUrl = null;
+        ObjectURLRegistry.revoke('profile-avatar');
+      }
+
+      state.profile = { ...state.profile, username, bio, avatar, localAvatarId };
       Storage.saveProfile(state.profile);
+      UI._pendingAvatarPhoto = null;
+      UI._pendingAvatarEmoji = null;
       UI.renderProfile();
-    };
-    document.getElementById('user-avatar').addEventListener('click', startEditingName);
-    document.getElementById('user-name-display').addEventListener('click', startEditingName);
-    document.getElementById('user-name-input').addEventListener('blur', (e) => {
-      // Tabbing from the input into one of the emoji buttons must not close the picker.
-      if (emojiPicker.contains(e.relatedTarget)) return;
-      commitName();
-      closeNameEditor();
-    });
-    document.getElementById('user-name-input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); commitName(); closeNameEditor(); }
-      if (e.key === 'Escape') { e.preventDefault(); closeNameEditor(); }
-    });
-    // Backstop for cases blur/keydown on the input can't reach: on mobile the input is
-    // hidden by CSS (display:none), so it never gains focus and never blurs, and the
-    // picker would otherwise stay open forever with no way to close it.
-    document.addEventListener('click', (e) => {
-      if (emojiPicker.hidden) return;
-      if (document.getElementById('user-profile').contains(e.target)) return;
-      commitName();
-      closeNameEditor();
-    });
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !emojiPicker.hidden) closeNameEditor();
+      document.getElementById('profile-modal-view').hidden = false;
+      document.getElementById('profile-modal-edit').hidden = true;
+      document.getElementById('profile-modal').close();
     });
 
     document.getElementById('ai-chat-goto-settings').addEventListener('click', () => {
