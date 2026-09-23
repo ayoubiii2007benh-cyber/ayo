@@ -577,12 +577,16 @@
   @media (max-width: 700px) { .lounge-lobby-grid { grid-template-columns: 1fr; } }
   .lounge-friends-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
   .lounge-friend-item {
-    display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-md);
-    background: rgba(36, 31, 28, 0.04); font-size: 0.88rem;
+    display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-md);
+    background: rgba(36, 31, 28, 0.04); font-size: 0.88rem; flex-wrap: wrap;
   }
   .lounge-friend-item__avatar { font-size: 1.1rem; }
-  .lounge-friend-item__name { flex: 1; font-weight: 600; }
+  .lounge-friend-item__name {
+    flex: 1 1 0%; min-width: 0; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .lounge-friend-item__status { font-size: 0.76rem; color: var(--text-muted); white-space: nowrap; }
+  .lounge-panel--left .lounge-friend-item > button { flex: 1 1 100%; }
   .lounge-inline-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .lounge-inline-form input[type="text"] {
     flex: 1 1 140px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border);
@@ -614,7 +618,7 @@
   .lounge-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
   .lounge-ring__track { fill: none; stroke: var(--border); stroke-width: 6; }
   .lounge-ring__fill { fill: none; stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
-  .lounge-ring[data-status="focusing"] .lounge-ring__fill { stroke: var(--accent); }
+  .lounge-ring[data-status="focusing"] .lounge-ring__fill { stroke: var(--accent-pomodoro); }
   .lounge-ring[data-status="resting"] .lounge-ring__fill { stroke: var(--accent-shortBreak); }
   .lounge-ring[data-status="idle"] .lounge-ring__fill { stroke: transparent; }
   .lounge-ring__avatar { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 2rem; }
@@ -1079,6 +1083,11 @@
         </div>
         <h3>Friends</h3>
         <ul class="lounge-friends-list" id="lounge-friends-list-active"></ul>
+        <form id="lounge-add-friend-form-active" class="lounge-inline-form">
+          <input type="text" id="lounge-friend-name-input-active" maxlength="24" placeholder="Friend's name" aria-label="Friend's name" required>
+          <select id="lounge-friend-avatar-select-active" aria-label="Friend's avatar"></select>
+          <button type="submit" class="btn btn-secondary">Add Friend</button>
+        </form>
         <div id="lounge-mission" aria-label="Group mission"></div>
       </section>
       <section class="glass lounge-panel lounge-panel--center" aria-label="Members">
@@ -2878,7 +2887,12 @@ const Lounge = {
 
   phaseFraction(m) {
     if (m.status === 'idle') return 0;
-    const totalMs = (m.status === 'focusing' ? state.settings.pomodoro : state.settings.shortBreak) * 60000;
+    // Self tracks the real Timer, which can be in 'longBreak' as well as 'shortBreak' while
+    // resting — read the actual current mode's duration rather than assuming shortBreak.
+    // Bots never enter longBreak (their simulated cycle only alternates focus/short-rest).
+    const totalMs = m.isSelf
+      ? state.settings[state.timer.mode] * 60000
+      : (m.status === 'focusing' ? state.settings.pomodoro : state.settings.shortBreak) * 60000;
     return totalMs > 0 ? Math.min(1, Math.max(0, 1 - m.remainingMs / totalMs)) : 0;
   },
 
@@ -3234,13 +3248,15 @@ const UI = {
   },
 
   renderLoungeLobby() {
-    const select = document.getElementById('lounge-friend-avatar-select');
-    if (select && !select.childElementCount) {
-      for (const emoji of Lounge.PROFILE_EMOJI) {
-        const opt = document.createElement('option');
-        opt.value = emoji;
-        opt.textContent = emoji;
-        select.appendChild(opt);
+    for (const selectId of ['lounge-friend-avatar-select', 'lounge-friend-avatar-select-active']) {
+      const select = document.getElementById(selectId);
+      if (select && !select.childElementCount) {
+        for (const emoji of Lounge.PROFILE_EMOJI) {
+          const opt = document.createElement('option');
+          opt.value = emoji;
+          opt.textContent = emoji;
+          select.appendChild(opt);
+        }
       }
     }
   },
@@ -3409,26 +3425,28 @@ const UI = {
     const list = document.getElementById('lounge-activity-log');
     if (!list) return;
     const room = state.lounge.room;
-    if (!room) { list.replaceChildren(); list.dataset.rendered = '0'; list.dataset.roomCode = ''; return; }
+    if (!room) { list.replaceChildren(); list.dataset.lastId = ''; return; }
     const log = room.activityLog;
-    // A bare rendered-count can't tell "same room, log grew" apart from "different room,
-    // fresh log" when the new log happens to be as long or longer than the stale count
-    // (e.g. leaving one room and joining another whose log already has several entries) —
-    // track which room the count belongs to and reset whenever that identity changes.
-    if (list.dataset.roomCode !== room.code) {
-      list.replaceChildren();
-      list.dataset.rendered = '0';
-      list.dataset.roomCode = room.code;
+    // Track the id of the last-rendered entry, not a raw count: a count can't tell "same
+    // room, log grew" apart from "different room" or "same room, but the 500-entry safety
+    // cap trimmed past what was already rendered" — both leave the old count still <= the
+    // new length, so nothing would ever get appended again. Finding the last-rendered id
+    // in the current log handles all three cases uniformly: found -> append what's after
+    // it; not found (new room, or trimmed away) -> the old DOM is stale, rebuild fully.
+    const lastId = list.dataset.lastId || '';
+    let startIndex = 0;
+    if (lastId) {
+      const idx = log.findIndex((e) => e.id === lastId);
+      if (idx === -1) { list.replaceChildren(); startIndex = 0; } else { startIndex = idx + 1; }
     }
-    const start = Number(list.dataset.rendered || 0);
     const wasNearBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 20;
-    for (let i = start; i < log.length; i++) {
+    for (let i = startIndex; i < log.length; i++) {
       const li = document.createElement('li');
       li.className = 'lounge-activity-item';
       li.textContent = log[i].text;
       list.appendChild(li);
     }
-    list.dataset.rendered = String(log.length);
+    if (log.length) list.dataset.lastId = log[log.length - 1].id;
     if (wasNearBottom) list.scrollTop = list.scrollHeight;
   },
 
@@ -4393,6 +4411,15 @@ const UI = {
       e.preventDefault();
       const nameInput = document.getElementById('lounge-friend-name-input');
       const avatarSelect = document.getElementById('lounge-friend-avatar-select');
+      if (Lounge.addFriend(nameInput.value, avatarSelect.value)) {
+        nameInput.value = '';
+        UI.renderLoungeView();
+      }
+    });
+    document.getElementById('lounge-add-friend-form-active').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const nameInput = document.getElementById('lounge-friend-name-input-active');
+      const avatarSelect = document.getElementById('lounge-friend-avatar-select-active');
       if (Lounge.addFriend(nameInput.value, avatarSelect.value)) {
         nameInput.value = '';
         UI.renderLoungeView();
