@@ -563,6 +563,33 @@
     .live-users__label { display: none; }
   }
 
+  /* ---------- study lounge ---------- */
+  #view-lounge {
+    max-width: 1040px; margin: 0 auto; border-radius: var(--radius-lg);
+    padding: clamp(22px, 4vw, 30px); box-shadow: var(--shadow-md);
+  }
+  #view-lounge h2 { font-size: 1.1rem; margin-bottom: 4px; }
+  #view-lounge h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin: 18px 0 10px; font-weight: 700; }
+  .lounge-lobby-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 8px; }
+  @media (max-width: 700px) { .lounge-lobby-grid { grid-template-columns: 1fr; } }
+  .lounge-friends-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  .lounge-friend-item {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-md);
+    background: rgba(36, 31, 28, 0.04); font-size: 0.88rem;
+  }
+  .lounge-friend-item__avatar { font-size: 1.1rem; }
+  .lounge-friend-item__name { flex: 1; font-weight: 600; }
+  .lounge-friend-item__status { font-size: 0.76rem; color: var(--text-muted); white-space: nowrap; }
+  .lounge-inline-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .lounge-inline-form input[type="text"] {
+    flex: 1 1 140px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 0.88rem;
+  }
+  .lounge-inline-form select {
+    padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface); color: var(--text); font-size: 1rem;
+  }
+
   /* ---------- AI chat ---------- */
   #ai-chat {
     border-radius: var(--radius-lg);
@@ -824,6 +851,7 @@
   <button type="button" class="nav-link" id="nav-dashboard" aria-current="page">Dashboard</button>
   <button type="button" class="nav-link" id="nav-reports">Reports</button>
   <button type="button" class="nav-link" id="nav-leaderboard">Leaderboard</button>
+  <button type="button" class="nav-link" id="nav-lounge">Study Lounge</button>
 </nav>
 
 <main>
@@ -939,6 +967,38 @@
   <h2>Your Best Days</h2>
   <p class="field-hint">Ranked by pomodoros completed. This app has no account system or other real users, so this is a personal ranking of your own history, not a multi-user leaderboard.</p>
   <ol class="leaderboard-list" id="leaderboard-list"></ol>
+</div>
+
+<div id="view-lounge" class="glass" aria-label="Study Lounge" hidden>
+  <div id="lounge-lobby">
+    <h2>Study Lounge</h2>
+    <p class="field-hint">Demo Mode — friends and group members here are simulated locally; nothing is sent over the network.</p>
+    <div class="lounge-lobby-grid">
+      <section aria-label="Friends">
+        <h3>Friends</h3>
+        <ul class="lounge-friends-list" id="lounge-friends-list"></ul>
+        <form id="lounge-add-friend-form" class="lounge-inline-form">
+          <input type="text" id="lounge-friend-name-input" maxlength="24" placeholder="Friend's name" aria-label="Friend's name" required>
+          <select id="lounge-friend-avatar-select" aria-label="Friend's avatar"></select>
+          <button type="submit" class="btn btn-secondary">Add Friend</button>
+        </form>
+      </section>
+      <section aria-label="Room">
+        <h3>Create a Room</h3>
+        <form id="lounge-create-room-form" class="lounge-inline-form">
+          <input type="text" id="lounge-goal-input" maxlength="80" placeholder="Room goal (optional)" aria-label="Room goal">
+          <button type="submit" class="btn btn-primary">Create Room</button>
+        </form>
+        <h3>Join a Room</h3>
+        <form id="lounge-join-room-form" class="lounge-inline-form">
+          <input type="text" id="lounge-join-code-input" maxlength="20" placeholder="Room code" aria-label="Room code" required>
+          <button type="submit" class="btn btn-secondary">Join Room</button>
+        </form>
+        <span class="field-status" id="status-lounge-join"></span>
+      </section>
+    </div>
+  </div>
+  <div id="lounge-active" hidden></div>
 </div>
 </main>
 
@@ -2913,6 +2973,61 @@ const UI = {
     if (nameDisplay) nameDisplay.textContent = name;
   },
 
+  renderLoungeFriends() {
+    const list = document.getElementById('lounge-friends-list');
+    if (!list) return;
+    list.replaceChildren();
+    for (const f of state.lounge.friends) {
+      const li = document.createElement('li');
+      li.className = 'lounge-friend-item';
+      const avatar = document.createElement('span');
+      avatar.className = 'lounge-friend-item__avatar';
+      avatar.textContent = f.avatar;
+      const name = document.createElement('span');
+      name.className = 'lounge-friend-item__name';
+      name.textContent = f.name;
+      const status = document.createElement('span');
+      status.className = 'lounge-friend-item__status';
+      status.textContent = f.status ? Lounge.statusLabel(f) : '⚪ Idle / Ready';
+      const inviteBtn = document.createElement('button');
+      inviteBtn.type = 'button';
+      inviteBtn.className = 'btn btn-secondary';
+      inviteBtn.textContent = 'Invite to Room';
+      inviteBtn.disabled = !state.lounge.room;
+      inviteBtn.addEventListener('click', () => {
+        Lounge.inviteFriendToRoom(f.id);
+        UI.renderLoungeView();
+      });
+      li.append(avatar, name, status, inviteBtn);
+      list.appendChild(li);
+    }
+  },
+
+  renderLoungeLobby() {
+    UI.renderLoungeFriends();
+    const select = document.getElementById('lounge-friend-avatar-select');
+    if (select && !select.childElementCount) {
+      for (const emoji of Lounge.PROFILE_EMOJI) {
+        const opt = document.createElement('option');
+        opt.value = emoji;
+        opt.textContent = emoji;
+        select.appendChild(opt);
+      }
+    }
+  },
+
+  renderLoungeRoom() { /* replaced in Task 4 */ },
+
+  renderLoungeView() {
+    const lobby = document.getElementById('lounge-lobby');
+    const active = document.getElementById('lounge-active');
+    if (!lobby || !active) return;
+    const inRoom = !!state.lounge.room;
+    lobby.hidden = inRoom;
+    active.hidden = !inRoom;
+    if (inRoom) UI.renderLoungeRoom(); else UI.renderLoungeLobby();
+  },
+
   renderDarkModeToggle() {
     const btn = document.getElementById('darkmode-toggle');
     if (!btn) return;
@@ -2932,7 +3047,7 @@ const UI = {
 
   selectView(view) {
     state.currentView = view;
-    ['dashboard', 'reports', 'leaderboard'].forEach((v) => {
+    ['dashboard', 'reports', 'leaderboard', 'lounge'].forEach((v) => {
       const panel = document.getElementById(`view-${v}`);
       const link = document.getElementById(`nav-${v}`);
       if (panel) panel.hidden = v !== view;
@@ -2940,6 +3055,7 @@ const UI = {
     });
     if (view === 'reports') UI.renderReports();
     if (view === 'leaderboard') UI.renderLeaderboard();
+    if (view === 'lounge') UI.renderLoungeView();
   },
 
   renderReports() {
@@ -3532,7 +3648,7 @@ const UI = {
     UI.renderMusicUI();
     LiveUsers.start();
 
-    ['dashboard', 'reports', 'leaderboard'].forEach((v) => {
+    ['dashboard', 'reports', 'leaderboard', 'lounge'].forEach((v) => {
       document.getElementById(`nav-${v}`).addEventListener('click', () => UI.selectView(v));
     });
 
@@ -3821,6 +3937,38 @@ const UI = {
         UI.renderAppearanceUI();
       });
     });
+
+    // ---- Study Lounge ----
+    document.getElementById('lounge-add-friend-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const nameInput = document.getElementById('lounge-friend-name-input');
+      const avatarSelect = document.getElementById('lounge-friend-avatar-select');
+      if (Lounge.addFriend(nameInput.value, avatarSelect.value)) {
+        nameInput.value = '';
+        UI.renderLoungeView();
+      }
+    });
+    document.getElementById('lounge-create-room-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const goalInput = document.getElementById('lounge-goal-input');
+      Lounge.createRoom(goalInput.value);
+      goalInput.value = '';
+      UI.renderLoungeView();
+    });
+    document.getElementById('lounge-join-room-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const codeInput = document.getElementById('lounge-join-code-input');
+      const status = document.getElementById('status-lounge-join');
+      if (Lounge.joinRoom(codeInput.value)) {
+        codeInput.value = '';
+        setFieldStatus(status, '', '');
+        UI.renderLoungeView();
+      } else {
+        setFieldStatus(status, 'Please enter a room code.', 'error');
+      }
+    });
+    UI.renderLoungeLobby();
+
     UI.renderAppearanceUI();
   },
 };
