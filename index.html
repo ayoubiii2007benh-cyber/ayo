@@ -636,6 +636,14 @@
     background: rgba(192, 57, 43, 0.1); color: var(--danger); padding: 10px 14px;
     border-radius: var(--radius-md); font-size: 0.85rem; margin-bottom: 12px;
   }
+  .lounge-activity-log {
+    list-style: none; margin: 12px 0 0; padding: 0; max-height: 420px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .lounge-activity-item {
+    font-size: 0.82rem; color: var(--text-muted); padding: 8px 10px;
+    border-radius: var(--radius-sm); background: rgba(36, 31, 28, 0.04);
+  }
 
   /* ---------- AI chat ---------- */
   #ai-chat {
@@ -2851,6 +2859,12 @@ const Lounge = {
     return best;
   },
 
+  _logActivity(room, text) {
+    if (!room) return;
+    room.activityLog.push({ id: makeId(), ts: Date.now(), text });
+    if (room.activityLog.length > 500) room.activityLog.splice(0, room.activityLog.length - 500);
+  },
+
   DEMO_BOT_POOL: [
     { name: 'Sam', avatar: '🌙' }, { name: 'Alex', avatar: '⚡' }, { name: 'Robin', avatar: '🌱' },
     { name: 'Jordan', avatar: '📚' }, { name: 'Casey', avatar: '🔥' }, { name: 'Riley', avatar: '☁️' },
@@ -2903,7 +2917,9 @@ const Lounge = {
       hostId: 'self',
       members: [Lounge._makeSelfMember()],
       mission: null,
+      activityLog: [],
     };
+    Lounge._logActivity(state.lounge.room, 'You created the room.');
     Lounge._syncEngine();
     return state.lounge.room.code;
   },
@@ -2916,7 +2932,9 @@ const Lounge = {
       code, goal: '', hostId: `bot_${makeId()}`,
       members: [Lounge._makeSelfMember(), ...Lounge._randomBotRoster(botCount)],
       mission: null,
+      activityLog: [],
     };
+    Lounge._logActivity(state.lounge.room, 'You joined the room.');
     Lounge._syncEngine();
     return true;
   },
@@ -2925,6 +2943,7 @@ const Lounge = {
     const friend = state.lounge.friends.find((f) => f.id === friendId);
     if (!friend) return false;
     state.lounge.room.members.push(Lounge._makeBotMember(friend.name, friend.avatar));
+    Lounge._logActivity(state.lounge.room, `${friend.name} was invited to the room.`);
     return true;
   },
   leaveRoom() {
@@ -2952,12 +2971,14 @@ const Lounge = {
     const target = clampInt(targetPomodoros, 1, 4, 1);
     room.mission = { targetPomodoros: target, state: 'active' };
     for (const m of room.members) { m.missionProgress = 0; m.missionState = 'pending'; }
+    Lounge._logActivity(room, `Sprint started: ${target} pomodoro${target > 1 ? 's' : ''}.`);
     return true;
   },
   cancelMission() {
     const room = state.lounge.room;
     if (!room) return;
     room.mission = null;
+    Lounge._logActivity(room, 'Sprint cancelled.');
     for (const m of room.members) { m.missionProgress = 0; m.missionState = 'pending'; }
   },
   onOwnPomodoroCompleted() {
@@ -2967,6 +2988,7 @@ const Lounge = {
     if (!self || self.missionState !== 'pending') return;
     self.missionProgress += 1;
     if (self.missionProgress >= room.mission.targetPomodoros) self.missionState = 'checked-in';
+    if (self.missionState === 'checked-in') Lounge._logActivity(room, 'You checked in.');
     Lounge._checkMissionCompletion();
   },
   onOwnBreakCompleted(minutes) {
@@ -2979,6 +3001,7 @@ const Lounge = {
     const self = room.members.find((m) => m.isSelf);
     if (!self || self.missionState !== 'pending') return; // Review Focus: can't abandon after already checked in
     self.missionState = 'abandoned';
+    Lounge._logActivity(room, 'You gave up on the sprint.');
   },
   _checkMissionCompletion() {
     const room = state.lounge.room;
@@ -2990,6 +3013,7 @@ const Lounge = {
     if (typeof UI !== 'undefined') { UI.renderMissions(); UI.renderStatsDashboard(); }
     if (typeof SoundFX !== 'undefined') SoundFX.playCompletionSound();
     if (typeof Confetti !== 'undefined') Confetti.burst();
+    Lounge._logActivity(room, '🎉 Everyone finished! Sprint complete.');
     room.mission = null;
     for (const m of room.members) { m.missionProgress = 0; m.missionState = 'pending'; }
   },
@@ -3040,10 +3064,12 @@ const Lounge = {
       m.simXP = (m.simXP || 0) + 20;
       m.status = 'resting';
       m.remainingMs = state.settings.shortBreak * 60000;
+      Lounge._logActivity(room, `${m.name} completed a pomodoro.`);
       if (room && room.mission && room.mission.state === 'active' && m.missionState === 'pending') {
         m.missionProgress += 1;
         if (m.missionProgress >= room.mission.targetPomodoros) {
           m.missionState = Math.random() < 0.85 ? 'checked-in' : 'abandoned';
+          Lounge._logActivity(room, `${m.name} ${m.missionState === 'checked-in' ? 'checked in' : 'abandoned the sprint'}.`);
           Lounge._checkMissionCompletion();
         }
       }
@@ -3273,6 +3299,7 @@ const UI = {
       grid.appendChild(card);
     }
     UI.renderLoungeMission();
+    UI.renderLoungeActivityLog();
   },
 
   renderLoungeMission() {
@@ -3376,6 +3403,33 @@ const UI = {
 
     const self = room.members.find((m) => m.isSelf);
     document.getElementById('lounge-mission-giveup').disabled = !self || self.missionState !== 'pending';
+  },
+
+  renderLoungeActivityLog() {
+    const list = document.getElementById('lounge-activity-log');
+    if (!list) return;
+    const room = state.lounge.room;
+    if (!room) { list.replaceChildren(); list.dataset.rendered = '0'; list.dataset.roomCode = ''; return; }
+    const log = room.activityLog;
+    // A bare rendered-count can't tell "same room, log grew" apart from "different room,
+    // fresh log" when the new log happens to be as long or longer than the stale count
+    // (e.g. leaving one room and joining another whose log already has several entries) —
+    // track which room the count belongs to and reset whenever that identity changes.
+    if (list.dataset.roomCode !== room.code) {
+      list.replaceChildren();
+      list.dataset.rendered = '0';
+      list.dataset.roomCode = room.code;
+    }
+    const start = Number(list.dataset.rendered || 0);
+    const wasNearBottom = list.scrollTop + list.clientHeight >= list.scrollHeight - 20;
+    for (let i = start; i < log.length; i++) {
+      const li = document.createElement('li');
+      li.className = 'lounge-activity-item';
+      li.textContent = log[i].text;
+      list.appendChild(li);
+    }
+    list.dataset.rendered = String(log.length);
+    if (wasNearBottom) list.scrollTop = list.scrollHeight;
   },
 
   renderLoungeChip() {
