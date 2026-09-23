@@ -1040,7 +1040,7 @@
     <h2>Study Lounge</h2>
     <p class="field-hint">Demo Mode — friends and group members here are simulated locally; nothing is sent over the network.</p>
   </div>
-  <div class="lounge-lobby-grid">
+  <div class="lounge-lobby-grid" id="lounge-lobby-grid">
     <section class="glass" aria-label="Friends">
       <h3>Friends</h3>
       <ul class="lounge-friends-list" id="lounge-friends-list"></ul>
@@ -1064,32 +1064,32 @@
         </form>
         <span class="field-status" id="status-lounge-join"></span>
       </div>
-      <div id="lounge-active" hidden>
-        <div class="lounge-dashboard">
-          <section class="glass lounge-panel lounge-panel--left" aria-label="Room and sprint">
-            <div class="lounge-active-header">
-              <div>
-                <span class="lounge-room-code" id="lounge-room-code"></span>
-                <button type="button" class="btn btn-secondary" id="lounge-copy-code">Copy</button>
-                <p class="field-hint" id="lounge-room-goal"></p>
-              </div>
-              <button type="button" class="btn btn-secondary" id="lounge-leave-room">Leave Room</button>
-            </div>
-            <h3>Friends</h3>
-            <ul class="lounge-friends-list" id="lounge-friends-list-active"></ul>
-            <div id="lounge-mission" aria-label="Group mission"></div>
-          </section>
-          <section class="glass lounge-panel lounge-panel--center" aria-label="Members">
-            <h3>Members</h3>
-            <div class="lounge-member-grid" id="lounge-member-grid"></div>
-          </section>
-          <section class="glass lounge-panel lounge-panel--right" aria-label="Activity">
-            <h3>Activity</h3>
-            <ul class="lounge-activity-log" id="lounge-activity-log"></ul>
-          </section>
-        </div>
-      </div>
     </section>
+  </div>
+  <div id="lounge-active" hidden>
+    <div class="lounge-dashboard">
+      <section class="glass lounge-panel lounge-panel--left" aria-label="Room and sprint">
+        <div class="lounge-active-header">
+          <div>
+            <span class="lounge-room-code" id="lounge-room-code"></span>
+            <button type="button" class="btn btn-secondary" id="lounge-copy-code">Copy</button>
+            <p class="field-hint" id="lounge-room-goal"></p>
+          </div>
+          <button type="button" class="btn btn-secondary" id="lounge-leave-room">Leave Room</button>
+        </div>
+        <h3>Friends</h3>
+        <ul class="lounge-friends-list" id="lounge-friends-list-active"></ul>
+        <div id="lounge-mission" aria-label="Group mission"></div>
+      </section>
+      <section class="glass lounge-panel lounge-panel--center" aria-label="Members">
+        <h3>Members</h3>
+        <div class="lounge-member-grid" id="lounge-member-grid"></div>
+      </section>
+      <section class="glass lounge-panel lounge-panel--right" aria-label="Activity">
+        <h3>Activity</h3>
+        <ul class="lounge-activity-log" id="lounge-activity-log"></ul>
+      </section>
+    </div>
   </div>
 </div>
 
@@ -3452,12 +3452,12 @@ const UI = {
   },
 
   renderLoungeView() {
-    const lobby = document.getElementById('lounge-lobby');
+    const lobbyGrid = document.getElementById('lounge-lobby-grid');
     const active = document.getElementById('lounge-active');
-    if (!lobby || !active) return;
+    if (!lobbyGrid || !active) return;
     UI.renderLoungeFriends();
     const inRoom = !!state.lounge.room;
-    lobby.hidden = inRoom;
+    lobbyGrid.hidden = inRoom;
     active.hidden = !inRoom;
     if (inRoom) UI.renderLoungeRoom(); else UI.renderLoungeLobby();
   },
