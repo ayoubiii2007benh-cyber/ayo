@@ -3168,40 +3168,42 @@ const UI = {
   },
 
   renderLoungeFriends() {
-    const list = document.getElementById('lounge-friends-list');
-    if (!list) return;
-    const seen = new Set();
-    for (const f of state.lounge.friends) {
-      seen.add(f.id);
-      let li = list.querySelector(`li[data-friend-id="${f.id}"]`);
-      if (!li) {
-        li = document.createElement('li');
-        li.className = 'lounge-friend-item';
-        li.dataset.friendId = f.id;
-        const avatar = document.createElement('span');
-        avatar.className = 'lounge-friend-item__avatar';
-        const name = document.createElement('span');
-        name.className = 'lounge-friend-item__name';
-        const status = document.createElement('span');
-        status.className = 'lounge-friend-item__status';
-        const inviteBtn = document.createElement('button');
-        inviteBtn.type = 'button';
-        inviteBtn.className = 'btn btn-secondary';
-        inviteBtn.textContent = 'Invite to Room';
-        inviteBtn.addEventListener('click', () => {
-          Lounge.inviteFriendToRoom(f.id);
-          UI.renderLoungeView();
-        });
-        li.append(avatar, name, status, inviteBtn);
-        list.appendChild(li);
+    for (const listId of ['lounge-friends-list', 'lounge-friends-list-active']) {
+      const list = document.getElementById(listId);
+      if (!list) continue;
+      const seen = new Set();
+      for (const f of state.lounge.friends) {
+        seen.add(f.id);
+        let li = list.querySelector(`li[data-friend-id="${f.id}"]`);
+        if (!li) {
+          li = document.createElement('li');
+          li.className = 'lounge-friend-item';
+          li.dataset.friendId = f.id;
+          const avatar = document.createElement('span');
+          avatar.className = 'lounge-friend-item__avatar';
+          const name = document.createElement('span');
+          name.className = 'lounge-friend-item__name';
+          const status = document.createElement('span');
+          status.className = 'lounge-friend-item__status';
+          const inviteBtn = document.createElement('button');
+          inviteBtn.type = 'button';
+          inviteBtn.className = 'btn btn-secondary';
+          inviteBtn.textContent = 'Invite to Room';
+          inviteBtn.addEventListener('click', () => {
+            Lounge.inviteFriendToRoom(f.id);
+            UI.renderLoungeView();
+          });
+          li.append(avatar, name, status, inviteBtn);
+          list.appendChild(li);
+        }
+        li.querySelector('.lounge-friend-item__avatar').textContent = f.avatar;
+        li.querySelector('.lounge-friend-item__name').textContent = f.name;
+        li.querySelector('.lounge-friend-item__status').textContent = Lounge.statusLabel(f);
+        li.querySelector('button').disabled = !state.lounge.room;
       }
-      li.querySelector('.lounge-friend-item__avatar').textContent = f.avatar;
-      li.querySelector('.lounge-friend-item__name').textContent = f.name;
-      li.querySelector('.lounge-friend-item__status').textContent = Lounge.statusLabel(f);
-      li.querySelector('button').disabled = !state.lounge.room;
-    }
-    for (const li of [...list.children]) {
-      if (!seen.has(li.dataset.friendId)) li.remove();
+      for (const li of [...list.children]) {
+        if (!seen.has(li.dataset.friendId)) li.remove();
+      }
     }
   },
 
