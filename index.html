@@ -567,10 +567,11 @@
 
   /* ---------- study lounge ---------- */
   #view-lounge {
-    max-width: 1040px; margin: 0 auto; border-radius: var(--radius-lg);
-    padding: clamp(22px, 4vw, 30px); box-shadow: var(--shadow-md);
+    max-width: 1440px; margin: 0 auto;
+    padding: 16px clamp(16px, 4vw, 32px) 120px;
   }
-  #view-lounge h2 { font-size: 1.1rem; margin-bottom: 4px; }
+  .lounge-heading { max-width: 1440px; margin: 0 auto 8px; }
+  .lounge-heading h2 { font-size: 1.1rem; margin-bottom: 4px; }
   #view-lounge h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin: 18px 0 10px; font-weight: 700; }
   .lounge-lobby-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 8px; }
   @media (max-width: 700px) { .lounge-lobby-grid { grid-template-columns: 1fr; } }
@@ -1010,12 +1011,15 @@
   <p class="field-hint">Ranked by pomodoros completed. This app has no account system or other real users, so this is a personal ranking of your own history, not a multi-user leaderboard.</p>
   <ol class="leaderboard-list" id="leaderboard-list"></ol>
 </div>
+</main>
 
-<div id="view-lounge" class="glass" aria-label="Study Lounge" hidden>
-  <h2>Study Lounge</h2>
-  <p class="field-hint">Demo Mode — friends and group members here are simulated locally; nothing is sent over the network.</p>
+<div id="view-lounge" aria-label="Study Lounge" hidden>
+  <div class="lounge-heading">
+    <h2>Study Lounge</h2>
+    <p class="field-hint">Demo Mode — friends and group members here are simulated locally; nothing is sent over the network.</p>
+  </div>
   <div class="lounge-lobby-grid">
-    <section aria-label="Friends">
+    <section class="glass" aria-label="Friends">
       <h3>Friends</h3>
       <ul class="lounge-friends-list" id="lounge-friends-list"></ul>
       <form id="lounge-add-friend-form" class="lounge-inline-form">
@@ -1024,7 +1028,7 @@
         <button type="submit" class="btn btn-secondary">Add Friend</button>
       </form>
     </section>
-    <section aria-label="Room">
+    <section class="glass" aria-label="Room">
       <div id="lounge-lobby">
         <h3>Create a Room</h3>
         <form id="lounge-create-room-form" class="lounge-inline-form">
@@ -1053,7 +1057,6 @@
     </section>
   </div>
 </div>
-</main>
 
 <dialog id="settings" aria-labelledby="settings-title">
   <form id="settings-form" method="dialog" novalidate>
