@@ -474,7 +474,7 @@
 
   /* ---------- user profile / header controls ---------- */
   .header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
-  .user-profile { display: flex; align-items: center; gap: 8px; }
+  .user-profile { display: flex; align-items: center; gap: 8px; position: relative; }
   .user-profile__avatar {
     width: 32px; height: 32px; border-radius: 50%; border: none; flex-shrink: 0;
     background: var(--primary); color: var(--accent-contrast); font-weight: 700; font-size: 0.85rem;
@@ -493,6 +493,18 @@
   @media (max-width: 560px) {
     .user-profile__name, .user-profile__name-input { display: none; }
   }
+  .user-profile__avatar--emoji { font-size: 1.05rem; background: rgba(36, 31, 28, 0.06); color: inherit; }
+  .user-profile__emoji-picker {
+    position: absolute; top: 100%; right: 0; margin-top: 6px; z-index: 20;
+    display: flex; flex-wrap: wrap; gap: 4px; width: 168px; padding: 8px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
+    box-shadow: var(--shadow-md);
+  }
+  .user-profile__emoji-picker button {
+    border: none; background: transparent; font-size: 1.1rem; width: 32px; height: 32px;
+    border-radius: var(--radius-sm); cursor: pointer;
+  }
+  .user-profile__emoji-picker button:hover { background: rgba(36, 31, 28, 0.08); }
 
   /* ---------- top nav ---------- */
   .top-nav {
@@ -795,6 +807,7 @@
       <button type="button" class="user-profile__avatar" id="user-avatar" aria-label="Edit your name">Y</button>
       <button type="button" class="user-profile__name" id="user-name-display" aria-label="Edit your name">You</button>
       <input type="text" class="user-profile__name-input" id="user-name-input" maxlength="24" aria-label="Your name" hidden>
+      <div class="user-profile__emoji-picker" id="user-profile-emoji-picker" role="group" aria-label="Choose an avatar" hidden></div>
     </div>
     <button id="darkmode-toggle" type="button" class="icon-btn" aria-label="Switch to dark mode">&#127769;</button>
     <button id="mute-toggle" type="button" class="icon-btn" aria-label="Mute background music" aria-pressed="false">&#128266;</button>
@@ -1203,6 +1216,7 @@ const state = {
   profile: { username: 'You' },
   dailyHistory: [],
   currentView: 'dashboard',
+  lounge: { friends: [], room: null },
 };
 
 const DAILY_HISTORY_MAX = 90;
@@ -1262,6 +1276,7 @@ const Storage = {
       pomodorosCompletedToday: clampInt(raw.pomodorosCompletedToday, 0, 999, 0),
       tasksCompletedToday: clampInt(raw.tasksCompletedToday, 0, 999, 0),
       focusMinutesToday: clampInt(raw.focusMinutesToday, 0, 999999, 0),
+      restMinutesToday: clampInt(raw.restMinutesToday, 0, 999999, 0),
       disciplineBonusAwardedToday: raw.disciplineBonusAwardedToday === true,
       totalPomodoros: clampInt(raw.totalPomodoros, 0, 9999999, 0),
       totalFocusMinutes: clampInt(raw.totalFocusMinutes, 0, 9999999, 0),
@@ -1340,9 +1355,24 @@ const Storage = {
   loadProfile() {
     const raw = safeParse('profile') || {};
     const name = typeof raw.username === 'string' ? raw.username.trim().slice(0, 24) : '';
-    return { username: name || 'You' };
+    const avatar = typeof raw.avatar === 'string' ? raw.avatar.trim().slice(0, 4) : '';
+    return { username: name || 'You', avatar };
   },
   saveProfile(p) { safeSet('profile', p); },
+
+  loadLoungeFriends() {
+    const raw = safeParse('loungeFriends');
+    const arr = Array.isArray(raw) ? raw : [];
+    return arr
+      .filter((f) => f && typeof f.id === 'string' && typeof f.name === 'string' && f.name.trim())
+      .map((f) => ({
+        id: f.id,
+        name: f.name.trim().slice(0, 24),
+        avatar: typeof f.avatar === 'string' && f.avatar.trim() ? f.avatar.trim().slice(0, 4) : '🙂',
+      }))
+      .slice(0, 50);
+  },
+  saveLoungeFriends(friends) { safeSet('loungeFriends', friends); },
 
   loadDailyHistory() {
     try {
@@ -1691,6 +1721,7 @@ const State = {
         pomodorosCompletedToday: 0,
         tasksCompletedToday: 0,
         focusMinutesToday: 0,
+        restMinutesToday: 0,
         disciplineBonusAwardedToday: false,
         currentStreak: streakContinues ? loaded.currentStreak : 0,
       };
@@ -1710,6 +1741,7 @@ const State = {
     state.chatSettings = Storage.loadChatSettings();
     state.chatHistory = Storage.loadChatHistory();
     state.profile = Storage.loadProfile();
+    Lounge.init();
     state.dailyHistory = Storage.loadDailyHistory();
     state.timer.remainingMs = Timer.durationMs(state.timer.mode);
     State.restoreMusic();
@@ -2614,6 +2646,16 @@ const LiveUsers = {
   },
 };
 
+/* ============================== Lounge (Study Lounge, simulated) ============================== */
+// No backend exists — friends and group members are entirely a local simulation. Honest, not a stopgap.
+const Lounge = {
+  PROFILE_EMOJI: ['🎯', '🔥', '🌙', '⚡', '📚', '🌱', '☁️', '🚀', '🧠', '☕', '🎧', '🏆'],
+
+  init() {
+    state.lounge.friends = Storage.loadLoungeFriends();
+  },
+};
+
 /* ============================== AIChat (Google Gemini) ============================== */
 // The API key lives only in this browser's localStorage and is sent only as a query
 // param directly to Google's endpoint below — never logged, never sent anywhere else.
@@ -2694,7 +2736,11 @@ const UI = {
     const avatar = document.getElementById('user-avatar');
     const nameDisplay = document.getElementById('user-name-display');
     const name = state.profile.username;
-    if (avatar) avatar.textContent = name.trim().charAt(0).toUpperCase() || 'Y';
+    if (avatar) {
+      const emoji = state.profile.avatar;
+      avatar.textContent = emoji || (name.trim().charAt(0).toUpperCase() || 'Y');
+      avatar.classList.toggle('user-profile__avatar--emoji', !!emoji);
+    }
     if (nameDisplay) nameDisplay.textContent = name;
   },
 
@@ -3328,31 +3374,50 @@ const UI = {
       if (typeof UI.renderMusicUI === 'function') UI.renderMusicUI();
     });
 
+    const emojiPicker = document.getElementById('user-profile-emoji-picker');
+    Lounge.PROFILE_EMOJI.forEach((emoji) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = emoji;
+      btn.setAttribute('aria-label', `Use ${emoji} as your avatar`);
+      btn.addEventListener('mousedown', (e) => e.preventDefault());
+      btn.addEventListener('click', () => {
+        state.profile = { ...state.profile, avatar: emoji };
+        Storage.saveProfile(state.profile);
+        UI.renderProfile();
+      });
+      emojiPicker.appendChild(btn);
+    });
+
     const startEditingName = () => {
       const nameInput = document.getElementById('user-name-input');
       const nameDisplay = document.getElementById('user-name-display');
       nameInput.value = state.profile.username;
       nameDisplay.hidden = true;
       nameInput.hidden = false;
+      emojiPicker.hidden = false;
       nameInput.focus();
       nameInput.select();
     };
+    const closeNameEditor = () => {
+      document.getElementById('user-name-input').hidden = true;
+      document.getElementById('user-name-display').hidden = false;
+      emojiPicker.hidden = true;
+    };
     const commitName = () => {
       const nameInput = document.getElementById('user-name-input');
-      const nameDisplay = document.getElementById('user-name-display');
       const name = nameInput.value.trim().slice(0, 24) || 'You';
-      state.profile = { username: name };
+      state.profile = { ...state.profile, username: name };
       Storage.saveProfile(state.profile);
       UI.renderProfile();
-      nameInput.hidden = true;
-      nameDisplay.hidden = false;
+      closeNameEditor();
     };
     document.getElementById('user-avatar').addEventListener('click', startEditingName);
     document.getElementById('user-name-display').addEventListener('click', startEditingName);
     document.getElementById('user-name-input').addEventListener('blur', commitName);
     document.getElementById('user-name-input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); commitName(); }
-      if (e.key === 'Escape') { e.preventDefault(); document.getElementById('user-name-input').hidden = true; document.getElementById('user-name-display').hidden = false; }
+      if (e.key === 'Escape') { e.preventDefault(); closeNameEditor(); }
     });
 
     document.getElementById('ai-chat-goto-settings').addEventListener('click', () => {
