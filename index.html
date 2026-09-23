@@ -1012,20 +1012,20 @@
 </div>
 
 <div id="view-lounge" class="glass" aria-label="Study Lounge" hidden>
-  <div id="lounge-lobby">
-    <h2>Study Lounge</h2>
-    <p class="field-hint">Demo Mode — friends and group members here are simulated locally; nothing is sent over the network.</p>
-    <div class="lounge-lobby-grid">
-      <section aria-label="Friends">
-        <h3>Friends</h3>
-        <ul class="lounge-friends-list" id="lounge-friends-list"></ul>
-        <form id="lounge-add-friend-form" class="lounge-inline-form">
-          <input type="text" id="lounge-friend-name-input" maxlength="24" placeholder="Friend's name" aria-label="Friend's name" required>
-          <select id="lounge-friend-avatar-select" aria-label="Friend's avatar"></select>
-          <button type="submit" class="btn btn-secondary">Add Friend</button>
-        </form>
-      </section>
-      <section aria-label="Room">
+  <h2>Study Lounge</h2>
+  <p class="field-hint">Demo Mode — friends and group members here are simulated locally; nothing is sent over the network.</p>
+  <div class="lounge-lobby-grid">
+    <section aria-label="Friends">
+      <h3>Friends</h3>
+      <ul class="lounge-friends-list" id="lounge-friends-list"></ul>
+      <form id="lounge-add-friend-form" class="lounge-inline-form">
+        <input type="text" id="lounge-friend-name-input" maxlength="24" placeholder="Friend's name" aria-label="Friend's name" required>
+        <select id="lounge-friend-avatar-select" aria-label="Friend's avatar"></select>
+        <button type="submit" class="btn btn-secondary">Add Friend</button>
+      </form>
+    </section>
+    <section aria-label="Room">
+      <div id="lounge-lobby">
         <h3>Create a Room</h3>
         <form id="lounge-create-room-form" class="lounge-inline-form">
           <input type="text" id="lounge-goal-input" maxlength="80" placeholder="Room goal (optional)" aria-label="Room goal">
@@ -1037,20 +1037,20 @@
           <button type="submit" class="btn btn-secondary">Join Room</button>
         </form>
         <span class="field-status" id="status-lounge-join"></span>
-      </section>
-    </div>
-  </div>
-  <div id="lounge-active" hidden>
-    <div class="lounge-active-header">
-      <div>
-        <span class="lounge-room-code" id="lounge-room-code"></span>
-        <button type="button" class="btn btn-secondary" id="lounge-copy-code">Copy</button>
-        <p class="field-hint" id="lounge-room-goal"></p>
       </div>
-      <button type="button" class="btn btn-secondary" id="lounge-leave-room">Leave Room</button>
-    </div>
-    <ul class="lounge-members-list" id="lounge-members-list"></ul>
-    <div id="lounge-mission" aria-label="Group mission"></div>
+      <div id="lounge-active" hidden>
+        <div class="lounge-active-header">
+          <div>
+            <span class="lounge-room-code" id="lounge-room-code"></span>
+            <button type="button" class="btn btn-secondary" id="lounge-copy-code">Copy</button>
+            <p class="field-hint" id="lounge-room-goal"></p>
+          </div>
+          <button type="button" class="btn btn-secondary" id="lounge-leave-room">Leave Room</button>
+        </div>
+        <ul class="lounge-members-list" id="lounge-members-list"></ul>
+        <div id="lounge-mission" aria-label="Group mission"></div>
+      </div>
+    </section>
   </div>
 </div>
 </main>
@@ -1485,7 +1485,9 @@ const Storage = {
       }))
       .slice(0, 50);
   },
-  saveLoungeFriends(friends) { safeSet('loungeFriends', friends); },
+  saveLoungeFriends(friends) {
+    safeSet('loungeFriends', friends.map((f) => ({ id: f.id, name: f.name, avatar: f.avatar })));
+  },
 
   loadDailyHistory() {
     try {
@@ -2768,20 +2770,33 @@ const Lounge = {
   PROFILE_EMOJI: ['🎯', '🔥', '🌙', '⚡', '📚', '🌱', '☁️', '🚀', '🧠', '☕', '🎧', '🏆'],
 
   init() {
-    state.lounge.friends = Storage.loadLoungeFriends();
+    state.lounge.friends = Storage.loadLoungeFriends().map((f) => ({ ...f, ...Lounge._simFields() }));
+    Lounge._syncEngine();
+  },
+
+  _simFields() {
+    const focusMs = state.settings.pomodoro * 60000;
+    return {
+      status: 'focusing',
+      remainingMs: Math.round(focusMs * (0.1 + Math.random() * 0.8)),
+      studyMinutesToday: 0, restMinutesToday: 0, pomodorosToday: 0,
+      simXP: Math.floor(Math.random() * 300),
+    };
   },
 
   addFriend(name, avatar) {
     const trimmed = (name || '').trim().slice(0, 24);
     if (!trimmed) return false;
     const emoji = Lounge.PROFILE_EMOJI.includes(avatar) ? avatar : Lounge.PROFILE_EMOJI[0];
-    state.lounge.friends.push({ id: makeId(), name: trimmed, avatar: emoji });
+    state.lounge.friends.push({ id: makeId(), name: trimmed, avatar: emoji, ...Lounge._simFields() });
     Storage.saveLoungeFriends(state.lounge.friends);
+    Lounge._syncEngine();
     return true;
   },
   removeFriend(id) {
     state.lounge.friends = state.lounge.friends.filter((f) => f.id !== id);
     Storage.saveLoungeFriends(state.lounge.friends);
+    Lounge._syncEngine();
   },
 
   CODE_WORDS: ['FOCUS', 'FLOW', 'GRIND', 'DEEP', 'CALM', 'ZEN', 'LOCK', 'PUSH'],
@@ -2829,13 +2844,9 @@ const Lounge = {
     };
   },
   _makeBotMember(name, avatar) {
-    const focusMs = state.settings.pomodoro * 60000;
     return {
       id: `bot_${makeId()}`, isSelf: false, name, avatar,
-      status: 'focusing',
-      remainingMs: Math.round(focusMs * (0.1 + Math.random() * 0.8)),
-      studyMinutesToday: 0, restMinutesToday: 0, pomodorosToday: 0,
-      simXP: Math.floor(Math.random() * 300),
+      ...Lounge._simFields(),
       missionProgress: 0, missionState: 'pending',
     };
   },
@@ -2857,7 +2868,7 @@ const Lounge = {
       members: [Lounge._makeSelfMember()],
       mission: null,
     };
-    Lounge._startEngine();
+    Lounge._syncEngine();
     return state.lounge.room.code;
   },
   joinRoom(codeText) {
@@ -2870,7 +2881,7 @@ const Lounge = {
       members: [Lounge._makeSelfMember(), ...Lounge._randomBotRoster(botCount)],
       mission: null,
     };
-    Lounge._startEngine();
+    Lounge._syncEngine();
     return true;
   },
   inviteFriendToRoom(friendId) {
@@ -2881,8 +2892,8 @@ const Lounge = {
     return true;
   },
   leaveRoom() {
-    Lounge._stopEngine();
     state.lounge.room = null;
+    Lounge._syncEngine();
   },
 
   _engineTimer: null,
@@ -2894,10 +2905,14 @@ const Lounge = {
     clearInterval(Lounge._engineTimer);
     Lounge._engineTimer = null;
   },
+  _syncEngine() {
+    const shouldRun = !!state.lounge.room || state.lounge.friends.length > 0;
+    if (shouldRun) Lounge._startEngine(); else Lounge._stopEngine();
+  },
 
   startMission(targetPomodoros) {
     const room = state.lounge.room;
-    if (!room || (room.mission && room.mission.state === 'active')) return false;
+    if (!room || room.members.length < 2 || (room.mission && room.mission.state === 'active')) return false;
     const target = clampInt(targetPomodoros, 1, 4, 1);
     room.mission = { targetPomodoros: target, state: 'active' };
     for (const m of room.members) { m.missionProgress = 0; m.missionState = 'pending'; }
@@ -2945,19 +2960,29 @@ const Lounge = {
 
   _tick() {
     const room = state.lounge.room;
-    if (!room) return;
-    for (const m of room.members) {
-      if (m.isSelf) {
-        m.status = state.timer.running ? (state.timer.mode === 'pomodoro' ? 'focusing' : 'resting') : 'idle';
-        m.remainingMs = state.timer.remainingMs;
-        m.studyMinutesToday = state.stats.focusMinutesToday;
-        m.restMinutesToday = state.stats.restMinutesToday;
-        m.pomodorosToday = state.stats.pomodorosCompletedToday;
-        continue;
+    if (room) {
+      for (const m of room.members) {
+        if (m.isSelf) {
+          m.status = state.timer.running ? (state.timer.mode === 'pomodoro' ? 'focusing' : 'resting') : 'idle';
+          m.remainingMs = state.timer.remainingMs;
+          m.studyMinutesToday = state.stats.focusMinutesToday;
+          m.restMinutesToday = state.stats.restMinutesToday;
+          m.pomodorosToday = state.stats.pomodorosCompletedToday;
+          continue;
+        }
+        Lounge._tickBot(m, room);
       }
-      Lounge._tickBot(m, room);
     }
-    if (typeof UI !== 'undefined') { UI.renderLoungeChip(); if (state.currentView === 'lounge') UI.renderLoungeRoom(); }
+    for (const f of state.lounge.friends) {
+      Lounge._tickBot(f, null);
+    }
+    if (typeof UI !== 'undefined') {
+      UI.renderLoungeChip();
+      if (state.currentView === 'lounge') {
+        UI.renderLoungeFriends();
+        if (room) UI.renderLoungeRoom();
+      }
+    }
   },
   _tickBot(m, room) {
     if (m.status === 'idle') {
@@ -2979,7 +3004,7 @@ const Lounge = {
       m.simXP = (m.simXP || 0) + 20;
       m.status = 'resting';
       m.remainingMs = state.settings.shortBreak * 60000;
-      if (room.mission && room.mission.state === 'active' && m.missionState === 'pending') {
+      if (room && room.mission && room.mission.state === 'active' && m.missionState === 'pending') {
         m.missionProgress += 1;
         if (m.missionProgress >= room.mission.targetPomodoros) {
           m.missionState = Math.random() < 0.85 ? 'checked-in' : 'abandoned';
@@ -3109,35 +3134,42 @@ const UI = {
   renderLoungeFriends() {
     const list = document.getElementById('lounge-friends-list');
     if (!list) return;
-    list.replaceChildren();
+    const seen = new Set();
     for (const f of state.lounge.friends) {
-      const li = document.createElement('li');
-      li.className = 'lounge-friend-item';
-      const avatar = document.createElement('span');
-      avatar.className = 'lounge-friend-item__avatar';
-      avatar.textContent = f.avatar;
-      const name = document.createElement('span');
-      name.className = 'lounge-friend-item__name';
-      name.textContent = f.name;
-      const status = document.createElement('span');
-      status.className = 'lounge-friend-item__status';
-      status.textContent = f.status ? Lounge.statusLabel(f) : '⚪ Idle / Ready';
-      const inviteBtn = document.createElement('button');
-      inviteBtn.type = 'button';
-      inviteBtn.className = 'btn btn-secondary';
-      inviteBtn.textContent = 'Invite to Room';
-      inviteBtn.disabled = !state.lounge.room;
-      inviteBtn.addEventListener('click', () => {
-        Lounge.inviteFriendToRoom(f.id);
-        UI.renderLoungeView();
-      });
-      li.append(avatar, name, status, inviteBtn);
-      list.appendChild(li);
+      seen.add(f.id);
+      let li = list.querySelector(`li[data-friend-id="${f.id}"]`);
+      if (!li) {
+        li = document.createElement('li');
+        li.className = 'lounge-friend-item';
+        li.dataset.friendId = f.id;
+        const avatar = document.createElement('span');
+        avatar.className = 'lounge-friend-item__avatar';
+        const name = document.createElement('span');
+        name.className = 'lounge-friend-item__name';
+        const status = document.createElement('span');
+        status.className = 'lounge-friend-item__status';
+        const inviteBtn = document.createElement('button');
+        inviteBtn.type = 'button';
+        inviteBtn.className = 'btn btn-secondary';
+        inviteBtn.textContent = 'Invite to Room';
+        inviteBtn.addEventListener('click', () => {
+          Lounge.inviteFriendToRoom(f.id);
+          UI.renderLoungeView();
+        });
+        li.append(avatar, name, status, inviteBtn);
+        list.appendChild(li);
+      }
+      li.querySelector('.lounge-friend-item__avatar').textContent = f.avatar;
+      li.querySelector('.lounge-friend-item__name').textContent = f.name;
+      li.querySelector('.lounge-friend-item__status').textContent = Lounge.statusLabel(f);
+      li.querySelector('button').disabled = !state.lounge.room;
+    }
+    for (const li of [...list.children]) {
+      if (!seen.has(li.dataset.friendId)) li.remove();
     }
   },
 
   renderLoungeLobby() {
-    UI.renderLoungeFriends();
     const select = document.getElementById('lounge-friend-avatar-select');
     if (select && !select.childElementCount) {
       for (const emoji of Lounge.PROFILE_EMOJI) {
@@ -3196,31 +3228,38 @@ const UI = {
     if (!room) { container.replaceChildren(); container.dataset.mode = ''; return; }
 
     if (!room.mission) {
-      if (container.dataset.mode === 'idle') return;
-      container.dataset.mode = 'idle';
-      container.replaceChildren();
-      const form = document.createElement('form');
-      form.className = 'lounge-mission-form';
-      form.id = 'lounge-mission-start-form';
-      const select = document.createElement('select');
-      select.id = 'lounge-mission-target';
-      [1, 2, 3, 4].forEach((n) => {
-        const opt = document.createElement('option');
-        opt.value = String(n);
-        opt.textContent = `${n} Pomodoro${n > 1 ? 's' : ''}`;
-        select.appendChild(opt);
-      });
-      const btn = document.createElement('button');
-      btn.type = 'submit';
-      btn.className = 'btn btn-primary';
-      btn.textContent = 'Start Sprint';
-      form.append(select, btn);
-      container.appendChild(form);
-      form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        Lounge.startMission(select.value);
-        UI.renderLoungeMission();
-      });
+      if (container.dataset.mode !== 'idle') {
+        container.dataset.mode = 'idle';
+        container.replaceChildren();
+        const form = document.createElement('form');
+        form.className = 'lounge-mission-form';
+        form.id = 'lounge-mission-start-form';
+        const select = document.createElement('select');
+        select.id = 'lounge-mission-target';
+        [1, 2, 3, 4].forEach((n) => {
+          const opt = document.createElement('option');
+          opt.value = String(n);
+          opt.textContent = `${n} Pomodoro${n > 1 ? 's' : ''}`;
+          select.appendChild(opt);
+        });
+        const btn = document.createElement('button');
+        btn.type = 'submit';
+        btn.id = 'lounge-mission-start-btn';
+        btn.className = 'btn btn-primary';
+        btn.textContent = 'Start Sprint';
+        form.append(select, btn);
+        const hint = document.createElement('p');
+        hint.className = 'field-hint';
+        hint.id = 'lounge-mission-solo-hint';
+        container.append(form, hint);
+        form.addEventListener('submit', (e) => {
+          e.preventDefault();
+          if (Lounge.startMission(select.value)) UI.renderLoungeMission();
+        });
+      }
+      const solo = room.members.length < 2;
+      document.getElementById('lounge-mission-start-btn').disabled = solo;
+      document.getElementById('lounge-mission-solo-hint').textContent = solo ? 'Invite at least one member to start a group sprint.' : '';
       return;
     }
 
@@ -3291,20 +3330,24 @@ const UI = {
     const room = state.lounge.room;
     if (!room) { chip.hidden = true; return; }
     chip.hidden = false;
+    if (!chip.dataset.built) {
+      chip.dataset.built = '1';
+      const dot = document.createElement('span');
+      dot.className = 'live-users__dot';
+      const text = document.createElement('span');
+      text.className = 'live-users__count';
+      text.id = 'lounge-chip-text';
+      chip.append(dot, text);
+    }
     const activeCount = room.members.filter((m) => m.status !== 'idle').length;
-    chip.replaceChildren();
-    const dot = document.createElement('span');
-    dot.className = 'live-users__dot';
-    const text = document.createElement('span');
-    text.className = 'live-users__count';
-    text.textContent = `Group: ${room.code} · ${activeCount} active`;
-    chip.append(dot, text);
+    document.getElementById('lounge-chip-text').textContent = `Group: ${room.code} · ${activeCount} active`;
   },
 
   renderLoungeView() {
     const lobby = document.getElementById('lounge-lobby');
     const active = document.getElementById('lounge-active');
     if (!lobby || !active) return;
+    UI.renderLoungeFriends();
     const inRoom = !!state.lounge.room;
     lobby.hidden = inRoom;
     active.hidden = !inRoom;
@@ -3978,14 +4021,30 @@ const UI = {
       state.profile = { ...state.profile, username: name };
       Storage.saveProfile(state.profile);
       UI.renderProfile();
-      closeNameEditor();
     };
     document.getElementById('user-avatar').addEventListener('click', startEditingName);
     document.getElementById('user-name-display').addEventListener('click', startEditingName);
-    document.getElementById('user-name-input').addEventListener('blur', commitName);
+    document.getElementById('user-name-input').addEventListener('blur', (e) => {
+      // Tabbing from the input into one of the emoji buttons must not close the picker.
+      if (emojiPicker.contains(e.relatedTarget)) return;
+      commitName();
+      closeNameEditor();
+    });
     document.getElementById('user-name-input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); commitName(); }
+      if (e.key === 'Enter') { e.preventDefault(); commitName(); closeNameEditor(); }
       if (e.key === 'Escape') { e.preventDefault(); closeNameEditor(); }
+    });
+    // Backstop for cases blur/keydown on the input can't reach: on mobile the input is
+    // hidden by CSS (display:none), so it never gains focus and never blurs, and the
+    // picker would otherwise stay open forever with no way to close it.
+    document.addEventListener('click', (e) => {
+      if (emojiPicker.hidden) return;
+      if (document.getElementById('user-profile').contains(e.target)) return;
+      commitName();
+      closeNameEditor();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !emojiPicker.hidden) closeNameEditor();
     });
 
     document.getElementById('ai-chat-goto-settings').addEventListener('click', () => {
@@ -4265,6 +4324,7 @@ const UI = {
     });
     document.getElementById('lounge-chip').addEventListener('click', () => UI.selectView('lounge'));
     UI.renderLoungeLobby();
+    UI.renderLoungeFriends();
 
     UI.renderAppearanceUI();
   },
