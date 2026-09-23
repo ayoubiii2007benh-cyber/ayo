@@ -565,6 +565,50 @@
   .lounge-chip { border: 1px solid var(--border); cursor: pointer; font-weight: 700; color: var(--text); }
   .lounge-chip:hover { background: rgba(36, 31, 28, 0.08); }
 
+  /* ---------- friends drawer, chat, invite toast ---------- */
+  .friends-drawer-backdrop { position: fixed; inset: 0; background: rgba(20, 16, 14, 0.45); z-index: 40; }
+  .friends-drawer {
+    position: fixed; top: 0; right: 0; height: 100vh; width: min(360px, 100vw);
+    background: var(--surface); box-shadow: var(--shadow-lg); z-index: 41;
+    display: flex; flex-direction: column; padding: 20px; overflow-y: auto;
+  }
+  .friends-drawer__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .friends-drawer__header h2 { font-size: 1.1rem; }
+
+  dialog#chat-dialog {
+    border: none; border-radius: var(--radius-lg); padding: 0;
+    width: min(420px, calc(100vw - 32px)); max-height: min(560px, calc(100vh - 48px));
+    box-shadow: var(--shadow-lg); background: var(--surface);
+  }
+  dialog#chat-dialog::backdrop { background: rgba(20, 16, 14, 0.45); }
+  .chat-dialog__form { display: flex; flex-direction: column; height: 100%; padding: 20px; }
+  .chat-dialog__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .chat-dialog__header h2 { font-size: 1.1rem; }
+  .chat-dialog__messages {
+    list-style: none; margin: 0 0 12px; padding: 0; flex: 1; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 8px; min-height: 200px; max-height: 340px;
+  }
+  .chat-dialog__message { padding: 8px 12px; border-radius: var(--radius-md); font-size: 0.86rem; max-width: 80%; }
+  .chat-dialog__message--me { align-self: flex-end; background: var(--primary); color: var(--accent-contrast); }
+  .chat-dialog__message--friend { align-self: flex-start; background: rgba(36, 31, 28, 0.06); }
+  .chat-dialog__composer { display: flex; gap: 8px; }
+  .chat-dialog__composer input {
+    flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); background: var(--surface); color: var(--text);
+  }
+
+  .invite-toast {
+    position: fixed; bottom: 24px; right: 24px; max-width: 320px; z-index: 50;
+    background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
+    padding: 16px 18px; border: 1px solid var(--border);
+  }
+  .invite-toast__actions { display: flex; gap: 8px; margin-top: 10px; }
+  @media (max-width: 460px) {
+    .invite-toast { left: 16px; right: 16px; bottom: 16px; max-width: none; }
+  }
+
+  .lounge-friend-item__chat { flex-shrink: 0; }
+
   /* ---------- study lounge ---------- */
   #view-lounge {
     max-width: 1440px; margin: 0 auto;
@@ -912,6 +956,7 @@
       <span class="live-users__label">online</span>
     </div>
     <button type="button" id="lounge-chip" class="live-users lounge-chip" hidden></button>
+    <button id="friends-drawer-toggle" type="button" class="icon-btn" aria-label="Open friends" aria-haspopup="dialog">&#128101;</button>
     <button id="settings-btn" type="button" class="icon-btn" aria-label="Open settings" aria-haspopup="dialog">&#9881;</button>
   </div>
 </header>
@@ -1315,6 +1360,42 @@
   </form>
 </dialog>
 
+<div id="friends-drawer-backdrop" class="friends-drawer-backdrop" hidden></div>
+<div id="friends-drawer" class="friends-drawer" hidden aria-label="Friends">
+  <div class="friends-drawer__header">
+    <h2>Friends</h2>
+    <button type="button" class="icon-btn" id="friends-drawer-close" aria-label="Close friends panel">&#10005;</button>
+  </div>
+  <ul class="lounge-friends-list" id="friends-drawer-list"></ul>
+  <form id="friends-drawer-add-form" class="lounge-inline-form">
+    <input type="text" id="friends-drawer-name-input" maxlength="24" placeholder="Friend's name" aria-label="Friend's name" required>
+    <select id="friends-drawer-avatar-select" aria-label="Friend's avatar"></select>
+    <button type="submit" class="btn btn-secondary">Add Friend</button>
+  </form>
+</div>
+
+<dialog id="chat-dialog" aria-labelledby="chat-dialog-title">
+  <form method="dialog" class="chat-dialog__form">
+    <div class="chat-dialog__header">
+      <h2 id="chat-dialog-title">Chat</h2>
+      <button type="button" id="chat-dialog-close" class="icon-btn" aria-label="Close chat">&#10005;</button>
+    </div>
+    <ul class="chat-dialog__messages" id="chat-dialog-messages"></ul>
+    <div class="chat-dialog__composer">
+      <input type="text" id="chat-dialog-input" maxlength="500" placeholder="Message…" aria-label="Message">
+      <button type="button" id="chat-dialog-send" class="btn btn-primary">Send</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="invite-toast" class="invite-toast" hidden role="status">
+  <p id="invite-toast-text"></p>
+  <div class="invite-toast__actions">
+    <button type="button" class="btn btn-primary" id="invite-toast-accept">Accept</button>
+    <button type="button" class="btn btn-secondary" id="invite-toast-dismiss">Dismiss</button>
+  </div>
+</div>
+
 <div id="media-panel" class="glass" hidden role="group" aria-label="Background media controls">
   <button id="media-play" type="button" aria-label="Play or pause background media" aria-pressed="false">&#9654;</button>
   <button id="media-mute" type="button" aria-label="Mute or unmute background media" aria-pressed="false">&#128266;</button>
@@ -1376,7 +1457,7 @@ const state = {
   profile: { username: 'You' },
   dailyHistory: [],
   currentView: 'dashboard',
-  lounge: { friends: [], room: null },
+  lounge: { friends: [], room: null, chats: {}, activeChatFriendId: null, pendingInvite: null },
 };
 
 const DAILY_HISTORY_MAX = 90;
@@ -1535,6 +1616,25 @@ const Storage = {
   saveLoungeFriends(friends) {
     safeSet('loungeFriends', friends.map((f) => ({ id: f.id, name: f.name, avatar: f.avatar })));
   },
+
+  loadLoungeChats() {
+    const raw = safeParse('loungeChats') || {};
+    const out = {};
+    for (const [friendId, arr] of Object.entries(raw)) {
+      if (!Array.isArray(arr)) continue;
+      out[friendId] = arr
+        .filter((m) => m && typeof m.text === 'string' && (m.from === 'me' || m.from === 'friend'))
+        .map((m) => ({
+          id: typeof m.id === 'string' ? m.id : makeId(),
+          from: m.from,
+          text: m.text.slice(0, 500),
+          ts: typeof m.ts === 'number' ? m.ts : Date.now(),
+        }))
+        .slice(-200);
+    }
+    return out;
+  },
+  saveLoungeChats(chats) { safeSet('loungeChats', chats); },
 
   loadDailyHistory() {
     try {
@@ -2818,6 +2918,7 @@ const Lounge = {
 
   init() {
     state.lounge.friends = Storage.loadLoungeFriends().map((f) => ({ ...f, ...Lounge._simFields() }));
+    state.lounge.chats = Storage.loadLoungeChats();
     Lounge._syncEngine();
   },
 
@@ -2828,6 +2929,7 @@ const Lounge = {
       remainingMs: Math.round(focusMs * (0.1 + Math.random() * 0.8)),
       studyMinutesToday: 0, restMinutesToday: 0, pomodorosToday: 0,
       simXP: Math.floor(Math.random() * 300),
+      online: true,
     };
   },
 
@@ -2883,6 +2985,60 @@ const Lounge = {
     if (member.status === 'focusing') return `🟢 Focusing (${Timer.formatTime(member.remainingMs)})`;
     if (member.status === 'resting') return '☕ Resting (Break)';
     return '⚪ Idle / Ready';
+  },
+
+  friendPresenceLabel(f) {
+    if (!f.online) return '⚪ Offline';
+    if (f.status === 'focusing') return `🔴 Focusing (${Timer.formatTime(f.remainingMs)})`;
+    if (f.status === 'resting') return '☕ Resting';
+    return '🟢 Online';
+  },
+
+  REPLY_BANK: [
+    'Sounds good! 💪', "Let's do it!", "I'm mid-focus right now, talk soon!",
+    '😄 Nice, good luck with your sprint!', 'On it!', 'Haha same here.',
+    "Let's start a co-op sprint later?", '👍', 'Just finished a pomodoro, feeling great!',
+  ],
+  sendMessage(friendId, text) {
+    const trimmed = (text || '').trim().slice(0, 500);
+    if (!trimmed) return false;
+    if (!state.lounge.chats[friendId]) state.lounge.chats[friendId] = [];
+    const thread = state.lounge.chats[friendId];
+    thread.push({ id: makeId(), from: 'me', text: trimmed, ts: Date.now() });
+    if (thread.length > 200) thread.splice(0, thread.length - 200);
+    Storage.saveLoungeChats(state.lounge.chats);
+    if (typeof UI !== 'undefined') UI.renderChatThread(friendId);
+    const friend = state.lounge.friends.find((f) => f.id === friendId);
+    if (friend) {
+      setTimeout(() => {
+        thread.push({ id: makeId(), from: 'friend', text: Lounge.REPLY_BANK[Math.floor(Math.random() * Lounge.REPLY_BANK.length)], ts: Date.now() });
+        if (thread.length > 200) thread.splice(0, thread.length - 200);
+        Storage.saveLoungeChats(state.lounge.chats);
+        if (state.lounge.activeChatFriendId === friendId && typeof UI !== 'undefined') UI.renderChatThread(friendId);
+      }, 800 + Math.random() * 1200);
+    }
+    return true;
+  },
+
+  _maybeSimulateInvite() {
+    if (state.lounge.room || state.lounge.pendingInvite || state.lounge.friends.length === 0) return;
+    if (Math.random() < 0.003) {
+      const friend = state.lounge.friends[Math.floor(Math.random() * state.lounge.friends.length)];
+      state.lounge.pendingInvite = { friendId: friend.id, friendName: friend.name, code: Lounge.generateRoomCode() };
+      if (typeof UI !== 'undefined') UI.renderInviteToast();
+    }
+  },
+  acceptInvite() {
+    const pending = state.lounge.pendingInvite;
+    if (!pending) return;
+    state.lounge.pendingInvite = null;
+    Lounge.joinRoom(pending.code);
+    UI.renderInviteToast();
+    UI.selectView('lounge');
+  },
+  dismissInvite() {
+    state.lounge.pendingInvite = null;
+    UI.renderInviteToast();
   },
 
   phaseFraction(m) {
@@ -3048,12 +3204,14 @@ const Lounge = {
       }
     }
     for (const f of state.lounge.friends) {
-      Lounge._tickBot(f, null);
+      if (Math.random() < 0.01) f.online = !f.online;
+      if (f.online) Lounge._tickBot(f, null);
     }
+    Lounge._maybeSimulateInvite();
     if (typeof UI !== 'undefined') {
       UI.renderLoungeChip();
+      UI.renderLoungeFriends();
       if (state.currentView === 'lounge') {
-        UI.renderLoungeFriends();
         if (room) UI.renderLoungeRoom();
       }
     }
@@ -3208,7 +3366,7 @@ const UI = {
   },
 
   renderLoungeFriends() {
-    for (const listId of ['lounge-friends-list', 'lounge-friends-list-active']) {
+    for (const listId of ['lounge-friends-list', 'lounge-friends-list-active', 'friends-drawer-list']) {
       const list = document.getElementById(listId);
       if (!list) continue;
       const seen = new Set();
@@ -3227,19 +3385,24 @@ const UI = {
           status.className = 'lounge-friend-item__status';
           const inviteBtn = document.createElement('button');
           inviteBtn.type = 'button';
-          inviteBtn.className = 'btn btn-secondary';
+          inviteBtn.className = 'btn btn-secondary lounge-friend-item__invite';
           inviteBtn.textContent = 'Invite to Room';
           inviteBtn.addEventListener('click', () => {
             Lounge.inviteFriendToRoom(f.id);
             UI.renderLoungeView();
           });
-          li.append(avatar, name, status, inviteBtn);
+          const chatBtn = document.createElement('button');
+          chatBtn.type = 'button';
+          chatBtn.className = 'btn btn-secondary lounge-friend-item__chat';
+          chatBtn.textContent = 'Chat';
+          chatBtn.addEventListener('click', () => UI.openChat(f.id));
+          li.append(avatar, name, status, inviteBtn, chatBtn);
           list.appendChild(li);
         }
         li.querySelector('.lounge-friend-item__avatar').textContent = f.avatar;
         li.querySelector('.lounge-friend-item__name').textContent = f.name;
-        li.querySelector('.lounge-friend-item__status').textContent = Lounge.statusLabel(f);
-        li.querySelector('button').disabled = !state.lounge.room;
+        li.querySelector('.lounge-friend-item__status').textContent = Lounge.friendPresenceLabel(f);
+        li.querySelector('.lounge-friend-item__invite').disabled = !state.lounge.room;
       }
       for (const li of [...list.children]) {
         if (!seen.has(li.dataset.friendId)) li.remove();
@@ -3248,7 +3411,7 @@ const UI = {
   },
 
   renderLoungeLobby() {
-    for (const selectId of ['lounge-friend-avatar-select', 'lounge-friend-avatar-select-active']) {
+    for (const selectId of ['lounge-friend-avatar-select', 'lounge-friend-avatar-select-active', 'friends-drawer-avatar-select']) {
       const select = document.getElementById(selectId);
       if (select && !select.childElementCount) {
         for (const emoji of Lounge.PROFILE_EMOJI) {
@@ -3448,6 +3611,39 @@ const UI = {
     }
     if (log.length) list.dataset.lastId = log[log.length - 1].id;
     if (wasNearBottom) list.scrollTop = list.scrollHeight;
+  },
+
+  openChat(friendId) {
+    state.lounge.activeChatFriendId = friendId;
+    const friend = state.lounge.friends.find((f) => f.id === friendId);
+    document.getElementById('chat-dialog-title').textContent = friend ? `Chat with ${friend.name}` : 'Chat';
+    UI.renderChatThread(friendId);
+    document.getElementById('chat-dialog').showModal();
+  },
+
+  renderChatThread(friendId) {
+    const list = document.getElementById('chat-dialog-messages');
+    if (!list) return;
+    if (state.lounge.activeChatFriendId !== friendId) return;
+    list.replaceChildren();
+    const thread = state.lounge.chats[friendId] || [];
+    for (const m of thread) {
+      const li = document.createElement('li');
+      li.className = `chat-dialog__message chat-dialog__message--${m.from === 'me' ? 'me' : 'friend'}`;
+      li.textContent = m.text;
+      list.appendChild(li);
+    }
+    list.scrollTop = list.scrollHeight;
+  },
+
+  renderInviteToast() {
+    const toast = document.getElementById('invite-toast');
+    if (!toast) return;
+    const pending = state.lounge.pendingInvite;
+    toast.hidden = !pending;
+    if (pending) {
+      document.getElementById('invite-toast-text').textContent = `${pending.friendName} invited you to their study room!`;
+    }
   },
 
   renderLoungeChip() {
@@ -4458,6 +4654,46 @@ const UI = {
       UI.renderLoungeChip();
     });
     document.getElementById('lounge-chip').addEventListener('click', () => UI.selectView('lounge'));
+
+    // ---- Friends drawer ----
+    const openFriendsDrawer = () => {
+      document.getElementById('friends-drawer').hidden = false;
+      document.getElementById('friends-drawer-backdrop').hidden = false;
+    };
+    const closeFriendsDrawer = () => {
+      document.getElementById('friends-drawer').hidden = true;
+      document.getElementById('friends-drawer-backdrop').hidden = true;
+    };
+    document.getElementById('friends-drawer-toggle').addEventListener('click', openFriendsDrawer);
+    document.getElementById('friends-drawer-close').addEventListener('click', closeFriendsDrawer);
+    document.getElementById('friends-drawer-backdrop').addEventListener('click', closeFriendsDrawer);
+    document.getElementById('friends-drawer-add-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const nameInput = document.getElementById('friends-drawer-name-input');
+      const avatarSelect = document.getElementById('friends-drawer-avatar-select');
+      if (Lounge.addFriend(nameInput.value, avatarSelect.value)) {
+        nameInput.value = '';
+        UI.renderLoungeFriends();
+      }
+    });
+
+    // ---- Chat dialog ----
+    document.getElementById('chat-dialog-close').addEventListener('click', () => document.getElementById('chat-dialog').close());
+    document.getElementById('chat-dialog').addEventListener('close', () => { state.lounge.activeChatFriendId = null; });
+    const sendChatMessage = () => {
+      const input = document.getElementById('chat-dialog-input');
+      const friendId = state.lounge.activeChatFriendId;
+      if (friendId && Lounge.sendMessage(friendId, input.value)) input.value = '';
+    };
+    document.getElementById('chat-dialog-send').addEventListener('click', sendChatMessage);
+    document.getElementById('chat-dialog-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); sendChatMessage(); }
+    });
+
+    // ---- Invite toast ----
+    document.getElementById('invite-toast-accept').addEventListener('click', () => Lounge.acceptInvite());
+    document.getElementById('invite-toast-dismiss').addEventListener('click', () => Lounge.dismissInvite());
+
     UI.renderLoungeLobby();
     UI.renderLoungeFriends();
 
