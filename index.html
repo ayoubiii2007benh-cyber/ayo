@@ -607,6 +607,20 @@
     .lounge-member-item { font-size: 0.8rem; }
     .lounge-member-item__metrics { margin-left: 0; flex-basis: 100%; }
   }
+  #lounge-mission { border-top: 1px solid var(--border); padding-top: 16px; }
+  .lounge-mission-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .lounge-mission-progress { font-weight: 700; margin-bottom: 10px; }
+  .lounge-mission-chips { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .lounge-mission-chip {
+    padding: 4px 10px; border-radius: 999px; font-size: 0.76rem; font-weight: 700;
+    background: rgba(36, 31, 28, 0.08); color: var(--text-muted);
+  }
+  .lounge-mission-chip--checked-in { background: var(--success); color: #fff; }
+  .lounge-mission-chip--abandoned { background: var(--danger); color: #fff; }
+  .lounge-mission-alert {
+    background: rgba(192, 57, 43, 0.1); color: var(--danger); padding: 10px 14px;
+    border-radius: var(--radius-md); font-size: 0.85rem; margin-bottom: 12px;
+  }
 
   /* ---------- AI chat ---------- */
   #ai-chat {
@@ -830,6 +844,15 @@
     .btn { padding-inline: 22px; }
   }
 
+  .confetti-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 999; overflow: hidden; }
+  .confetti-piece {
+    position: absolute; top: -10px; width: 8px; height: 14px; opacity: 0.9;
+    animation: confetti-fall 1.4s ease-in forwards;
+  }
+  @keyframes confetti-fall {
+    to { top: 105%; opacity: 0; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
       animation-duration: 0.001ms !important;
@@ -1027,7 +1050,7 @@
       <button type="button" class="btn btn-secondary" id="lounge-leave-room">Leave Room</button>
     </div>
     <ul class="lounge-members-list" id="lounge-members-list"></ul>
-    <div id="lounge-mission"></div>
+    <div id="lounge-mission" aria-label="Group mission"></div>
   </div>
 </div>
 </main>
@@ -1600,6 +1623,9 @@ const Timer = {
     SoundFX.playCompletionSound();
     if (state.timer.mode === 'pomodoro') {
       Planner.onPomodoroCompleted();
+      Lounge.onOwnPomodoroCompleted();
+    } else {
+      Lounge.onOwnBreakCompleted(state.settings[state.timer.mode]);
     }
     Timer._advanceMode(true);
     state.timer._completing = false;
@@ -2868,6 +2894,55 @@ const Lounge = {
     clearInterval(Lounge._engineTimer);
     Lounge._engineTimer = null;
   },
+
+  startMission(targetPomodoros) {
+    const room = state.lounge.room;
+    if (!room || (room.mission && room.mission.state === 'active')) return false;
+    const target = clampInt(targetPomodoros, 1, 4, 1);
+    room.mission = { targetPomodoros: target, state: 'active' };
+    for (const m of room.members) { m.missionProgress = 0; m.missionState = 'pending'; }
+    return true;
+  },
+  cancelMission() {
+    const room = state.lounge.room;
+    if (!room) return;
+    room.mission = null;
+    for (const m of room.members) { m.missionProgress = 0; m.missionState = 'pending'; }
+  },
+  onOwnPomodoroCompleted() {
+    const room = state.lounge.room;
+    if (!room || !room.mission || room.mission.state !== 'active') return;
+    const self = room.members.find((m) => m.isSelf);
+    if (!self || self.missionState !== 'pending') return;
+    self.missionProgress += 1;
+    if (self.missionProgress >= room.mission.targetPomodoros) self.missionState = 'checked-in';
+    Lounge._checkMissionCompletion();
+  },
+  onOwnBreakCompleted(minutes) {
+    state.stats.restMinutesToday += clampInt(minutes, 0, 999, 0);
+    Storage.saveStats(state.stats);
+  },
+  giveUpOwnMission() {
+    const room = state.lounge.room;
+    if (!room || !room.mission || room.mission.state !== 'active') return;
+    const self = room.members.find((m) => m.isSelf);
+    if (!self || self.missionState !== 'pending') return; // Review Focus: can't abandon after already checked in
+    self.missionState = 'abandoned';
+  },
+  _checkMissionCompletion() {
+    const room = state.lounge.room;
+    if (!room || !room.mission || room.mission.state !== 'active') return;
+    if (!room.members.every((m) => m.missionState === 'checked-in')) return;
+    room.mission.state = 'completed';
+    state.stats.disciplineXP += 50;
+    Storage.saveStats(state.stats);
+    if (typeof UI !== 'undefined') { UI.renderMissions(); UI.renderStatsDashboard(); }
+    if (typeof SoundFX !== 'undefined') SoundFX.playCompletionSound();
+    if (typeof Confetti !== 'undefined') Confetti.burst();
+    room.mission = null;
+    for (const m of room.members) { m.missionProgress = 0; m.missionState = 'pending'; }
+  },
+
   _tick() {
     const room = state.lounge.room;
     if (!room) return;
@@ -2904,6 +2979,13 @@ const Lounge = {
       m.simXP = (m.simXP || 0) + 20;
       m.status = 'resting';
       m.remainingMs = state.settings.shortBreak * 60000;
+      if (room.mission && room.mission.state === 'active' && m.missionState === 'pending') {
+        m.missionProgress += 1;
+        if (m.missionProgress >= room.mission.targetPomodoros) {
+          m.missionState = Math.random() < 0.85 ? 'checked-in' : 'abandoned';
+          Lounge._checkMissionCompletion();
+        }
+      }
     } else {
       m.restMinutesToday += state.settings.shortBreak;
       m.status = 'focusing';
@@ -2913,6 +2995,26 @@ const Lounge = {
   _resumeBot(m) {
     m.status = m._resumeStatus || 'focusing';
     m._resumeStatus = null;
+  },
+};
+
+/* ============================== Confetti (tiny, no library) ============================== */
+const Confetti = {
+  COLORS: ['#e0654f', '#2f9e8f', '#5b53a6', '#c98a1f', '#2f9e57'],
+  burst() {
+    const overlay = document.createElement('div');
+    overlay.className = 'confetti-overlay';
+    for (let i = 0; i < 24; i++) {
+      const piece = document.createElement('span');
+      piece.className = 'confetti-piece';
+      piece.style.left = `${Math.random() * 100}%`;
+      piece.style.background = Confetti.COLORS[i % Confetti.COLORS.length];
+      piece.style.animationDelay = `${Math.random() * 0.3}s`;
+      piece.style.transform = `rotate(${Math.random() * 360}deg)`;
+      overlay.appendChild(piece);
+    }
+    document.body.appendChild(overlay);
+    setTimeout(() => overlay.remove(), 1600);
   },
 };
 
@@ -3084,6 +3186,103 @@ const UI = {
       li.append(avatar, name, levelEl, status, metrics);
       list.appendChild(li);
     }
+    UI.renderLoungeMission();
+  },
+
+  renderLoungeMission() {
+    const container = document.getElementById('lounge-mission');
+    if (!container) return;
+    const room = state.lounge.room;
+    if (!room) { container.replaceChildren(); container.dataset.mode = ''; return; }
+
+    if (!room.mission) {
+      if (container.dataset.mode === 'idle') return;
+      container.dataset.mode = 'idle';
+      container.replaceChildren();
+      const form = document.createElement('form');
+      form.className = 'lounge-mission-form';
+      form.id = 'lounge-mission-start-form';
+      const select = document.createElement('select');
+      select.id = 'lounge-mission-target';
+      [1, 2, 3, 4].forEach((n) => {
+        const opt = document.createElement('option');
+        opt.value = String(n);
+        opt.textContent = `${n} Pomodoro${n > 1 ? 's' : ''}`;
+        select.appendChild(opt);
+      });
+      const btn = document.createElement('button');
+      btn.type = 'submit';
+      btn.className = 'btn btn-primary';
+      btn.textContent = 'Start Sprint';
+      form.append(select, btn);
+      container.appendChild(form);
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        Lounge.startMission(select.value);
+        UI.renderLoungeMission();
+      });
+      return;
+    }
+
+    // Build the active-mission skeleton only once per mode switch, so a tick-driven re-render
+    // (every 1s while a mission is active) never tears down a button mid-click.
+    if (container.dataset.mode !== 'active') {
+      container.dataset.mode = 'active';
+      container.replaceChildren();
+
+      const alert = document.createElement('p');
+      alert.className = 'lounge-mission-alert';
+      alert.id = 'lounge-mission-alert';
+      alert.hidden = true;
+
+      const progress = document.createElement('p');
+      progress.className = 'lounge-mission-progress';
+      progress.id = 'lounge-mission-progress';
+
+      const chips = document.createElement('ul');
+      chips.className = 'lounge-mission-chips';
+      chips.id = 'lounge-mission-chips';
+
+      const giveUpBtn = document.createElement('button');
+      giveUpBtn.type = 'button';
+      giveUpBtn.id = 'lounge-mission-giveup';
+      giveUpBtn.className = 'btn btn-secondary';
+      giveUpBtn.textContent = 'Give Up';
+      giveUpBtn.addEventListener('click', () => { Lounge.giveUpOwnMission(); UI.renderLoungeMission(); });
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'btn btn-secondary';
+      cancelBtn.textContent = 'Cancel Sprint';
+      cancelBtn.addEventListener('click', () => { Lounge.cancelMission(); UI.renderLoungeMission(); });
+
+      container.append(alert, progress, chips, giveUpBtn, cancelBtn);
+    }
+
+    const abandoned = room.members.filter((m) => m.missionState === 'abandoned');
+    const alertEl = document.getElementById('lounge-mission-alert');
+    if (abandoned.length) {
+      alertEl.textContent = `${abandoned.map((m) => m.name).join(', ')} abandoned the sprint — waiting is impossible until you cancel.`;
+      alertEl.hidden = false;
+    } else {
+      alertEl.hidden = true;
+    }
+
+    const checkedInCount = room.members.filter((m) => m.missionState === 'checked-in').length;
+    document.getElementById('lounge-mission-progress').textContent = `${checkedInCount}/${room.members.length} checked in`;
+
+    const chipsEl = document.getElementById('lounge-mission-chips');
+    chipsEl.replaceChildren();
+    for (const m of room.members) {
+      const chip = document.createElement('li');
+      const label = m.missionState === 'checked-in' ? 'Checked In' : m.missionState === 'abandoned' ? 'Abandoned' : 'In Progress';
+      chip.className = `lounge-mission-chip lounge-mission-chip--${m.missionState}`;
+      chip.textContent = `${m.name}: ${label}`;
+      chipsEl.appendChild(chip);
+    }
+
+    const self = room.members.find((m) => m.isSelf);
+    document.getElementById('lounge-mission-giveup').disabled = !self || self.missionState !== 'pending';
   },
 
   renderLoungeChip() {
