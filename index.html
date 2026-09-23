@@ -2654,6 +2654,175 @@ const Lounge = {
   init() {
     state.lounge.friends = Storage.loadLoungeFriends();
   },
+
+  addFriend(name, avatar) {
+    const trimmed = (name || '').trim().slice(0, 24);
+    if (!trimmed) return false;
+    const emoji = Lounge.PROFILE_EMOJI.includes(avatar) ? avatar : Lounge.PROFILE_EMOJI[0];
+    state.lounge.friends.push({ id: makeId(), name: trimmed, avatar: emoji });
+    Storage.saveLoungeFriends(state.lounge.friends);
+    return true;
+  },
+  removeFriend(id) {
+    state.lounge.friends = state.lounge.friends.filter((f) => f.id !== id);
+    Storage.saveLoungeFriends(state.lounge.friends);
+  },
+
+  CODE_WORDS: ['FOCUS', 'FLOW', 'GRIND', 'DEEP', 'CALM', 'ZEN', 'LOCK', 'PUSH'],
+  generateRoomCode() {
+    const word = Lounge.CODE_WORDS[Math.floor(Math.random() * Lounge.CODE_WORDS.length)];
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const suffix = chars[Math.floor(Math.random() * chars.length)] + chars[Math.floor(Math.random() * chars.length)];
+    return `${word}-${suffix}`;
+  },
+
+  TITLES: [
+    { min: 1, title: 'Novice' },
+    { min: 4, title: 'Apprentice' },
+    { min: 7, title: 'Focused' },
+    { min: 11, title: 'Disciplined' },
+    { min: 16, title: 'Master' },
+    { min: 21, title: 'Grandmaster' },
+  ],
+  titleForLevel(level) {
+    let best = Lounge.TITLES[0].title;
+    for (const t of Lounge.TITLES) { if (level >= t.min) best = t.title; }
+    return best;
+  },
+
+  DEMO_BOT_POOL: [
+    { name: 'Sam', avatar: '🌙' }, { name: 'Alex', avatar: '⚡' }, { name: 'Robin', avatar: '🌱' },
+    { name: 'Jordan', avatar: '📚' }, { name: 'Casey', avatar: '🔥' }, { name: 'Riley', avatar: '☁️' },
+  ],
+
+  statusLabel(member) {
+    if (member.status === 'focusing') return `🟢 Focusing (${Timer.formatTime(member.remainingMs)})`;
+    if (member.status === 'resting') return '☕ Resting (Break)';
+    return '⚪ Idle / Ready';
+  },
+
+  _makeSelfMember() {
+    return {
+      id: 'self', isSelf: true, name: state.profile.username, avatar: state.profile.avatar || '🙂',
+      status: state.timer.running ? (state.timer.mode === 'pomodoro' ? 'focusing' : 'resting') : 'idle',
+      remainingMs: state.timer.remainingMs,
+      studyMinutesToday: state.stats.focusMinutesToday,
+      restMinutesToday: state.stats.restMinutesToday,
+      pomodorosToday: state.stats.pomodorosCompletedToday,
+      missionProgress: 0, missionState: 'pending',
+    };
+  },
+  _makeBotMember(name, avatar) {
+    const focusMs = state.settings.pomodoro * 60000;
+    return {
+      id: `bot_${makeId()}`, isSelf: false, name, avatar,
+      status: 'focusing',
+      remainingMs: Math.round(focusMs * (0.1 + Math.random() * 0.8)),
+      studyMinutesToday: 0, restMinutesToday: 0, pomodorosToday: 0,
+      simXP: Math.floor(Math.random() * 300),
+      missionProgress: 0, missionState: 'pending',
+    };
+  },
+  _randomBotRoster(count) {
+    const pool = [...Lounge.DEMO_BOT_POOL];
+    const picked = [];
+    while (picked.length < count && pool.length) {
+      picked.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+    }
+    return picked.map((p) => Lounge._makeBotMember(p.name, p.avatar));
+  },
+
+  createRoom(goalText) {
+    if (state.lounge.room) Lounge.leaveRoom();
+    state.lounge.room = {
+      code: Lounge.generateRoomCode(),
+      goal: (goalText || '').trim().slice(0, 80),
+      hostId: 'self',
+      members: [Lounge._makeSelfMember()],
+      mission: null,
+    };
+    Lounge._startEngine();
+    return state.lounge.room.code;
+  },
+  joinRoom(codeText) {
+    const code = (codeText || '').trim().slice(0, 20);
+    if (!code) return false;
+    if (state.lounge.room) Lounge.leaveRoom();
+    const botCount = 2 + Math.floor(Math.random() * 3); // 2-4
+    state.lounge.room = {
+      code, goal: '', hostId: `bot_${makeId()}`,
+      members: [Lounge._makeSelfMember(), ...Lounge._randomBotRoster(botCount)],
+      mission: null,
+    };
+    Lounge._startEngine();
+    return true;
+  },
+  inviteFriendToRoom(friendId) {
+    if (!state.lounge.room) return false;
+    const friend = state.lounge.friends.find((f) => f.id === friendId);
+    if (!friend) return false;
+    state.lounge.room.members.push(Lounge._makeBotMember(friend.name, friend.avatar));
+    return true;
+  },
+  leaveRoom() {
+    Lounge._stopEngine();
+    state.lounge.room = null;
+  },
+
+  _engineTimer: null,
+  _startEngine() {
+    if (Lounge._engineTimer !== null) return;
+    Lounge._engineTimer = setInterval(Lounge._tick, 1000);
+  },
+  _stopEngine() {
+    clearInterval(Lounge._engineTimer);
+    Lounge._engineTimer = null;
+  },
+  _tick() {
+    const room = state.lounge.room;
+    if (!room) return;
+    for (const m of room.members) {
+      if (m.isSelf) {
+        m.status = state.timer.running ? (state.timer.mode === 'pomodoro' ? 'focusing' : 'resting') : 'idle';
+        m.remainingMs = state.timer.remainingMs;
+        m.studyMinutesToday = state.stats.focusMinutesToday;
+        m.restMinutesToday = state.stats.restMinutesToday;
+        m.pomodorosToday = state.stats.pomodorosCompletedToday;
+        continue;
+      }
+      Lounge._tickBot(m, room);
+    }
+  },
+  _tickBot(m, room) {
+    if (m.status === 'idle') {
+      m._idleTicksLeft -= 1;
+      if (m._idleTicksLeft <= 0) Lounge._resumeBot(m);
+      return;
+    }
+    if (Math.random() < 0.05) {
+      m._resumeStatus = m.status;
+      m._idleTicksLeft = 3 + Math.floor(Math.random() * 6); // 3-8 seconds (ticks are 1s)
+      m.status = 'idle';
+      return;
+    }
+    m.remainingMs -= 1000;
+    if (m.remainingMs > 0) return;
+    if (m.status === 'focusing') {
+      m.pomodorosToday += 1;
+      m.studyMinutesToday += state.settings.pomodoro;
+      m.simXP = (m.simXP || 0) + 20;
+      m.status = 'resting';
+      m.remainingMs = state.settings.shortBreak * 60000;
+    } else {
+      m.restMinutesToday += state.settings.shortBreak;
+      m.status = 'focusing';
+      m.remainingMs = state.settings.pomodoro * 60000;
+    }
+  },
+  _resumeBot(m) {
+    m.status = m._resumeStatus || 'focusing';
+    m._resumeStatus = null;
+  },
 };
 
 /* ============================== AIChat (Google Gemini) ============================== */
