@@ -646,19 +646,19 @@
   .profile-modal__username { font-size: 1.15rem; font-weight: 700; }
   .profile-modal__bio { color: var(--text-muted); font-size: 0.9rem; max-width: 320px; }
   .profile-modal__title-badge {
-    background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 0.78rem;
-    padding: 4px 12px; border-radius: 999px;
+    background: var(--accent-gradient); color: #fff; font-weight: 700; font-size: var(--text-xs);
+    padding: 4px 12px; border-radius: var(--radius-pill);
   }
   .profile-modal__stats { display: flex; gap: 22px; margin: 8px 0; }
   .profile-modal__stat { display: flex; flex-direction: column; align-items: center; }
-  .profile-modal__stat-value { font-size: 1.1rem; font-weight: 800; color: var(--accent); }
+  .profile-modal__stat-value { font-size: var(--text-md); font-weight: 800; color: var(--text); }
   .profile-modal__stat-label { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
   .profile-modal__emoji-picker { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; max-width: 260px; }
   .profile-modal__emoji-picker button {
-    border: none; background: rgba(36, 31, 28, 0.06); font-size: 1.1rem; width: 34px; height: 34px;
+    border: none; background: color-mix(in srgb, var(--text) 6%, transparent); font-size: 1.1rem; width: 34px; height: 34px;
     border-radius: var(--radius-sm); cursor: pointer;
   }
-  .profile-modal__emoji-picker button:hover { background: rgba(36, 31, 28, 0.12); }
+  .profile-modal__emoji-picker button:hover { background: color-mix(in srgb, var(--text) 12%, transparent); }
   .profile-modal__upload-row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
   #profile-modal-edit label { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); }
   #profile-edit-username, #profile-edit-bio {
@@ -675,8 +675,13 @@
   }
   dialog#auth-modal::backdrop { background: rgba(20, 16, 14, 0.45); }
   .auth-modal__form { padding: 22px clamp(20px, 5vw, 28px); overflow-y: auto; max-height: inherit; display: flex; flex-direction: column; gap: 12px; }
-  .auth-modal__form h2 { font-size: 1.15rem; text-align: center; }
-  .auth-modal__tabs { display: flex; gap: 6px; background: rgba(36, 31, 28, 0.06); border-radius: var(--radius-sm); padding: 4px; }
+  .auth-modal__form h2 {
+    font-family: var(--font-serif); font-style: italic; font-weight: 500;
+    font-size: clamp(1.75rem, 8vw, 2.25rem); text-align: center; color: var(--text);
+    padding-top: var(--space-3);
+    border-top: 3px solid transparent; border-image: var(--accent-gradient) 1;
+  }
+  .auth-modal__tabs { display: flex; gap: 6px; background: color-mix(in srgb, var(--text) 6%, transparent); border-radius: var(--radius-sm); padding: 4px; }
   .auth-modal__tab {
     flex: 1; border: none; background: transparent; padding: 8px; border-radius: var(--radius-sm);
     font-weight: 600; font-size: 0.85rem; color: var(--text-muted); cursor: pointer;
