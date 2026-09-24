@@ -221,15 +221,18 @@
   #timer {
     border-radius: var(--radius-lg);
     padding: clamp(24px, 4vw, 36px) clamp(20px, 4vw, 32px) 30px;
-    box-shadow: var(--shadow-md);
     text-align: center;
   }
 
   #active-task-display {
-    font-size: 0.92rem;
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-weight: 500;
+    font-size: var(--text-md);
+    letter-spacing: 0.01em;
     color: var(--text-muted);
     min-height: 1.4em;
-    margin-bottom: 18px;
+    margin-bottom: var(--space-4);
     word-break: break-word;
   }
   .mode-tabs {
@@ -243,12 +246,12 @@
   }
   .mode-tab[aria-selected="true"] { color: var(--accent-contrast); background: var(--accent); border-color: var(--accent); }
   #timer-display {
-    font-size: clamp(3.4rem, 13vw, 5.4rem);
+    font-size: var(--text-timer);
     font-weight: 800;
     line-height: 1;
-    margin: 14px 0 22px;
+    margin: var(--space-4) 0 var(--space-5);
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.03em;
   }
   @keyframes timer-pulse { 0% { opacity: 0.35; transform: scale(0.95); } 100% { opacity: 1; transform: scale(1); } }
   .timer-display--pulse { animation: timer-pulse 0.32s ease; }
@@ -420,29 +423,37 @@
   /* ---------- stats dashboard ---------- */
   #stats-dashboard {
     border-radius: var(--radius-lg);
-    padding: clamp(16px, 3vw, 24px) clamp(20px, 4vw, 30px);
-    box-shadow: var(--shadow-md);
+    padding: var(--space-5) clamp(20px, 4vw, 30px);
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 16px;
+    gap: var(--space-4);
   }
-  .stat-tile { text-align: center; min-width: 0; }
+  .stat-tile { text-align: center; min-width: 0; position: relative; }
+  .stat-tile:not(:first-child)::before {
+    content: ''; position: absolute; left: calc(-1 * var(--space-4) / 2); top: 15%; bottom: 15%;
+    width: 1px; background: var(--border);
+  }
   .stat-tile__value {
     display: block;
-    font-size: clamp(1.25rem, 3vw, 1.6rem);
+    font-size: var(--text-xl);
     font-weight: 800;
-    color: var(--accent);
+    letter-spacing: -0.01em;
+    color: var(--text);
     line-height: 1.2;
     font-variant-numeric: tabular-nums;
   }
   .stat-tile__label {
     display: block;
-    font-size: 0.76rem;
+    font-size: var(--text-2xs);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
     color: var(--text-muted);
-    margin-top: 2px;
+    margin-top: 4px;
   }
   @media (max-width: 600px) {
     #stats-dashboard { grid-template-columns: repeat(2, 1fr); row-gap: 18px; }
+    .stat-tile:nth-child(odd)::before { content: none; }
   }
 
   /* ---------- missions & skills ---------- */
