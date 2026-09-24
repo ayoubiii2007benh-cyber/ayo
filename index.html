@@ -120,9 +120,13 @@
     background-image: repeating-linear-gradient(0deg, rgba(57,255,156,0.035) 0 1px, transparent 1px 3px);
   }
   html[data-theme-preset="terminal"] body { font-family: ui-monospace, 'Cascadia Code', Consolas, 'SFMono-Regular', Menlo, monospace; }
-  html[data-theme-preset="terminal"] .glass {
-    backdrop-filter: none; -webkit-backdrop-filter: none;
-    background: var(--surface); border: 1px solid var(--border);
+  /* The redesign's italic Fraunces accents (§4.1 of the redesign spec) would otherwise override
+     this preset's all-monospace identity via selector specificity (#id / .class beats body). */
+  html[data-theme-preset="terminal"] #active-task-display,
+  html[data-theme-preset="terminal"] #view-lounge h3,
+  html[data-theme-preset="terminal"] .leaderboard-item__rank,
+  html[data-theme-preset="terminal"] .auth-modal__form h2 {
+    font-family: inherit; font-style: normal;
   }
   /* Deep Mesh (Animated) — a slow-drifting mesh gradient, opt-in via this preset only. */
   html[data-theme-preset="deepmesh"] #background-layer {
@@ -1014,6 +1018,15 @@
   @keyframes confetti-fall {
     to { top: 105%; opacity: 0; }
   }
+
+  @keyframes card-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  #view-dashboard > #stats-dashboard,
+  #view-dashboard .col-left > section,
+  #view-dashboard .col-right > section {
+    animation: card-enter 0.35s ease both;
+  }
+  #view-dashboard .col-left > section:nth-child(2) { animation-delay: 0.04s; }
+  #view-dashboard .col-right > section:nth-child(2) { animation-delay: 0.08s; }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
