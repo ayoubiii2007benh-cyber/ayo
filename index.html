@@ -11,23 +11,23 @@
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,9..144,500;1,9..144,600&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #faf7f5;
+    --bg: #fdfbf8;
     --surface: #ffffff;
-    --text: #241f1c;
-    --text-muted: #7a716c;
-    --border: rgba(36, 31, 28, 0.09);
-    --accent: #e0654f;
-    --accent-soft: #f9e1dc;
+    --text: #14100c;
+    --text-muted: #6b625c;
+    --border: rgba(20, 16, 12, 0.09);
+    --accent: #ff5533;
+    --accent-soft: #ffe6e0;
     --accent-contrast: #ffffff;
-    --primary: #e0654f;
-    --primary-hover: #c65540;
-    --primary-soft: #f9e1dc;
-    --accent-pomodoro: #e0654f;
-    --accent-shortBreak: #2f9e8f;
-    --accent-longBreak: #5b53a6;
-    --accent-soft-pomodoro: #f9e1dc;
-    --accent-soft-shortBreak: #d9f2ee;
-    --accent-soft-longBreak: #e6e2f7;
+    --primary: #ff5533;
+    --primary-hover: #e04b2d;
+    --primary-soft: #ffe6e0;
+    --accent-pomodoro: #ff5533;
+    --accent-shortBreak: #0eb8a0;
+    --accent-longBreak: #7c3aed;
+    --accent-soft-pomodoro: #ffe6e0;
+    --accent-soft-shortBreak: #dbf4f1;
+    --accent-soft-longBreak: #ebe1fc;
     --success: #2f9e57;
     --warning: #c98a1f;
     --danger: #c0392b;
@@ -1634,7 +1634,7 @@ function relLuminance(hex) {
 const DEFAULT_SETTINGS = { pomodoro: 25, shortBreak: 5, longBreak: 15, autoStartBreaks: false, autoStartPomodoros: false };
 const DEFAULT_MEDIA = { type: 'default', imageUrl: '', videoUrl: '', youtubeId: '', playbackMode: 'background', volume: 0.5, muted: false, localImageId: null, localVideoId: null };
 const DEFAULT_MUSIC = { enabled: false, source: 'builtin', builtinTrackId: '', audioUrl: '', localAudioId: null, volume: 0.5, muted: false, loop: true };
-const DEFAULT_THEME_COLORS = { bg:'#faf7f5', surface:'#ffffff', text:'#241f1c', textMuted:'#7a716c', border:'#241f1c', primary:'#e0654f', accentPomodoro:'#e0654f', accentShortBreak:'#2f9e8f', accentLongBreak:'#5b53a6', success:'#2f9e57', warning:'#c98a1f', danger:'#c0392b' };
+const DEFAULT_THEME_COLORS = { bg:'#fdfbf8', surface:'#ffffff', text:'#14100c', textMuted:'#6b625c', border:'#14100c', primary:'#ff5533', accentPomodoro:'#ff5533', accentShortBreak:'#0eb8a0', accentLongBreak:'#7c3aed', success:'#2f9e57', warning:'#c98a1f', danger:'#c0392b' };
 
 const state = {
   settings: { ...DEFAULT_SETTINGS },
