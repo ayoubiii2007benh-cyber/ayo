@@ -475,13 +475,17 @@
   }
   .missions-list { display: flex; flex-direction: column; gap: var(--space-1); }
   .mission-item {
+    position: relative;
     display: flex; align-items: center; gap: 10px; font-size: 0.9rem;
     padding: var(--space-2) 0 var(--space-2) var(--space-3);
     border-left: 2px solid var(--border);
   }
   .mission-item--done {
-    border-left: 2px solid transparent;
-    border-image: var(--accent-gradient) 1;
+    border-left-color: transparent;
+  }
+  .mission-item--done::before {
+    content: ''; position: absolute; left: -2px; top: 0; bottom: 0; width: 2px;
+    background: var(--accent-gradient);
   }
   .mission-item input[type="checkbox"] { width: 18px; height: 18px; flex-shrink: 0; accent-color: var(--accent); transition: transform 0.15s ease; }
   .mission-item input[type="checkbox"]:checked { transform: scale(1.15); }
@@ -935,7 +939,7 @@
   .track-list .track__category { font-size: 0.75rem; color: var(--text-muted); font-weight: 500; }
 
   .music-player-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
-  .music-player-bar button { border: none; background: rgba(36,31,28,0.06); border-radius: 50%; width: 36px; height: 36px; cursor: pointer; font-size: 0.95rem; }
+  .music-player-bar button { border: none; background: color-mix(in srgb, var(--text) 6%, transparent); border-radius: 50%; width: 36px; height: 36px; cursor: pointer; font-size: 0.95rem; }
   .music-player-bar button:disabled { opacity: 0.4; cursor: not-allowed; }
   .music-player-bar button[aria-pressed="true"] { background: var(--primary-soft); }
   #music-progress { flex: 1 1 100px; min-width: 80px; accent-color: var(--primary); }
