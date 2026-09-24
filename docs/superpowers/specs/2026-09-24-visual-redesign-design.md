@@ -59,21 +59,41 @@ move away from it).
    detail.** `state.themeSettings` writes `--bg`, `--surface`, `--text`,
    `--text-muted`, `--border`, `--primary`, `--accent-pomodoro`,
    `--accent-shortBreak`, `--accent-longBreak`, etc. directly onto
-   `:root` at runtime (`Theme.applyPreset`, `index.html:3039`). There are
-   seven presets users can pick in Settings → Appearance — `default`,
-   `midnight` (dark mode), `apex`, `lofi`, `coastal`, `terminal`,
-   `deepmesh` — plus per-channel color pickers that let a user override
-   any of those variables individually, live. **Every visual change in
-   this redesign must be expressed in terms of these variables (or new
-   variables added the same way), never hardcoded colors**, so all seven
-   presets and any user override keep working. Dark mode is not a
-   separate code path — it's the `midnight` preset — so there is no
+   `:root` at runtime (`Theme.apply`/`Theme.applyPreset`,
+   `index.html:3008-3044`). There are **fifteen** presets users can pick
+   in Settings → Appearance (`Theme.PRESETS`, `index.html:2990-3005`):
+   `default`, `midnight` (dark mode), `ocean`, `forest`, `sunset`,
+   `lavender`, `minimal`, `cyberpunk`, `warm`, `monochrome`, `apex`,
+   `lofi`, `coastal`, `terminal`, `deepmesh` — seven of them (`midnight`,
+   `sunset`, `cyberpunk`, `apex`, `lofi`, `terminal`, `deepmesh`) are
+   dark backgrounds, `monochrome` is a light preset despite the name
+   (white bg, black text) — plus per-channel color pickers that let a user override any of those
+   variables individually, live. **Every visual change in this redesign
+   must be expressed in terms of these variables (or new variables added
+   the same way), never hardcoded colors**, so all fifteen presets and
+   any user override keep working. Dark mode is not a separate code
+   path — it's the `midnight` preset — so there is no
    `prefers-color-scheme`/`[data-theme=dark]` branch to maintain
    separately.
-3. **No feature, route, or flow removal.** Nav items (Dashboard, Reports,
+3. **Existing hardcoded neutral overlays assume a light background and
+   are visibly broken on the eight dark presets today** — e.g.
+   `.nav-link:not([aria-current="page"]):hover { background: rgba(36,
+   31, 28, 0.06); }` (`index.html:506`) puts a near-invisible dark-brown
+   tint on an already-dark surface. About 20 such literal
+   `rgba(36, 31, 28, *)` / `rgba(255,255,255, *)` overlays exist across
+   hover states, chips, chat bubbles, and the track list — all in
+   components this redesign touches directly. Each one is replaced with
+   `color-mix(in srgb, var(--text) N%, transparent)` (or `var(--surface)`
+   for the track list, which sits on `var(--surface)` not `var(--bg)`),
+   preserving the same opacity feel while making it theme-correct.
+   Dialog/drawer backdrop scrims (`rgba(20, 16, 14, 0.45)`, used behind
+   modals) and the Apex preset's decorative carbon-fibre texture
+   (`index.html:90-91`) are intentionally excluded — both are meant to
+   stay a fixed dark tone regardless of the active theme.
+4. **No feature, route, or flow removal.** Nav items (Dashboard, Reports,
    Leaderboard, Study Lounge), all modals/dialogs, the friends drawer,
    chat, toasts, and account switching all stay.
-4. **No JS behavior changes** except where a markup change requires
+5. **No JS behavior changes** except where a markup change requires
    updating a selector/class the JS queries (e.g. renaming `.glass` →
    a new surface class touched in multiple places) — those are
    mechanical, not behavioral.
@@ -116,24 +136,27 @@ move away from it).
 ### 4.2 Color & theming
 
 No new palette — the existing per-preset token set is kept exactly as-is
-(all seven presets' hex values unchanged) so nothing about the
+(all fifteen presets' hex values unchanged) so nothing about the
 theming *feature* changes. What changes is how those tokens get used:
 
 - Push text contrast slightly: no token value changes needed for
   `default` (`--text: #241f1c` already reads near-black); component
   CSS stops using low-contrast overlays for things like secondary button
   backgrounds (see §4.4).
-- **New token**: `--accent-gradient`, derived per-preset from that
-  preset's own two furthest-apart accent channels (e.g. `default`/
-  `midnight`: `linear-gradient(135deg, var(--accent-pomodoro), var(--accent-longBreak))`
-  → coral to indigo; `terminal` and `apex` get their own equivalent
-  two-stop gradient defined alongside their existing preset color block
-  at `index.html:3001-3005`). This is the one "vivid gradient" moment
-  from the reference, kept on-brand and theme-safe. Reserved for exactly
-  four spots: the profile modal's title badge, a mission-complete /
-  streak-milestone celebration accent, the Lounge active-room mission
-  banner, and a thin accent bar behind the auth modal's welcome heading.
-  Never used as a background wash or decoration.
+- **New token**: `--accent-gradient: linear-gradient(135deg,
+  var(--accent-pomodoro), var(--accent-longBreak))`, declared once as a
+  plain CSS rule (alongside the other cross-preset derived rules at
+  `index.html:43-45`). No JS or per-preset changes needed — because
+  `--accent-pomodoro`/`--accent-longBreak` are already set per-preset by
+  `Theme.apply` (and directly overridable via the Appearance color
+  pickers), this token is automatically correct for all fifteen presets
+  and any live user override, with zero additional plumbing. This is the
+  one "vivid gradient" moment from the reference, kept on-brand and
+  theme-safe. Reserved for exactly four spots: the profile modal's title
+  badge, a mission-complete / streak-milestone celebration accent, the
+  Lounge active-room mission banner, and a thin accent bar behind the
+  auth modal's welcome heading. Never used as a background wash or
+  decoration.
 
 ### 4.3 Spacing
 
@@ -258,13 +281,17 @@ structure/behavior and just inherits the new tokens.
 
 ## 6. Cross-cutting requirements
 
-- **All seven theme presets** (`default`, `midnight`, `apex`, `lofi`,
-  `coastal`, `terminal`, `deepmesh`) must be spot-checked after the
-  redesign — every new style rule is written against custom properties,
-  never a literal preset color, so this should hold automatically, but
-  `terminal`'s existing `.glass` override (`index.html:112`, currently
-  disabling blur and forcing flat already) needs to be reconciled since
-  `.glass` itself is going away.
+- **All fifteen theme presets** (`default`, `midnight`, `ocean`, `forest`,
+  `sunset`, `lavender`, `minimal`, `cyberpunk`, `warm`, `monochrome`,
+  `apex`, `lofi`, `coastal`, `terminal`, `deepmesh`) must be spot-checked
+  after the redesign — every new style rule is written against custom
+  properties, never a literal preset color, so this should hold
+  automatically, but `terminal`'s existing `.glass` override
+  (`index.html:112`, currently disabling blur and forcing flat already)
+  needs to be reconciled since `.glass` itself is going away, and the
+  ~20 hardcoded `rgba(36, 31, 28, *)` / `rgba(255,255,255, *)` overlays
+  from §3 constraint 3 must all be converted for the seven dark presets
+  to read correctly.
 - **Responsive**: existing breakpoints (`860px` main grid collapse,
   `700px` lounge grid, `600px`/`560px`/`480px`/`460px` component-level)
   stay as the structural breakpoints; typography/spacing scale must not
@@ -297,7 +324,7 @@ structure/behavior and just inherits the new tokens.
 5. Settings dialog (all five tabs).
 6. Friends drawer + chat dialog + invite toast.
 7. Profile modal + Auth modal.
-8. Full pass: all seven presets, all breakpoints, reduced-motion,
+8. Full pass: all fifteen presets, all breakpoints, reduced-motion,
    console-error check, regression click-through of every flow listed
    in §1.
 
@@ -312,7 +339,7 @@ before moving to the next, per §6.
 - [ ] Task create/complete/delete still works.
 - [ ] Settings: every tab's controls (including live color pickers and
       background/music upload) still function and visibly apply.
-- [ ] All seven theme presets produce a coherent, legible result.
+- [ ] All fifteen theme presets produce a coherent, legible result.
 - [ ] Dark mode toggle (`midnight` preset) checked explicitly.
 - [ ] Friends drawer, direct chat, invite toast still function.
 - [ ] Profile modal view/edit (including photo upload) still functions.
