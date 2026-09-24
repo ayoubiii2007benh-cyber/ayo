@@ -35,6 +35,7 @@
     --radius-md: 14px;
     --radius-sm: 9px;
     --radius-pill: 999px;
+    --radius-hero: 40px;
     --shadow-xs: 0 1px 2px rgba(20, 16, 14, 0.06);
     --shadow-md: 0 10px 28px rgba(20, 16, 14, 0.08);
     --shadow-lg: 0 20px 48px rgba(20, 16, 14, 0.14);
@@ -47,8 +48,9 @@
     --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 64px;
     --text-2xs: 0.75rem; --text-xs: 0.8125rem; --text-sm: 0.875rem;
     --text-base: 1rem; --text-md: 1.0625rem; --text-lg: 1.25rem; --text-xl: 1.5rem;
-    --text-display: clamp(2.25rem, 5vw, 3rem);
-    --text-timer: clamp(3.6rem, 14vw, 6rem);
+    --text-2xl: clamp(1.75rem, 3vw, 2.25rem);
+    --text-display: clamp(2.5rem, 6vw, 3.75rem);
+    --text-timer: clamp(4.5rem, 17vw, 8.5rem);
     --accent-gradient: linear-gradient(135deg, var(--accent-pomodoro), var(--accent-longBreak));
   }
   html[data-mode="pomodoro"]   { --accent: var(--accent-pomodoro); --accent-soft: var(--accent-soft-pomodoro); }
@@ -175,30 +177,44 @@
   }
 
   /* ---------- layout ---------- */
+  .eyebrow {
+    display: block;
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-weight: 500;
+    font-size: var(--text-md);
+    letter-spacing: 0.01em;
+    color: var(--accent);
+    margin-bottom: var(--space-2);
+  }
+
   header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    max-width: 1040px;
+    max-width: 1280px;
     margin: 0 auto;
-    padding: 20px clamp(16px, 4vw, 32px) 4px;
+    padding: var(--space-6) clamp(20px, 4vw, 48px) var(--space-3);
   }
-  #app-title { font-size: var(--text-lg); font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
+  #app-title {
+    font-family: var(--font-serif); font-style: italic; font-weight: 500;
+    font-size: var(--text-xl); letter-spacing: 0; color: var(--text);
+  }
 
   main {
-    max-width: 1040px;
+    max-width: 1280px;
     margin: 0 auto;
-    padding: 16px clamp(16px, 4vw, 32px) 120px;
+    padding: var(--space-2) clamp(20px, 4vw, 48px) 140px;
     display: grid;
-    grid-template-columns: minmax(300px, 420px) 1fr;
-    gap: 24px;
+    grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.3fr);
+    gap: var(--space-7);
     align-items: start;
   }
   #view-dashboard { display: contents; }
-  #stats-dashboard { grid-column: 1 / -1; }
+  #timer, #stats-dashboard { grid-column: 1 / -1; }
   /* Each column stacks its own cards independently via flex, so column heights never
-     have to line up — .col-left (timer, missions) and .col-right (tasks, AI chat). */
-  .col-left, .col-right { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+     have to line up — .col-left (missions) and .col-right (tasks, AI chat). */
+  .col-left, .col-right { display: flex; flex-direction: column; gap: var(--space-7); min-width: 0; }
   @media (max-width: 860px) {
     main { grid-template-columns: 1fr; padding-bottom: 140px; }
   }
@@ -222,30 +238,43 @@
   .icon-btn:active { transform: translateY(0); }
 
   /* ---------- timer card ---------- */
-  #timer {
-    border-radius: var(--radius-lg);
-    padding: clamp(24px, 4vw, 36px) clamp(20px, 4vw, 32px) 30px;
+  .hero {
+    position: relative;
+    overflow: hidden;
+    border-radius: var(--radius-hero);
+    padding: clamp(56px, 9vw, 96px) clamp(24px, 6vw, 64px) clamp(40px, 6vw, 64px);
     text-align: center;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    isolation: isolate;
+  }
+  .hero::before {
+    content: '';
+    position: absolute; inset: 0; z-index: -1;
+    background:
+      radial-gradient(ellipse 60% 55% at 18% 8%, var(--accent-soft), transparent 60%),
+      radial-gradient(ellipse 50% 50% at 90% 100%, var(--accent-soft), transparent 65%);
+    opacity: 0.9;
   }
 
   #active-task-display {
     font-family: var(--font-serif);
     font-style: italic;
     font-weight: 500;
-    font-size: var(--text-md);
+    font-size: var(--text-lg);
     letter-spacing: 0.01em;
     color: var(--text-muted);
     min-height: 1.4em;
-    margin-bottom: var(--space-4);
+    margin-bottom: var(--space-5);
     word-break: break-word;
   }
   .mode-tabs {
-    display: flex; justify-content: center; gap: 6px; margin-bottom: 4px; flex-wrap: wrap;
+    display: flex; justify-content: center; gap: var(--space-2); margin-bottom: 4px; flex-wrap: wrap;
   }
   .mode-tab {
-    border: 1px solid var(--border); background: transparent; border-radius: 999px;
-    padding: 6px 14px; font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
-    color: var(--text-muted); cursor: pointer; min-height: 32px;
+    border: 1px solid var(--border); background: transparent; border-radius: var(--radius-pill);
+    padding: 9px 20px; font-size: var(--text-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--text-muted); cursor: pointer; min-height: 38px;
     transition: color var(--transition-fast), background-color var(--transition-fast), border-color var(--transition-fast);
   }
   .mode-tab[aria-selected="true"] { color: var(--accent-contrast); background: var(--accent); border-color: var(--accent); }
@@ -253,12 +282,13 @@
     font-size: var(--text-timer);
     font-weight: 800;
     line-height: 1;
-    margin: var(--space-4) 0 var(--space-5);
+    margin: var(--space-6) 0 var(--space-6);
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.03em;
+    letter-spacing: -0.04em;
   }
   @keyframes timer-pulse { 0% { opacity: 0.35; transform: scale(0.95); } 100% { opacity: 1; transform: scale(1); } }
   .timer-display--pulse { animation: timer-pulse 0.32s ease; }
+  .btn-hero { padding-inline: 48px; font-size: var(--text-md); min-height: 56px; }
   .timer-controls {
     display: flex;
     justify-content: center;
@@ -425,37 +455,38 @@
 
   /* ---------- stats dashboard ---------- */
   #stats-dashboard {
-    border-radius: var(--radius-lg);
-    padding: var(--space-5) clamp(20px, 4vw, 30px);
+    padding: var(--space-6) clamp(4px, 2vw, 12px);
     display: grid;
     grid-template-columns: repeat(4, 1fr);
     gap: var(--space-4);
   }
-  .stat-tile { text-align: center; min-width: 0; position: relative; }
+  .stat-tile { text-align: left; min-width: 0; position: relative; }
   .stat-tile:not(:first-child)::before {
-    content: ''; position: absolute; left: calc(-1 * var(--space-4) / 2); top: 15%; bottom: 15%;
+    content: ''; position: absolute; left: calc(-1 * var(--space-4) / 2); top: 6%; bottom: 6%;
     width: 1px; background: var(--border);
   }
   .stat-tile__value {
     display: block;
-    font-size: var(--text-xl);
-    font-weight: 800;
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-size: var(--text-2xl);
+    font-weight: 600;
     letter-spacing: -0.01em;
     color: var(--text);
-    line-height: 1.2;
+    line-height: 1.1;
     font-variant-numeric: tabular-nums;
   }
   .stat-tile__label {
     display: block;
     font-size: var(--text-2xs);
     font-weight: 600;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--text-muted);
-    margin-top: 4px;
+    margin-top: var(--space-2);
   }
   @media (max-width: 600px) {
-    #stats-dashboard { grid-template-columns: repeat(2, 1fr); row-gap: 18px; }
+    #stats-dashboard { grid-template-columns: repeat(2, 1fr); row-gap: var(--space-5); }
     .stat-tile:nth-child(odd)::before { content: none; }
   }
 
@@ -525,11 +556,12 @@
 
   /* ---------- top nav ---------- */
   .top-nav {
-    display: flex; gap: 6px; max-width: 1040px; margin: 4px auto 0; padding: 0 clamp(16px, 4vw, 32px) 6px;
+    display: flex; gap: var(--space-2); max-width: 1280px; margin: 0 auto; padding: 0 clamp(20px, 4vw, 48px) var(--space-3);
     overflow-x: auto;
   }
   .nav-link {
-    border: none; background: transparent; color: var(--text-muted); font-weight: 600; font-size: var(--text-sm);
+    border: none; background: transparent; color: var(--text-muted); font-weight: 600; font-size: var(--text-xs);
+    text-transform: uppercase; letter-spacing: 0.08em;
     padding: 8px 4px; margin: 0 10px; border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; flex-shrink: 0;
     position: relative;
     transition: color var(--transition-fast), background-color var(--transition-fast);
@@ -544,12 +576,14 @@
 
   /* ---------- reports & leaderboard views ---------- */
   #view-reports, #view-leaderboard {
-    max-width: 1040px; margin: 0 auto; border-radius: var(--radius-lg);
-    padding: clamp(22px, 4vw, 30px);
+    max-width: 1280px; margin: 0 auto;
+    padding: var(--space-2) clamp(4px, 2vw, 12px) var(--space-6);
   }
-  #view-reports h2, #view-leaderboard h2 { font-size: var(--text-lg); font-weight: 700; margin-bottom: 4px; }
+  #view-reports h2, #view-leaderboard h2 {
+    font-size: var(--text-display); font-weight: 800; letter-spacing: -0.02em; margin-bottom: var(--space-6);
+  }
   #view-reports h3 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin: 20px 0 12px; font-weight: 700; }
-  .reports-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
+  .reports-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-6); margin-top: var(--space-2); max-width: 640px; }
   .bar-chart { display: flex; align-items: flex-end; gap: 10px; height: 160px; padding-top: 10px; }
   .bar-chart__col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 6px; }
   .bar-chart__bar { width: 100%; max-width: 36px; background: var(--accent); border-radius: 6px 6px 2px 2px; min-height: 3px; }
@@ -705,10 +739,11 @@
   /* ---------- study lounge ---------- */
   #view-lounge {
     max-width: 1440px; margin: 0 auto;
-    padding: 16px clamp(16px, 4vw, 32px) 120px;
+    padding: var(--space-2) clamp(20px, 4vw, 48px) 120px;
   }
-  .lounge-heading { max-width: 1440px; margin: 0 auto 8px; }
-  .lounge-heading h2 { font-size: 1.1rem; margin-bottom: 4px; }
+  .lounge-heading { max-width: 1440px; margin: 0 auto var(--space-6); }
+  .lounge-heading h2 { font-size: var(--text-display); font-weight: 800; letter-spacing: -0.02em; margin-bottom: var(--space-3); }
+  .lounge-heading .field-hint { max-width: 520px; }
   #view-lounge h3 {
     font-family: var(--font-serif); font-style: italic; font-weight: 500; text-transform: none;
     font-size: var(--text-md); letter-spacing: 0.01em; color: var(--text-muted);
@@ -1076,7 +1111,23 @@
 
 <main>
 <div id="view-dashboard">
-  <section id="stats-dashboard" class="glass" aria-label="Your stats">
+  <section id="timer" class="hero" aria-label="Pomodoro timer">
+    <p id="active-task-display">Choose a task to focus on</p>
+    <div class="mode-tabs" role="tablist" aria-label="Timer mode">
+      <button type="button" role="tab" class="mode-tab" id="mode-tab-pomodoro" data-mode="pomodoro" aria-selected="true" tabindex="0">Pomodoro</button>
+      <button type="button" role="tab" class="mode-tab" id="mode-tab-shortBreak" data-mode="shortBreak" aria-selected="false" tabindex="-1">Short Break</button>
+      <button type="button" role="tab" class="mode-tab" id="mode-tab-longBreak" data-mode="longBreak" aria-selected="false" tabindex="-1">Long Break</button>
+    </div>
+    <div id="timer-display" aria-live="off">25:00</div>
+    <div class="timer-controls">
+      <button id="timer-toggle" type="button" class="btn btn-primary btn-hero">Start</button>
+      <button id="timer-reset" type="button" class="btn btn-secondary">Reset</button>
+      <button id="timer-skip" type="button" class="btn btn-secondary">Skip</button>
+    </div>
+    <p id="pomodoro-count">Today's Pomodoros: 0</p>
+  </section>
+
+  <section id="stats-dashboard" aria-label="Your stats">
     <div class="stat-tile">
       <span class="stat-tile__value" id="stat-total-pomodoros">0</span>
       <span class="stat-tile__label">Total Pomodoros</span>
@@ -1096,23 +1147,8 @@
   </section>
 
   <div class="col-left">
-    <section id="timer" class="glass" aria-label="Pomodoro timer">
-      <p id="active-task-display">Choose a task to focus on</p>
-      <div class="mode-tabs" role="tablist" aria-label="Timer mode">
-        <button type="button" role="tab" class="mode-tab" id="mode-tab-pomodoro" data-mode="pomodoro" aria-selected="true" tabindex="0">Pomodoro</button>
-        <button type="button" role="tab" class="mode-tab" id="mode-tab-shortBreak" data-mode="shortBreak" aria-selected="false" tabindex="-1">Short Break</button>
-        <button type="button" role="tab" class="mode-tab" id="mode-tab-longBreak" data-mode="longBreak" aria-selected="false" tabindex="-1">Long Break</button>
-      </div>
-      <div id="timer-display" aria-live="off">25:00</div>
-      <div class="timer-controls">
-        <button id="timer-toggle" type="button" class="btn btn-primary">Start</button>
-        <button id="timer-reset" type="button" class="btn btn-secondary">Reset</button>
-        <button id="timer-skip" type="button" class="btn btn-secondary">Skip</button>
-      </div>
-      <p id="pomodoro-count">Today's Pomodoros: 0</p>
-    </section>
-
     <section id="missions" class="glass" aria-label="Missions and skills">
+      <span class="eyebrow">Progress</span>
       <h2>Missions &amp; Skills</h2>
       <h3>Today's Missions</h3>
       <div class="missions-list" id="missions-list"></div>
@@ -1123,6 +1159,7 @@
 
   <div class="col-right">
     <section id="tasks" class="glass" aria-label="Daily planner">
+      <span class="eyebrow">Focus</span>
       <h2>Today's Plan</h2>
       <form id="task-form">
         <label for="task-input" class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);">Task description</label>
@@ -1145,6 +1182,7 @@
     </section>
 
     <section id="ai-chat" class="glass" aria-label="AI assistant">
+      <span class="eyebrow">Assistant</span>
       <div class="ai-chat__header">
         <h2>AI Assistant</h2>
         <span class="ai-chat__status" id="ai-chat-status">
@@ -1163,7 +1201,8 @@
   </div>
 </div>
 
-<div id="view-reports" class="glass" aria-label="Reports and analytics" hidden>
+<div id="view-reports" aria-label="Reports and analytics" hidden>
+  <span class="eyebrow">Your data</span>
   <h2>Reports &amp; Analytics</h2>
   <div class="reports-summary">
     <div class="stat-tile">
@@ -1183,7 +1222,8 @@
   <div class="bar-chart" id="reports-chart" role="img" aria-label="Pomodoros completed per day for the last 7 days"></div>
 </div>
 
-<div id="view-leaderboard" class="glass" aria-label="Your best days" hidden>
+<div id="view-leaderboard" aria-label="Your best days" hidden>
+  <span class="eyebrow">Personal record</span>
   <h2>Your Best Days</h2>
   <p class="field-hint">Ranked by pomodoros completed. This app has no account system or other real users, so this is a personal ranking of your own history, not a multi-user leaderboard.</p>
   <ol class="leaderboard-list" id="leaderboard-list"></ol>
@@ -1192,6 +1232,7 @@
 
 <div id="view-lounge" aria-label="Study Lounge" hidden>
   <div class="lounge-heading">
+    <span class="eyebrow">Co-op focus</span>
     <h2>Study Lounge</h2>
     <p class="field-hint">Demo Mode — friends and group members here are simulated locally; nothing is sent over the network.</p>
   </div>
