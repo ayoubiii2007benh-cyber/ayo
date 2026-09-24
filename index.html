@@ -635,6 +635,28 @@
   }
   .profile-modal__edit-actions { display: flex; gap: 8px; justify-content: center; margin-top: 4px; }
 
+  /* ---------- auth modal ---------- */
+  dialog#auth-modal {
+    border: none; border-radius: var(--radius-lg); padding: 0;
+    width: min(380px, calc(100vw - 32px)); max-height: min(600px, calc(100vh - 48px));
+    box-shadow: var(--shadow-lg); background: var(--surface);
+  }
+  dialog#auth-modal::backdrop { background: rgba(20, 16, 14, 0.45); }
+  .auth-modal__form { padding: 22px clamp(20px, 5vw, 28px); overflow-y: auto; max-height: inherit; display: flex; flex-direction: column; gap: 12px; }
+  .auth-modal__form h2 { font-size: 1.15rem; text-align: center; }
+  .auth-modal__tabs { display: flex; gap: 6px; background: rgba(36, 31, 28, 0.06); border-radius: var(--radius-sm); padding: 4px; }
+  .auth-modal__tab {
+    flex: 1; border: none; background: transparent; padding: 8px; border-radius: var(--radius-sm);
+    font-weight: 600; font-size: 0.85rem; color: var(--text-muted); cursor: pointer;
+  }
+  .auth-modal__tab.is-active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+  #auth-panel-login, #auth-panel-signup { display: flex; flex-direction: column; gap: 10px; }
+  .auth-modal__form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); }
+  .auth-modal__form input {
+    padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+    background: var(--surface); color: var(--text); font: inherit;
+  }
+
   /* ---------- study lounge ---------- */
   #view-lounge {
     max-width: 1440px; margin: 0 auto;
@@ -1438,7 +1460,11 @@
         <div class="profile-modal__stat"><span class="profile-modal__stat-value" id="profile-stat-followers"></span><span class="profile-modal__stat-label">Followers</span></div>
         <div class="profile-modal__stat"><span class="profile-modal__stat-value" id="profile-stat-hours"></span><span class="profile-modal__stat-label">Hours</span></div>
       </div>
-      <button type="button" class="btn btn-secondary" id="profile-modal-edit-btn">Edit Profile</button>
+      <p class="field-hint" id="profile-modal-account-hint"></p>
+      <div class="profile-modal__edit-actions">
+        <button type="button" class="btn btn-secondary" id="profile-modal-edit-btn">Edit Profile</button>
+        <button type="button" class="btn btn-secondary" id="profile-modal-switch-account-btn">Switch Account</button>
+      </div>
     </div>
 
     <div id="profile-modal-edit" hidden>
@@ -1461,6 +1487,45 @@
         <button type="button" class="btn btn-primary" id="profile-edit-save">Save</button>
       </div>
     </div>
+  </form>
+</dialog>
+
+<dialog id="auth-modal" aria-labelledby="auth-modal-title">
+  <form method="dialog" class="auth-modal__form">
+    <h2 id="auth-modal-title">Welcome</h2>
+    <p class="field-hint">This app runs entirely on your device — there's no server or real account security. Accounts here just keep separate people's stats and settings apart if you share this computer.</p>
+
+    <div class="auth-modal__tabs" role="tablist">
+      <button type="button" role="tab" id="auth-tab-login" class="auth-modal__tab is-active" aria-selected="true">Log In</button>
+      <button type="button" role="tab" id="auth-tab-signup" class="auth-modal__tab" aria-selected="false">Sign Up</button>
+    </div>
+
+    <div id="auth-panel-login">
+      <label for="auth-login-identifier">Username or Email
+        <input type="text" id="auth-login-identifier" autocomplete="username">
+      </label>
+      <label for="auth-login-password">Password
+        <input type="password" id="auth-login-password" autocomplete="current-password">
+      </label>
+      <span class="field-status" id="status-auth-login"></span>
+      <button type="button" class="btn btn-primary" id="auth-login-submit">Log In</button>
+    </div>
+
+    <div id="auth-panel-signup" hidden>
+      <label for="auth-signup-username">Username
+        <input type="text" id="auth-signup-username" maxlength="24" autocomplete="username">
+      </label>
+      <label for="auth-signup-email">Email
+        <input type="email" id="auth-signup-email" maxlength="100" autocomplete="email">
+      </label>
+      <label for="auth-signup-password">Password
+        <input type="password" id="auth-signup-password" autocomplete="new-password">
+      </label>
+      <span class="field-status" id="status-auth-signup"></span>
+      <button type="button" class="btn btn-primary" id="auth-signup-submit">Create Account</button>
+    </div>
+
+    <button type="button" class="btn btn-secondary" id="auth-guest-btn">Continue as Guest</button>
   </form>
 </dialog>
 
@@ -1532,15 +1597,37 @@ const DAILY_HISTORY_MAX = 90;
 
 /* ============================== Storage ============================== */
 
+// Set at boot from the "pomodoroActiveAccount" registry key, before any
+// Storage.load* call runs. Guest / never-chosen both resolve to unprefixed
+// keys, so existing data is always reachable by default.
+let activeAccountId = null;
+
+function storageKey(key) {
+  return (activeAccountId && activeAccountId !== 'guest') ? `acct:${activeAccountId}:${key}` : key;
+}
 function safeParse(key) {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = localStorage.getItem(storageKey(key));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return (parsed && typeof parsed === 'object') ? parsed : null;
   } catch { return null; }
 }
 function safeSet(key, value) {
+  try { localStorage.setItem(storageKey(key), JSON.stringify(value)); } catch { /* storage unavailable or full: ignore */ }
+}
+// Bypasses account namespacing entirely — used only for the account
+// registry itself ("pomodoroAccounts"/"pomodoroActiveAccount"), which must
+// stay readable no matter who is currently logged in.
+function safeParseGlobal(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed;
+  } catch { return null; }
+}
+function safeSetGlobal(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage unavailable or full: ignore */ }
 }
 
@@ -2039,6 +2126,70 @@ const Planner = {
   },
 };
 
+/* ============================== Auth (local, device-only profile switcher) ==============================
+   There is no server anywhere in this app. "Accounts" are just named local
+   storage namespaces on this one device/browser, used to keep separate
+   people's stats/tasks/profile/Lounge data apart when sharing a computer.
+   passwordHash is NOT a security boundary — see simpleHash below. */
+
+// Rolling hash (not cryptographic) — only ever compared against another
+// value produced the same way, purely to gate local profile switching.
+function simpleHash(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
+  return String(h);
+}
+
+const Auth = {
+  loadAccounts() {
+    const raw = safeParseGlobal('pomodoroAccounts');
+    return Array.isArray(raw) ? raw : [];
+  },
+  saveAccounts(accounts) { safeSetGlobal('pomodoroAccounts', accounts); },
+
+  signUp(username, email, password) {
+    const trimmedUser = (username || '').trim().slice(0, 24);
+    const trimmedEmail = (email || '').trim().slice(0, 100);
+    if (!trimmedUser || !trimmedEmail || !password) return { ok: false, reason: 'Please fill in all fields.' };
+    const accounts = Auth.loadAccounts();
+    if (accounts.some((a) => a.email.toLowerCase() === trimmedEmail.toLowerCase())) {
+      return { ok: false, reason: 'An account with that email already exists.' };
+    }
+    const account = { id: makeId(), username: trimmedUser, email: trimmedEmail, passwordHash: simpleHash(password), createdAt: Date.now() };
+    accounts.push(account);
+    Auth.saveAccounts(accounts);
+    Auth.logIn(account.id);
+    return { ok: true };
+  },
+
+  logInWithCredentials(identifier, password) {
+    const trimmed = (identifier || '').trim().toLowerCase();
+    if (!trimmed || !password) return { ok: false, reason: 'Please fill in all fields.' };
+    const accounts = Auth.loadAccounts();
+    const account = accounts.find((a) => a.username.toLowerCase() === trimmed || a.email.toLowerCase() === trimmed);
+    if (!account) return { ok: false, reason: 'No account found with that username or email.' };
+    if (account.passwordHash !== simpleHash(password)) return { ok: false, reason: 'Incorrect password.' };
+    Auth.logIn(account.id);
+    return { ok: true };
+  },
+
+  // Reloads so every subsystem (Timer, Lounge engine, IndexedDB media,
+  // music player, AI chat) re-boots fresh under the new storage namespace,
+  // rather than trying to manually re-init each one in place.
+  logIn(accountId) {
+    safeSetGlobal('pomodoroActiveAccount', accountId);
+    location.reload();
+  },
+  continueAsGuest() {
+    // No reload: guest already IS the unprefixed keys the app booted with.
+    safeSetGlobal('pomodoroActiveAccount', 'guest');
+  },
+  logOut() {
+    localStorage.removeItem('pomodoroActiveAccount');
+    location.reload();
+  },
+};
+
 /* ============================== State (boot) ============================== */
 
 const State = {
@@ -2066,6 +2217,7 @@ const State = {
     Storage.saveStats(state.stats);
   },
   init() {
+    activeAccountId = safeParseGlobal('pomodoroActiveAccount');
     state.settings = Storage.loadSettings();
     const { tasks, activeTaskId } = Storage.loadTasksAndActive();
     state.tasks = tasks;
