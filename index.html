@@ -179,7 +179,7 @@
     margin: 0 auto;
     padding: 20px clamp(16px, 4vw, 32px) 4px;
   }
-  #app-title { font-size: 1.15rem; color: var(--text); }
+  #app-title { font-size: var(--text-lg); font-weight: 800; letter-spacing: -0.02em; color: var(--text); }
 
   main {
     max-width: 1040px;
@@ -491,25 +491,31 @@
     cursor: pointer; padding: 4px 2px; border-radius: var(--radius-sm); max-width: 120px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .user-profile__name:hover { background: rgba(36, 31, 28, 0.06); }
+  .user-profile__name:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
   @media (max-width: 560px) {
     .user-profile__name { display: none; }
   }
-  .user-profile__avatar--emoji { font-size: 1.05rem; background: rgba(36, 31, 28, 0.06); color: inherit; }
+  .user-profile__avatar--emoji { font-size: 1.05rem; background: color-mix(in srgb, var(--text) 6%, transparent); color: inherit; }
   .user-profile__avatar--photo { background-size: cover; background-position: center; color: transparent; }
 
   /* ---------- top nav ---------- */
   .top-nav {
-    display: flex; gap: 6px; max-width: 1040px; margin: 4px auto 0; padding: 0 clamp(16px, 4vw, 32px);
+    display: flex; gap: 6px; max-width: 1040px; margin: 4px auto 0; padding: 0 clamp(16px, 4vw, 32px) 6px;
     overflow-x: auto;
   }
   .nav-link {
-    border: none; background: transparent; color: var(--text-muted); font-weight: 600; font-size: 0.85rem;
-    padding: 8px 14px; border-radius: 999px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+    border: none; background: transparent; color: var(--text-muted); font-weight: 600; font-size: var(--text-sm);
+    padding: 8px 4px; margin: 0 10px; border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; flex-shrink: 0;
+    position: relative;
     transition: color var(--transition-fast), background-color var(--transition-fast);
   }
-  .nav-link[aria-current="page"] { color: var(--accent-contrast); background: var(--accent); }
-  .nav-link:not([aria-current="page"]):hover { background: rgba(36, 31, 28, 0.06); }
+  .nav-link::after {
+    content: ''; position: absolute; left: 4px; right: 4px; bottom: -5px; height: 2px;
+    background: var(--accent); transform: scaleX(0); transition: transform var(--transition-fast);
+  }
+  .nav-link[aria-current="page"] { color: var(--text); font-weight: 700; background: transparent; }
+  .nav-link[aria-current="page"]::after { transform: scaleX(1); }
+  .nav-link:not([aria-current="page"]):hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
 
   /* ---------- reports & leaderboard views ---------- */
   #view-reports, #view-leaderboard {
@@ -555,7 +561,7 @@
     .live-users__label { display: none; }
   }
   .lounge-chip { border: 1px solid var(--border); cursor: pointer; font-weight: 700; color: var(--text); }
-  .lounge-chip:hover { background: rgba(36, 31, 28, 0.08); }
+  .lounge-chip:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
 
   /* ---------- friends drawer, chat, invite toast ---------- */
   .friends-drawer-backdrop { position: fixed; inset: 0; background: rgba(20, 16, 14, 0.45); z-index: 40; }
