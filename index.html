@@ -766,16 +766,6 @@
     border-radius: var(--radius-sm); background: var(--surface); color: var(--text);
   }
 
-  .invite-toast {
-    position: fixed; bottom: 24px; right: 24px; max-width: 320px; z-index: 50;
-    background: var(--surface); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg);
-    padding: 16px 18px; border: 1px solid var(--border);
-  }
-  .invite-toast__actions { display: flex; gap: 8px; margin-top: 10px; }
-  @media (max-width: 460px) {
-    .invite-toast { left: 16px; right: 16px; bottom: 16px; max-width: none; }
-  }
-
   .lounge-friend-item__chat { flex-shrink: 0; }
 
   /* ---------- profile modal ---------- */
@@ -1785,14 +1775,6 @@
   </form>
 </dialog>
 
-<div id="invite-toast" class="invite-toast" hidden role="status">
-  <p id="invite-toast-text"></p>
-  <div class="invite-toast__actions">
-    <button type="button" class="btn btn-primary" id="invite-toast-accept">Accept</button>
-    <button type="button" class="btn btn-secondary" id="invite-toast-dismiss">Dismiss</button>
-  </div>
-</div>
-
 <dialog id="profile-modal" aria-labelledby="profile-modal-title">
   <form method="dialog" class="profile-modal__form">
     <div class="profile-modal__header">
@@ -1960,7 +1942,7 @@ const state = {
   dailyHistory: [],
   currentView: 'dashboard',
   activeChatFriendId: null,
-  lounge: { room: null, pendingInvite: null },
+  lounge: { room: null },
 };
 
 const DAILY_HISTORY_MAX = 90;
@@ -3659,18 +3641,6 @@ const Lounge = {
     return { status: 'idle', text: 'Idle / Ready' };
   },
 
-  acceptInvite() {
-    const pending = state.lounge.pendingInvite;
-    if (!pending) return;
-    state.lounge.pendingInvite = null;
-    Lounge.joinRoom(pending.code);
-    UI.renderInviteToast();
-    UI.selectView('lounge');
-  },
-  dismissInvite() {
-    state.lounge.pendingInvite = null;
-    UI.renderInviteToast();
-  },
 
   phaseFraction(m) {
     if (m.status === 'idle') return 0;
@@ -4440,15 +4410,6 @@ const UI = {
     list.scrollTop = list.scrollHeight;
   },
 
-  renderInviteToast() {
-    const toast = document.getElementById('invite-toast');
-    if (!toast) return;
-    const pending = state.lounge.pendingInvite;
-    toast.hidden = !pending;
-    if (pending) {
-      document.getElementById('invite-toast-text').textContent = `${pending.friendName} invited you to their study room!`;
-    }
-  },
 
   renderLoungeChip() {
     const chip = document.getElementById('lounge-chip');
@@ -5635,9 +5596,6 @@ const UI = {
       Api.post(`/api/conversations/${message.senderId}/read`);
     });
 
-    // ---- Invite toast ----
-    document.getElementById('invite-toast-accept').addEventListener('click', () => Lounge.acceptInvite());
-    document.getElementById('invite-toast-dismiss').addEventListener('click', () => Lounge.dismissInvite());
 
     UI.renderLoungeLobby();
     UI.renderLoungeFriends();
