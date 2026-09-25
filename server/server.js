@@ -5,6 +5,7 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const { WebSocketServer } = require('ws');
 
 const { db, id: newId, pairKey } = require('./db');
@@ -14,6 +15,10 @@ const PORT = Number(process.env.PORT) || 3000;
 const allowedOrigins = (process.env.ALLOWED_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
 
 const app = express();
+app.use(helmet({
+  contentSecurityPolicy: false, // configured separately in a later pass
+  frameguard: { action: 'deny' }, // matches that pass's frame-ancestors 'none'
+}));
 app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : true }));
 app.use(express.json({ limit: '100kb' }));
 
