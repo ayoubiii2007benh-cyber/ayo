@@ -1471,7 +1471,7 @@
   <div class="lounge-heading">
     <span class="eyebrow">Co-op focus</span>
     <h2>Study Lounge</h2>
-    <p class="field-hint">Demo Mode — friends and group members here are simulated locally; nothing is sent over the network.</p>
+    <p class="field-hint">Your friends list here is real. Rooms are still a local demo — the people in a room are simulated, not actually connected.</p>
   </div>
   <div class="lounge-lobby-grid" id="lounge-lobby-grid">
     <section class="glass" aria-label="Friends">
@@ -1743,22 +1743,29 @@
     <button type="button" class="icon-btn" id="friends-drawer-close" aria-label="Close friends panel"><svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
   </div>
 
-  <form id="friend-search-form" class="lounge-inline-form">
-    <input type="text" id="friend-search-input" maxlength="24" placeholder="Search by username" aria-label="Search by username" required>
-    <button type="submit" class="btn btn-secondary">Search</button>
-  </form>
-  <p class="field-status" id="friend-search-status"></p>
-  <ul class="lounge-friends-list" id="friend-search-results" hidden></ul>
-
-  <div id="friend-requests-section" hidden>
-    <h3>Friend Requests</h3>
-    <ul class="lounge-friends-list" id="friend-requests-incoming"></ul>
-    <ul class="lounge-friends-list" id="friend-requests-outgoing"></ul>
+  <div id="friends-drawer-guest" hidden>
+    <p class="field-hint">Log in to add friends, see who's online, and chat in real time.</p>
+    <button type="button" class="btn btn-primary" id="friends-drawer-login-btn">Log In / Sign Up</button>
   </div>
 
-  <h3>Friends</h3>
-  <ul class="lounge-friends-list" id="friends-drawer-list"></ul>
-  <p class="field-hint" id="friends-drawer-empty" hidden>No friends yet — search for a username above to send a request.</p>
+  <div id="friends-drawer-content">
+    <form id="friend-search-form" class="lounge-inline-form">
+      <input type="text" id="friend-search-input" maxlength="24" placeholder="Search by username" aria-label="Search by username" required>
+      <button type="submit" class="btn btn-secondary">Search</button>
+    </form>
+    <p class="field-status" id="friend-search-status"></p>
+    <ul class="lounge-friends-list" id="friend-search-results" hidden></ul>
+
+    <div id="friend-requests-section" hidden>
+      <h3>Friend Requests</h3>
+      <ul class="lounge-friends-list" id="friend-requests-incoming"></ul>
+      <ul class="lounge-friends-list" id="friend-requests-outgoing"></ul>
+    </div>
+
+    <h3>Friends</h3>
+    <ul class="lounge-friends-list" id="friends-drawer-list"></ul>
+    <p class="field-hint" id="friends-drawer-empty" hidden>No friends yet — search for a username above to send a request.</p>
+  </div>
 </div>
 
 <dialog id="chat-dialog" aria-labelledby="chat-dialog-title">
@@ -2455,7 +2462,11 @@ const Api = {
     }
     let json = null;
     try { json = await res.json(); } catch { /* empty body */ }
-    if (!res.ok) throw new Error((json && json.error) || `Request failed (${res.status}).`);
+    if (!res.ok) {
+      const err = new Error((json && json.error) || `Request failed (${res.status}).`);
+      err.status = res.status;
+      throw err;
+    }
     return json;
   },
   get(path) { return this.request('GET', path); },
@@ -2510,8 +2521,11 @@ const Auth = {
     try {
       const { user } = await Api.get('/api/auth/me');
       Auth.currentUser = user;
-    } catch {
-      Api.setToken(null); // expired/invalid token
+    } catch (err) {
+      // Only a real rejection of the token (expired/invalid/account gone) should
+      // sign the user out. A network hiccup or a briefly-down/cold-starting
+      // server must not log a returning user out from under them.
+      if (err.status === 401 || err.status === 404) Api.setToken(null);
     }
   },
 
@@ -3516,72 +3530,6 @@ function setFieldStatus(el, text, kind) {
    positioned, sized, and dismissed the way a real dropdown component would be. The select
    itself stays in the DOM (visually hidden) and remains the source of truth for `.value`,
    so nothing that already reads avatarSelect.value needs to change. */
-function enhanceEmojiSelect(selectId) {
-  const select = document.getElementById(selectId);
-  if (!select || select.dataset.enhanced) return;
-  select.dataset.enhanced = 'true';
-
-  const wrap = document.createElement('div');
-  wrap.className = 'emoji-picker';
-
-  const trigger = document.createElement('button');
-  trigger.type = 'button';
-  trigger.className = 'emoji-picker__trigger';
-  trigger.setAttribute('aria-haspopup', 'listbox');
-  trigger.setAttribute('aria-expanded', 'false');
-  trigger.setAttribute('aria-label', select.getAttribute('aria-label') || 'Choose an avatar');
-
-  const menu = document.createElement('div');
-  menu.className = 'emoji-picker__menu';
-  menu.setAttribute('role', 'listbox');
-  menu.hidden = true;
-
-  const syncTrigger = () => { trigger.textContent = select.value || (select.options[0] && select.options[0].value) || ''; };
-
-  const closeMenu = () => {
-    menu.hidden = true;
-    trigger.setAttribute('aria-expanded', 'false');
-    document.removeEventListener('click', onDocClick, true);
-    document.removeEventListener('keydown', onKeydown);
-  };
-  function onDocClick(e) { if (!wrap.contains(e.target)) closeMenu(); }
-  function onKeydown(e) { if (e.key === 'Escape') { closeMenu(); trigger.focus(); } }
-
-  const openMenu = () => {
-    menu.replaceChildren();
-    for (const opt of select.options) {
-      const item = document.createElement('button');
-      item.type = 'button';
-      item.className = 'emoji-picker__item';
-      item.textContent = opt.value;
-      item.setAttribute('role', 'option');
-      item.setAttribute('aria-selected', String(opt.value === select.value));
-      item.addEventListener('click', () => {
-        select.value = opt.value;
-        syncTrigger();
-        closeMenu();
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-      });
-      menu.appendChild(item);
-    }
-    menu.hidden = false;
-    trigger.setAttribute('aria-expanded', 'true');
-    document.addEventListener('click', onDocClick, true);
-    document.addEventListener('keydown', onKeydown);
-  };
-
-  trigger.addEventListener('click', () => { if (menu.hidden) openMenu(); else closeMenu(); });
-
-  select.parentNode.insertBefore(wrap, select);
-  wrap.append(trigger, menu, select);
-  select.classList.add('emoji-picker__native');
-  select.tabIndex = -1;
-  select.setAttribute('aria-hidden', 'true');
-
-  syncTrigger();
-  new MutationObserver(syncTrigger).observe(select, { childList: true });
-}
-
 function validateDuration(inputId, errorId, min, max) {
   const inputEl = document.getElementById(inputId);
   const errorEl = document.getElementById(errorId);
@@ -3984,6 +3932,8 @@ const UI = {
       loggedIn ? Auth.currentUser.displayName : state.profile.username;
     document.getElementById('profile-modal-logout-btn').hidden = !loggedIn;
     document.getElementById('profile-modal-login-btn').hidden = loggedIn;
+    document.getElementById('friends-drawer-guest').hidden = loggedIn;
+    document.getElementById('friends-drawer-content').hidden = !loggedIn;
     Friends.refreshAll();
     Notifications.refreshAll();
   },
@@ -4002,6 +3952,9 @@ const UI = {
     document.getElementById('profile-stat-followers').textContent = String(followers);
     const hours = state.stats.totalFocusMinutes / 60;
     document.getElementById('profile-stat-hours').textContent = hours >= 10 ? String(Math.round(hours)) : hours.toFixed(1);
+    document.getElementById('profile-modal-account-hint').textContent = Auth.isLoggedIn()
+      ? `Signed in as ${Auth.currentUser.username}. Friends, presence, and chat are saved online.`
+      : 'Using this device as a guest — your timer, tasks, and stats stay local. Log in to add friends and sync across devices.';
   },
 
   openProfileModal() {
@@ -4054,8 +4007,9 @@ const UI = {
         statusEl.textContent = f.online ? 'Online' : 'Offline';
         statusEl.dataset.status = f.online ? 'online' : 'offline';
       }
-      const emptyMsg = document.getElementById('friends-drawer-empty');
-      if (listId === 'friends-drawer-list' && emptyMsg) emptyMsg.hidden = Friends.list.length > 0;
+      const emptyMsgId = { 'lounge-friends-list': 'lounge-friends-empty', 'friends-drawer-list': 'friends-drawer-empty' }[listId];
+      const emptyMsg = emptyMsgId && document.getElementById(emptyMsgId);
+      if (emptyMsg) emptyMsg.hidden = Friends.list.length > 0;
       for (const li of [...list.children]) {
         if (!seen.has(li.dataset.friendId)) li.remove();
       }
@@ -4090,7 +4044,12 @@ const UI = {
       actionBtn.addEventListener('click', async () => {
         actionBtn.disabled = true;
         try {
-          if (u.relationship === 'none') await Friends.sendRequest(u.id);
+          if (u.relationship === 'none') {
+            await Friends.sendRequest(u.id);
+          } else if (u.relationship === 'pending_out') {
+            const outgoing = Friends.outgoing.find((r) => r.user.id === u.id);
+            if (outgoing) await Friends.cancel(outgoing.id);
+          }
           await Friends.refreshAll();
           document.getElementById('friend-search-form').requestSubmit();
         } catch (err) {
@@ -4117,10 +4076,22 @@ const UI = {
       name.textContent = `${r.user.displayName} wants to be friends`;
       const acceptBtn = document.createElement('button');
       acceptBtn.type = 'button'; acceptBtn.className = 'btn btn-primary'; acceptBtn.textContent = 'Accept';
-      acceptBtn.addEventListener('click', () => { acceptBtn.disabled = true; Friends.accept(r.id); });
+      acceptBtn.addEventListener('click', () => {
+        acceptBtn.disabled = true;
+        Friends.accept(r.id).catch((err) => {
+          setFieldStatus(document.getElementById('friend-search-status'), err.message, 'error');
+          Friends.refreshAll();
+        });
+      });
       const rejectBtn = document.createElement('button');
       rejectBtn.type = 'button'; rejectBtn.className = 'btn btn-secondary'; rejectBtn.textContent = 'Decline';
-      rejectBtn.addEventListener('click', () => { rejectBtn.disabled = true; Friends.reject(r.id); });
+      rejectBtn.addEventListener('click', () => {
+        rejectBtn.disabled = true;
+        Friends.reject(r.id).catch((err) => {
+          setFieldStatus(document.getElementById('friend-search-status'), err.message, 'error');
+          Friends.refreshAll();
+        });
+      });
       li.append(name, acceptBtn, rejectBtn);
       incomingList.appendChild(li);
     }
@@ -4133,7 +4104,13 @@ const UI = {
       name.textContent = `Request sent to ${r.user.displayName}`;
       const cancelBtn = document.createElement('button');
       cancelBtn.type = 'button'; cancelBtn.className = 'btn btn-secondary'; cancelBtn.textContent = 'Cancel';
-      cancelBtn.addEventListener('click', () => { cancelBtn.disabled = true; Friends.cancel(r.id); });
+      cancelBtn.addEventListener('click', () => {
+        cancelBtn.disabled = true;
+        Friends.cancel(r.id).catch((err) => {
+          setFieldStatus(document.getElementById('friend-search-status'), err.message, 'error');
+          Friends.refreshAll();
+        });
+      });
       li.append(name, cancelBtn);
       outgoingList.appendChild(li);
     }
@@ -4171,20 +4148,6 @@ const UI = {
       li.append(dot, body);
       li.addEventListener('click', () => { if (!n.readAt) Notifications.markRead(n.id); });
       list.appendChild(li);
-    }
-  },
-
-  renderLoungeLobby() {
-    for (const selectId of ['lounge-friend-avatar-select', 'lounge-friend-avatar-select-active', 'friends-drawer-avatar-select']) {
-      const select = document.getElementById(selectId);
-      if (select && !select.childElementCount) {
-        for (const emoji of Lounge.PROFILE_EMOJI) {
-          const opt = document.createElement('option');
-          opt.value = emoji;
-          opt.textContent = emoji;
-          select.appendChild(opt);
-        }
-      }
     }
   },
 
@@ -4438,7 +4401,7 @@ const UI = {
     const inRoom = !!state.lounge.room;
     lobbyGrid.hidden = inRoom;
     active.hidden = !inRoom;
-    if (inRoom) UI.renderLoungeRoom(); else UI.renderLoungeLobby();
+    if (inRoom) UI.renderLoungeRoom();
   },
 
   renderDarkModeToggle() {
@@ -5043,13 +5006,19 @@ const UI = {
     });
   },
 
-  async init() {
+  init() {
     State.init();
-    await Auth.init();
-    UI.syncAuthUI();
-    if (!Auth.isLoggedIn() && !safeParseGlobal('pomodoroGuestChoice')) {
-      document.getElementById('auth-modal').showModal();
-    }
+    // Deliberately not awaited: the timer/tasks/settings below are fully local
+    // and must render and become interactive immediately, even if the backend
+    // is slow, cold-starting, or briefly unreachable. Auth-dependent UI
+    // (header name, friends/notifications, the first-visit auth modal)
+    // catches up as soon as the session check resolves.
+    Auth.init().then(() => {
+      UI.syncAuthUI();
+      if (!Auth.isLoggedIn() && !safeParseGlobal('pomodoroGuestChoice')) {
+        document.getElementById('auth-modal').showModal();
+      }
+    });
     UI.renderTasks();
     UI.renderPomodoroCount();
     UI.renderStatsDashboard();
@@ -5126,6 +5095,7 @@ const UI = {
     document.getElementById('profile-modal-logout-btn').addEventListener('click', () => {
       document.getElementById('profile-modal').close();
       Auth.logout();
+      clearAuthModalInputs();
       document.getElementById('auth-modal').showModal();
     });
     document.getElementById('profile-modal-login-btn').addEventListener('click', () => {
@@ -5139,6 +5109,15 @@ const UI = {
     });
 
     // ---- Auth modal ----
+    const clearAuthModalInputs = () => {
+      document.getElementById('auth-login-identifier').value = '';
+      document.getElementById('auth-login-password').value = '';
+      document.getElementById('auth-signup-username').value = '';
+      document.getElementById('auth-signup-email').value = '';
+      document.getElementById('auth-signup-password').value = '';
+      setFieldStatus(document.getElementById('status-auth-login'), '', '');
+      setFieldStatus(document.getElementById('status-auth-signup'), '', '');
+    };
     const selectAuthTab = (tab) => {
       const isLogin = tab === 'login';
       document.getElementById('auth-tab-login').classList.toggle('is-active', isLogin);
@@ -5158,6 +5137,7 @@ const UI = {
       try {
         await Auth.login(identifier, password);
         document.getElementById('auth-modal').close();
+        clearAuthModalInputs();
       } catch (err) {
         setFieldStatus(status, err.message, 'error');
       }
@@ -5171,6 +5151,7 @@ const UI = {
       try {
         await Auth.register(username, password, username, email);
         document.getElementById('auth-modal').close();
+        clearAuthModalInputs();
       } catch (err) {
         setFieldStatus(status, err.message, 'error');
       }
@@ -5537,8 +5518,13 @@ const UI = {
       document.getElementById('friends-drawer-backdrop').hidden = true;
     };
     document.getElementById('friends-drawer-toggle').addEventListener('click', openFriendsDrawer);
+    document.getElementById('lounge-manage-friends-btn').addEventListener('click', openFriendsDrawer);
     document.getElementById('friends-drawer-close').addEventListener('click', closeFriendsDrawer);
     document.getElementById('friends-drawer-backdrop').addEventListener('click', closeFriendsDrawer);
+    document.getElementById('friends-drawer-login-btn').addEventListener('click', () => {
+      closeFriendsDrawer();
+      document.getElementById('auth-modal').showModal();
+    });
     document.getElementById('friend-search-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const input = document.getElementById('friend-search-input');
@@ -5597,9 +5583,7 @@ const UI = {
     });
 
 
-    UI.renderLoungeLobby();
     UI.renderLoungeFriends();
-    ['lounge-friend-avatar-select', 'lounge-friend-avatar-select-active', 'friends-drawer-avatar-select'].forEach(enhanceEmojiSelect);
 
     UI.renderAppearanceUI();
   },

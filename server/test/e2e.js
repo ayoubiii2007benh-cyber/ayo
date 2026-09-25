@@ -94,8 +94,14 @@ async function main() {
   console.log('7. Bob sees it via REST too, then accepts');
   const bobReqs = await api(bobToken, 'GET', '/api/friends/requests');
   assert(bobReqs.json.incoming.length === 1 && bobReqs.json.incoming[0].user.id === aliceId, 'Bob sees incoming request via REST');
-  const acceptRes = await api(bobToken, 'POST', `/api/friends/requests/${pushedReq.request.id}/accept`);
-  assert(acceptRes.status === 200, 'Bob accepts the request');
+  const restRequestId = bobReqs.json.incoming[0].id;
+  // Regression guard for the column-collision bug this branch fixed: the REST
+  // response's request id must be its own id, not silently overwritten by the
+  // joined user's id (which is what `SELECT r.id, ..., u.*` used to produce).
+  assert(restRequestId !== aliceId, 'REST request id is not the requester\'s user id (column-collision regression)');
+  assert(restRequestId === pushedReq.request.id, 'REST and WebSocket-pushed request ids agree');
+  const acceptRes = await api(bobToken, 'POST', `/api/friends/requests/${restRequestId}/accept`);
+  assert(acceptRes.status === 200, 'Bob accepts the request using the REST-sourced id');
   const pushedAccept = await waitFor(alice.events, (e) => e.type === 'friend-accept');
   assert(pushedAccept.friend.id === bobId, 'Alice got a live push that Bob accepted');
 
@@ -153,6 +159,54 @@ async function main() {
   assert(!afterRemove.json.friends.some((f) => f.id === aliceId), 'friendship removed both directions');
   const blockedAfterRemove = await api(aliceToken, 'POST', `/api/conversations/${bobId}/messages`, { text: 'should fail now' });
   assert(blockedAfterRemove.status === 403, 'messaging a former friend is rejected after removal');
+
+  console.log('15. cancel and reject friend requests');
+  const daveReg = await api(null, 'POST', '/api/auth/register', { username: `dave_${suffix}`, password: 'hunter22' });
+  const eveReg = await api(null, 'POST', '/api/auth/register', { username: `eve_${suffix}`, password: 'hunter22' });
+  const daveToken = daveReg.json.token, daveId = daveReg.json.user.id;
+  const eveToken = eveReg.json.token, eveId = eveReg.json.user.id;
+
+  const daveToEve1 = await api(daveToken, 'POST', '/api/friends/requests', { toUserId: eveId });
+  const cancelRes = await api(daveToken, 'DELETE', `/api/friends/requests/${daveToEve1.json.requestId}`);
+  assert(cancelRes.status === 200, 'Dave cancels his own outgoing request');
+  const eveReqsAfterCancel = await api(eveToken, 'GET', '/api/friends/requests');
+  assert(eveReqsAfterCancel.json.incoming.length === 0, 'Eve sees no incoming request after Dave cancelled it');
+
+  const daveToEve2 = await api(daveToken, 'POST', '/api/friends/requests', { toUserId: eveId });
+  const rejectRes = await api(eveToken, 'POST', `/api/friends/requests/${daveToEve2.json.requestId}/reject`);
+  assert(rejectRes.status === 200, 'Eve rejects the second request');
+  const daveEveFriends = await api(daveToken, 'GET', '/api/friends');
+  assert(!daveEveFriends.json.friends.some((f) => f.id === eveId), 'Dave and Eve are not friends after rejection');
+  const cancelSomeoneElses = await api(eveToken, 'DELETE', `/api/friends/requests/${daveToEve1.json.requestId}`);
+  assert(cancelSomeoneElses.status === 404, 'Eve cannot cancel a request that was not hers to cancel');
+
+  console.log('16. mutual simultaneous friend requests both resolve to a single friendship');
+  const frankReg = await api(null, 'POST', '/api/auth/register', { username: `frank_${suffix}`, password: 'hunter22' });
+  const graceReg = await api(null, 'POST', '/api/auth/register', { username: `grace_${suffix}`, password: 'hunter22' });
+  const frankToken = frankReg.json.token, frankId = frankReg.json.user.id;
+  const graceToken = graceReg.json.token, graceId = graceReg.json.user.id;
+  const [frankToGrace, graceToFrank] = await Promise.all([
+    api(frankToken, 'POST', '/api/friends/requests', { toUserId: graceId }),
+    api(graceToken, 'POST', '/api/friends/requests', { toUserId: frankId }),
+  ]);
+  assert(
+    [frankToGrace.status, graceToFrank.status].every((s) => s === 200 || s === 201),
+    `both simultaneous requests succeeded (got ${frankToGrace.status}, ${graceToFrank.status})`
+  );
+  const frankFriends = await api(frankToken, 'GET', '/api/friends');
+  const graceFriends = await api(graceToken, 'GET', '/api/friends');
+  assert(frankFriends.json.friends.some((f) => f.id === graceId), 'Frank sees Grace as a friend');
+  assert(graceFriends.json.friends.some((f) => f.id === frankId), 'Grace sees Frank as a friend');
+  const frankReqsFinal = await api(frankToken, 'GET', '/api/friends/requests');
+  const graceReqsFinal = await api(graceToken, 'GET', '/api/friends/requests');
+  assert(
+    frankReqsFinal.json.incoming.length === 0 && frankReqsFinal.json.outgoing.length === 0,
+    'Frank has no stray pending requests'
+  );
+  assert(
+    graceReqsFinal.json.incoming.length === 0 && graceReqsFinal.json.outgoing.length === 0,
+    'Grace has no stray pending requests'
+  );
 
   alice.ws.close();
 
