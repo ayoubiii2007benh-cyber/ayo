@@ -208,6 +208,22 @@ async function main() {
     'Grace has no stray pending requests'
   );
 
+  console.log('17. rate limiting on search kicks in after 30 requests/minute');
+  let lastSearchStatus = 200;
+  for (let i = 0; i < 31; i++) {
+    const r = await api(aliceToken, 'GET', '/api/users/search?q=te');
+    lastSearchStatus = r.status;
+  }
+  assert(lastSearchStatus === 429, `31st search in a minute is rate-limited (got ${lastSearchStatus})`);
+
+  console.log('18. logout invalidates the old token everywhere');
+  const preLogoutCheck = await api(aliceToken, 'GET', '/api/auth/me');
+  assert(preLogoutCheck.status === 200, 'token works before logout');
+  const logoutRes = await api(aliceToken, 'POST', '/api/auth/logout');
+  assert(logoutRes.status === 200, 'logout succeeds');
+  const postLogoutCheck = await api(aliceToken, 'GET', '/api/auth/me');
+  assert(postLogoutCheck.status === 401, 'the same token is rejected after logout');
+
   alice.ws.close();
 
   console.log(`\n${passed} passed, ${failed} failed`);
