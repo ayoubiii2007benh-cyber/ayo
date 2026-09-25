@@ -2571,6 +2571,38 @@ Socket.on('online-count', ({ count }) => {
   if (el) el.textContent = String(count);
 });
 
+/* ============================== Friends ==============================
+   Real friends/requests/search against the backend in server/. */
+const Friends = {
+  list: [], incoming: [], outgoing: [],
+
+  async refreshAll() {
+    if (!Auth.isLoggedIn()) { Friends.list = []; Friends.incoming = []; Friends.outgoing = []; }
+    else {
+      const [{ friends }, { incoming, outgoing }] = await Promise.all([
+        Api.get('/api/friends'),
+        Api.get('/api/friends/requests'),
+      ]);
+      Friends.list = friends; Friends.incoming = incoming; Friends.outgoing = outgoing;
+    }
+    if (typeof UI !== 'undefined') { UI.renderLoungeFriends(); UI.renderFriendRequests(); }
+  },
+  search(query) { return Api.get(`/api/users/search?q=${encodeURIComponent(query)}`).then((r) => r.users); },
+  sendRequest(userId) { return Api.post('/api/friends/requests', { toUserId: userId }); },
+  accept(requestId) { return Api.post(`/api/friends/requests/${requestId}/accept`).then(() => Friends.refreshAll()); },
+  reject(requestId) { return Api.post(`/api/friends/requests/${requestId}/reject`).then(() => Friends.refreshAll()); },
+  cancel(requestId) { return Api.del(`/api/friends/requests/${requestId}`).then(() => Friends.refreshAll()); },
+  remove(friendId) { return Api.del(`/api/friends/${friendId}`).then(() => Friends.refreshAll()); },
+};
+
+Socket.on('friend-request', () => Friends.refreshAll());
+Socket.on('friend-accept', () => Friends.refreshAll());
+Socket.on('presence', ({ userId, online, lastSeenAt }) => {
+  const f = Friends.list.find((x) => x.id === userId);
+  if (f) { f.online = online; f.lastSeenAt = lastSeenAt; }
+  if (typeof UI !== 'undefined') UI.renderLoungeFriends();
+});
+
 /* ============================== State (boot) ============================== */
 
 const State = {
@@ -3694,14 +3726,6 @@ const Lounge = {
     Lounge._syncEngine();
     return true;
   },
-  inviteFriendToRoom(friendId) {
-    if (!state.lounge.room) return false;
-    const friend = state.lounge.friends.find((f) => f.id === friendId);
-    if (!friend) return false;
-    state.lounge.room.members.push(Lounge._makeBotMember(friend.name, friend.avatar));
-    Lounge._logActivity(state.lounge.room, `${friend.name} was invited to the room.`);
-    return true;
-  },
   leaveRoom() {
     state.lounge.room = null;
     Lounge._syncEngine();
@@ -3965,6 +3989,7 @@ const UI = {
       loggedIn ? Auth.currentUser.displayName : state.profile.username;
     document.getElementById('profile-modal-logout-btn').hidden = !loggedIn;
     document.getElementById('profile-modal-login-btn').hidden = loggedIn;
+    Friends.refreshAll();
   },
 
   renderProfileModalView() {
@@ -3976,8 +4001,8 @@ const UI = {
     document.getElementById('profile-modal-bio').textContent = state.profile.bio || 'No bio yet.';
     document.getElementById('profile-modal-title-badge').textContent = `Lv. ${level} · ${Lounge.titleForLevel(level)}`;
     document.getElementById('profile-stat-xp').textContent = String(state.stats.focusXP);
-    document.getElementById('profile-stat-friends').textContent = String(state.lounge.friends.length);
-    const followers = Math.max(0, level * 4 + state.stats.currentStreak * 2 + state.lounge.friends.length);
+    document.getElementById('profile-stat-friends').textContent = String(Friends.list.length);
+    const followers = Math.max(0, level * 4 + state.stats.currentStreak * 2 + Friends.list.length);
     document.getElementById('profile-stat-followers').textContent = String(followers);
     const hours = state.stats.totalFocusMinutes / 60;
     document.getElementById('profile-stat-hours').textContent = hours >= 10 ? String(Math.round(hours)) : hours.toFixed(1);
@@ -4006,7 +4031,7 @@ const UI = {
       const list = document.getElementById(listId);
       if (!list) continue;
       const seen = new Set();
-      for (const f of state.lounge.friends) {
+      for (const f of Friends.list) {
         seen.add(f.id);
         let li = list.querySelector(`li[data-friend-id="${f.id}"]`);
         if (!li) {
@@ -4019,33 +4044,102 @@ const UI = {
           name.className = 'lounge-friend-item__name';
           const status = document.createElement('span');
           status.className = 'lounge-friend-item__status';
-          const inviteBtn = document.createElement('button');
-          inviteBtn.type = 'button';
-          inviteBtn.className = 'btn btn-secondary lounge-friend-item__invite';
-          inviteBtn.textContent = 'Invite to Room';
-          inviteBtn.addEventListener('click', () => {
-            Lounge.inviteFriendToRoom(f.id);
-            UI.renderLoungeView();
-          });
           const chatBtn = document.createElement('button');
           chatBtn.type = 'button';
           chatBtn.className = 'btn btn-secondary lounge-friend-item__chat';
           chatBtn.textContent = 'Chat';
           chatBtn.addEventListener('click', () => UI.openChat(f.id));
-          li.append(avatar, name, status, inviteBtn, chatBtn);
+          li.append(avatar, name, status, chatBtn);
           list.appendChild(li);
         }
-        li.querySelector('.lounge-friend-item__avatar').textContent = f.avatar;
-        li.querySelector('.lounge-friend-item__name').textContent = f.name;
-        const presence = Lounge.friendPresenceLabel(f);
+        li.querySelector('.lounge-friend-item__avatar').textContent = f.avatar || '🙂';
+        li.querySelector('.lounge-friend-item__name').textContent = f.displayName;
         const statusEl = li.querySelector('.lounge-friend-item__status');
-        statusEl.textContent = presence.text;
-        statusEl.dataset.status = presence.status;
-        li.querySelector('.lounge-friend-item__invite').disabled = !state.lounge.room;
+        statusEl.textContent = f.online ? 'Online' : 'Offline';
+        statusEl.dataset.status = f.online ? 'online' : 'offline';
       }
+      const emptyMsg = document.getElementById('friends-drawer-empty');
+      if (listId === 'friends-drawer-list' && emptyMsg) emptyMsg.hidden = Friends.list.length > 0;
       for (const li of [...list.children]) {
         if (!seen.has(li.dataset.friendId)) li.remove();
       }
+    }
+  },
+
+  renderFriendSearchResults(users) {
+    const list = document.getElementById('friend-search-results');
+    const status = document.getElementById('friend-search-status');
+    list.replaceChildren();
+    list.hidden = users.length === 0;
+    if (users.length === 0) {
+      setFieldStatus(status, 'No matching users. Try at least 2 characters of their username.', '');
+      return;
+    }
+    setFieldStatus(status, '', '');
+    for (const u of users) {
+      const li = document.createElement('li');
+      li.className = 'lounge-friend-item';
+      const avatar = document.createElement('span');
+      avatar.className = 'lounge-friend-item__avatar';
+      avatar.textContent = u.avatar || '🙂';
+      const name = document.createElement('span');
+      name.className = 'lounge-friend-item__name';
+      name.textContent = u.displayName;
+      const actionBtn = document.createElement('button');
+      actionBtn.type = 'button';
+      actionBtn.className = 'btn btn-secondary';
+      const relationLabels = { none: 'Add', pending_out: 'Cancel', pending_in: 'Respond below', friends: 'Friends' };
+      actionBtn.textContent = relationLabels[u.relationship] || 'Add';
+      actionBtn.disabled = u.relationship === 'friends' || u.relationship === 'pending_in';
+      actionBtn.addEventListener('click', async () => {
+        actionBtn.disabled = true;
+        try {
+          if (u.relationship === 'none') await Friends.sendRequest(u.id);
+          await Friends.refreshAll();
+          document.getElementById('friend-search-form').requestSubmit();
+        } catch (err) {
+          setFieldStatus(status, err.message, 'error');
+          actionBtn.disabled = false;
+        }
+      });
+      li.append(avatar, name, actionBtn);
+      list.appendChild(li);
+    }
+  },
+
+  renderFriendRequests() {
+    const section = document.getElementById('friend-requests-section');
+    const incomingList = document.getElementById('friend-requests-incoming');
+    const outgoingList = document.getElementById('friend-requests-outgoing');
+    section.hidden = Friends.incoming.length === 0 && Friends.outgoing.length === 0;
+    incomingList.replaceChildren();
+    for (const r of Friends.incoming) {
+      const li = document.createElement('li');
+      li.className = 'lounge-friend-item';
+      const name = document.createElement('span');
+      name.className = 'lounge-friend-item__name';
+      name.textContent = `${r.user.displayName} wants to be friends`;
+      const acceptBtn = document.createElement('button');
+      acceptBtn.type = 'button'; acceptBtn.className = 'btn btn-primary'; acceptBtn.textContent = 'Accept';
+      acceptBtn.addEventListener('click', () => { acceptBtn.disabled = true; Friends.accept(r.id); });
+      const rejectBtn = document.createElement('button');
+      rejectBtn.type = 'button'; rejectBtn.className = 'btn btn-secondary'; rejectBtn.textContent = 'Decline';
+      rejectBtn.addEventListener('click', () => { rejectBtn.disabled = true; Friends.reject(r.id); });
+      li.append(name, acceptBtn, rejectBtn);
+      incomingList.appendChild(li);
+    }
+    outgoingList.replaceChildren();
+    for (const r of Friends.outgoing) {
+      const li = document.createElement('li');
+      li.className = 'lounge-friend-item';
+      const name = document.createElement('span');
+      name.className = 'lounge-friend-item__name';
+      name.textContent = `Request sent to ${r.user.displayName}`;
+      const cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button'; cancelBtn.className = 'btn btn-secondary'; cancelBtn.textContent = 'Cancel';
+      cancelBtn.addEventListener('click', () => { cancelBtn.disabled = true; Friends.cancel(r.id); });
+      li.append(name, cancelBtn);
+      outgoingList.appendChild(li);
     }
   },
 
@@ -5405,6 +5499,23 @@ const UI = {
     document.getElementById('friends-drawer-toggle').addEventListener('click', openFriendsDrawer);
     document.getElementById('friends-drawer-close').addEventListener('click', closeFriendsDrawer);
     document.getElementById('friends-drawer-backdrop').addEventListener('click', closeFriendsDrawer);
+    document.getElementById('friend-search-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('friend-search-input');
+      const status = document.getElementById('friend-search-status');
+      const query = input.value.trim();
+      if (query.length < 2) {
+        setFieldStatus(status, 'Type at least 2 characters.', '');
+        document.getElementById('friend-search-results').hidden = true;
+        return;
+      }
+      try {
+        const users = await Friends.search(query);
+        UI.renderFriendSearchResults(users);
+      } catch (err) {
+        setFieldStatus(status, err.message, 'error');
+      }
+    });
 
     // ---- Chat dialog ----
     document.getElementById('chat-dialog-close').addEventListener('click', () => document.getElementById('chat-dialog').close());
