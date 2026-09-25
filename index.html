@@ -2603,6 +2603,30 @@ Socket.on('presence', ({ userId, online, lastSeenAt }) => {
   if (typeof UI !== 'undefined') UI.renderLoungeFriends();
 });
 
+/* ============================== Notifications ============================== */
+const Notifications = {
+  items: [], unreadCount: 0,
+
+  async refreshAll() {
+    if (!Auth.isLoggedIn()) { Notifications.items = []; Notifications.unreadCount = 0; }
+    else {
+      const { notifications, unreadCount } = await Api.get('/api/notifications');
+      Notifications.items = notifications; Notifications.unreadCount = unreadCount;
+    }
+    if (typeof UI !== 'undefined') UI.renderNotifications();
+  },
+  markRead(id) { return Api.post(`/api/notifications/${id}/read`).then(() => Notifications.refreshAll()); },
+  markAllRead() { return Api.post('/api/notifications/read-all').then(() => Notifications.refreshAll()); },
+};
+Socket.on('notification', ({ notification }) => {
+  Notifications.items.unshift(notification);
+  Notifications.unreadCount++;
+  if (typeof UI !== 'undefined') UI.renderNotifications();
+});
+Socket.on('message', ({ message }) => {
+  if (state.activeChatFriendId !== message.senderId) Notifications.refreshAll();
+});
+
 /* ============================== State (boot) ============================== */
 
 const State = {
@@ -3990,6 +4014,7 @@ const UI = {
     document.getElementById('profile-modal-logout-btn').hidden = !loggedIn;
     document.getElementById('profile-modal-login-btn').hidden = loggedIn;
     Friends.refreshAll();
+    Notifications.refreshAll();
   },
 
   renderProfileModalView() {
@@ -4140,6 +4165,41 @@ const UI = {
       cancelBtn.addEventListener('click', () => { cancelBtn.disabled = true; Friends.cancel(r.id); });
       li.append(name, cancelBtn);
       outgoingList.appendChild(li);
+    }
+  },
+
+  renderNotifications() {
+    const badge = document.getElementById('notif-badge');
+    const list = document.getElementById('notif-list');
+    const empty = document.getElementById('notif-empty');
+    badge.hidden = Notifications.unreadCount === 0;
+    badge.textContent = String(Notifications.unreadCount);
+    empty.hidden = Notifications.items.length > 0;
+    list.replaceChildren();
+    for (const n of Notifications.items) {
+      const li = document.createElement('li');
+      li.className = 'notif-item';
+      li.dataset.unread = String(!n.readAt);
+      const dot = document.createElement('span');
+      dot.className = 'notif-item__dot';
+      const body = document.createElement('div');
+      body.className = 'notif-item__body';
+      const text = document.createElement('span');
+      text.className = 'notif-item__text';
+      const who = n.data.from ? n.data.from.displayName : (n.data.by ? n.data.by.displayName : 'Someone');
+      const copy = {
+        friend_request: `${who} sent you a friend request`,
+        friend_accept: `${who} accepted your friend request`,
+        message: `${who}: ${n.data.preview || ''}`,
+      };
+      text.textContent = copy[n.type] || 'New notification';
+      const time = document.createElement('span');
+      time.className = 'notif-item__time';
+      time.textContent = new Date(n.createdAt).toLocaleString();
+      body.append(text, time);
+      li.append(dot, body);
+      li.addEventListener('click', () => { if (!n.readAt) Notifications.markRead(n.id); });
+      list.appendChild(li);
     }
   },
 
@@ -5048,6 +5108,16 @@ const UI = {
       UI.renderMuteToggle();
       if (typeof UI.renderMusicUI === 'function') UI.renderMusicUI();
     });
+
+    // ---- Notifications ----
+    document.getElementById('notif-trigger').addEventListener('click', () => {
+      const menu = document.getElementById('notif-menu');
+      const trigger = document.getElementById('notif-trigger');
+      const opening = menu.hidden;
+      menu.hidden = !opening;
+      trigger.setAttribute('aria-expanded', String(opening));
+    });
+    document.getElementById('notif-mark-all-read').addEventListener('click', () => Notifications.markAllRead());
 
     // ---- Mobile header menu ----
     const siteHeader = document.getElementById('site-header');
