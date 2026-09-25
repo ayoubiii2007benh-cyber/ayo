@@ -1959,7 +1959,8 @@ const state = {
   profile: { username: 'You', avatar: '', bio: '', localAvatarId: null, _avatarUrl: null },
   dailyHistory: [],
   currentView: 'dashboard',
-  lounge: { friends: [], room: null, chats: {}, activeChatFriendId: null, pendingInvite: null },
+  activeChatFriendId: null,
+  lounge: { room: null, pendingInvite: null },
 };
 
 const DAILY_HISTORY_MAX = 90;
@@ -4408,23 +4409,31 @@ const UI = {
     if (wasNearBottom) list.scrollTop = list.scrollHeight;
   },
 
-  openChat(friendId) {
-    state.lounge.activeChatFriendId = friendId;
-    const friend = state.lounge.friends.find((f) => f.id === friendId);
-    document.getElementById('chat-dialog-title').textContent = friend ? `Chat with ${friend.name}` : 'Chat';
-    UI.renderChatThread(friendId);
+  async openChat(friendId) {
+    state.activeChatFriendId = friendId;
+    const friend = Friends.list.find((f) => f.id === friendId);
+    document.getElementById('chat-dialog-title').textContent = friend ? `Chat with ${friend.displayName}` : 'Chat';
+    document.getElementById('chat-dialog-messages').replaceChildren();
     document.getElementById('chat-dialog').showModal();
+    try {
+      const { messages } = await Api.get(`/api/conversations/${friendId}/messages`);
+      UI.renderChatThread(friendId, messages);
+      Api.post(`/api/conversations/${friendId}/read`);
+    } catch (err) {
+      const li = document.createElement('li');
+      li.className = 'chat-dialog__message chat-dialog__message--friend';
+      li.textContent = `Couldn't load messages: ${err.message}`;
+      document.getElementById('chat-dialog-messages').appendChild(li);
+    }
   },
 
-  renderChatThread(friendId) {
+  renderChatThread(friendId, messages) {
     const list = document.getElementById('chat-dialog-messages');
-    if (!list) return;
-    if (state.lounge.activeChatFriendId !== friendId) return;
+    if (!list || state.activeChatFriendId !== friendId) return;
     list.replaceChildren();
-    const thread = state.lounge.chats[friendId] || [];
-    for (const m of thread) {
+    for (const m of messages) {
       const li = document.createElement('li');
-      li.className = `chat-dialog__message chat-dialog__message--${m.from === 'me' ? 'me' : 'friend'}`;
+      li.className = `chat-dialog__message chat-dialog__message--${m.senderId === friendId ? 'friend' : 'me'}`;
       li.textContent = m.text;
       list.appendChild(li);
     }
@@ -5589,15 +5598,41 @@ const UI = {
 
     // ---- Chat dialog ----
     document.getElementById('chat-dialog-close').addEventListener('click', () => document.getElementById('chat-dialog').close());
-    document.getElementById('chat-dialog').addEventListener('close', () => { state.lounge.activeChatFriendId = null; });
-    const sendChatMessage = () => {
+    document.getElementById('chat-dialog').addEventListener('close', () => { state.activeChatFriendId = null; });
+    const sendChatMessage = async () => {
       const input = document.getElementById('chat-dialog-input');
-      const friendId = state.lounge.activeChatFriendId;
-      if (friendId && Lounge.sendMessage(friendId, input.value)) input.value = '';
+      const friendId = state.activeChatFriendId;
+      const text = input.value.trim();
+      if (!friendId || !text) return;
+      const list = document.getElementById('chat-dialog-messages');
+      try {
+        const { message } = await Api.post(`/api/conversations/${friendId}/messages`, { text });
+        input.value = '';
+        const li = document.createElement('li');
+        li.className = 'chat-dialog__message chat-dialog__message--me';
+        li.textContent = message.text;
+        list.appendChild(li);
+        list.scrollTop = list.scrollHeight;
+      } catch (err) {
+        const li = document.createElement('li');
+        li.className = 'chat-dialog__message chat-dialog__message--friend';
+        li.textContent = `Couldn't send: ${err.message}`;
+        list.appendChild(li);
+      }
     };
     document.getElementById('chat-dialog-send').addEventListener('click', sendChatMessage);
     document.getElementById('chat-dialog-input').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); sendChatMessage(); }
+    });
+    Socket.on('message', ({ message }) => {
+      if (state.activeChatFriendId !== message.senderId) return;
+      const list = document.getElementById('chat-dialog-messages');
+      const li = document.createElement('li');
+      li.className = 'chat-dialog__message chat-dialog__message--friend';
+      li.textContent = message.text;
+      list.appendChild(li);
+      list.scrollTop = list.scrollHeight;
+      Api.post(`/api/conversations/${message.senderId}/read`);
     });
 
     // ---- Invite toast ----
