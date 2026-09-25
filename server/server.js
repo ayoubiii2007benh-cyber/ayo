@@ -15,6 +15,11 @@ const PORT = Number(process.env.PORT) || 3000;
 const allowedOrigins = (process.env.ALLOWED_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
 
 const app = express();
+// Only ever enable this when actually deployed behind a real reverse
+// proxy (e.g. Render). Trusting X-Forwarded-For without one lets a
+// client set that header itself and claim any IP, bypassing every
+// IP-keyed rate limit below.
+if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
 app.use(helmet({
   contentSecurityPolicy: false, // configured separately in a later pass
   frameguard: { action: 'deny' }, // matches that pass's frame-ancestors 'none'
@@ -42,6 +47,12 @@ function rateLimited(key, max = 10, windowMs = 60_000) {
   record.count += 1;
   return record.count > max;
 }
+setInterval(() => {
+  const cutoff = Date.now() - 5 * 60_000; // well past the longest window any caller uses
+  for (const [key, record] of attempts) {
+    if (record.start < cutoff) attempts.delete(key);
+  }
+}, 5 * 60_000).unref();
 
 /* ============================== db helpers ============================== */
 
@@ -145,6 +156,7 @@ app.post('/api/auth/logout', requireAuth, (req, res) => {
 /* ============================== users ============================== */
 
 app.get('/api/users/search', requireAuth, (req, res) => {
+  if (rateLimited(`search:${req.userId}`, 30, 60_000)) return res.status(429).json({ error: 'Too many searches. Try again shortly.' });
   const q = String(req.query.q || '').trim().slice(0, 40);
   if (q.length < 2) return res.json({ users: [] });
   const rows = db.prepare(
@@ -194,6 +206,7 @@ app.get('/api/friends/requests', requireAuth, (req, res) => {
 });
 
 app.post('/api/friends/requests', requireAuth, (req, res) => {
+  if (rateLimited(`friend-req:${req.userId}`, 20, 60_000)) return res.status(429).json({ error: 'Too many friend requests. Try again shortly.' });
   const toUserId = req.body && req.body.toUserId;
   if (!toUserId || typeof toUserId !== 'string') return res.status(400).json({ error: 'toUserId is required.' });
   if (toUserId === req.userId) return res.status(400).json({ error: "You can't friend yourself." });
@@ -302,6 +315,7 @@ app.get('/api/conversations/:friendId/messages', requireAuth, (req, res) => {
 });
 
 app.post('/api/conversations/:friendId/messages', requireAuth, (req, res) => {
+  if (rateLimited(`message:${req.userId}`, 60, 60_000)) return res.status(429).json({ error: 'Sending too fast. Try again shortly.' });
   const friendId = req.params.friendId;
   if (!areFriends(req.userId, friendId)) return res.status(403).json({ error: 'You can only message friends.' });
   const text = typeof req.body.text === 'string' ? req.body.text.trim().slice(0, 2000) : '';
