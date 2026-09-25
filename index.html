@@ -1814,7 +1814,8 @@
       <p class="field-hint" id="profile-modal-account-hint"></p>
       <div class="profile-modal__edit-actions">
         <button type="button" class="btn btn-secondary" id="profile-modal-edit-btn">Edit Profile</button>
-        <button type="button" class="btn btn-secondary" id="profile-modal-switch-account-btn">Switch Account</button>
+        <button type="button" class="btn btn-secondary" id="profile-modal-logout-btn">Log Out</button>
+        <button type="button" class="btn btn-secondary" id="profile-modal-login-btn" hidden>Log In / Sign Up</button>
       </div>
     </div>
 
@@ -3962,6 +3963,8 @@ const UI = {
     document.getElementById('notif-picker').hidden = !loggedIn;
     document.getElementById('user-name-display').textContent =
       loggedIn ? Auth.currentUser.displayName : state.profile.username;
+    document.getElementById('profile-modal-logout-btn').hidden = !loggedIn;
+    document.getElementById('profile-modal-login-btn').hidden = loggedIn;
   },
 
   renderProfileModalView() {
@@ -4986,6 +4989,15 @@ const UI = {
     document.getElementById('user-name-display').addEventListener('click', () => UI.openProfileModal());
     document.getElementById('profile-modal-close').addEventListener('click', () => document.getElementById('profile-modal').close());
     document.getElementById('profile-modal-edit-btn').addEventListener('click', () => UI.openProfileEdit());
+    document.getElementById('profile-modal-logout-btn').addEventListener('click', () => {
+      document.getElementById('profile-modal').close();
+      Auth.logout();
+      document.getElementById('auth-modal').showModal();
+    });
+    document.getElementById('profile-modal-login-btn').addEventListener('click', () => {
+      document.getElementById('profile-modal').close();
+      document.getElementById('auth-modal').showModal();
+    });
     document.getElementById('profile-edit-cancel').addEventListener('click', () => {
       if (UI._pendingAvatarPhoto instanceof File) ObjectURLRegistry.revoke('profile-avatar-preview');
       document.getElementById('profile-modal-view').hidden = false;
