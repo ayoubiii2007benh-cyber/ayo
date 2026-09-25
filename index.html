@@ -1965,28 +1965,20 @@ const DAILY_HISTORY_MAX = 90;
 
 /* ============================== Storage ============================== */
 
-// Set at boot from the "pomodoroActiveAccount" registry key, before any
-// Storage.load* call runs. Guest / never-chosen both resolve to unprefixed
-// keys, so existing data is always reachable by default.
-let activeAccountId = null;
-
-function storageKey(key) {
-  return (activeAccountId && activeAccountId !== 'guest') ? `acct:${activeAccountId}:${key}` : key;
-}
 function safeParse(key) {
   try {
-    const raw = localStorage.getItem(storageKey(key));
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return (parsed && typeof parsed === 'object') ? parsed : null;
   } catch { return null; }
 }
 function safeSet(key, value) {
-  try { localStorage.setItem(storageKey(key), JSON.stringify(value)); } catch { /* storage unavailable or full: ignore */ }
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage unavailable or full: ignore */ }
 }
-// Bypasses account namespacing entirely — used only for the account
-// registry itself ("pomodoroAccounts"/"pomodoroActiveAccount"), which must
-// stay readable no matter who is currently logged in.
+// Currently identical to safeParse/safeSet — kept as a distinct name for
+// the handful of keys (pomodoroAuthToken, pomodoroGuestChoice) that are
+// conceptually account-registry state, not per-user app data.
 function safeParseGlobal(key) {
   try {
     const raw = localStorage.getItem(key);
@@ -2598,7 +2590,6 @@ const State = {
     Storage.saveStats(state.stats);
   },
   init() {
-    activeAccountId = safeParseGlobal('pomodoroActiveAccount');
     state.settings = Storage.loadSettings();
     const { tasks, activeTaskId } = Storage.loadTasksAndActive();
     state.tasks = tasks;
