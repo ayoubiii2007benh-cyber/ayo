@@ -24,7 +24,7 @@ app.use(helmet({
   contentSecurityPolicy: false, // configured separately in a later pass
   frameguard: { action: 'deny' }, // matches that pass's frame-ancestors 'none'
 }));
-app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : true }));
+app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : false }));
 app.use(express.json({ limit: '100kb' }));
 
 /* ============================== validation ============================== */
