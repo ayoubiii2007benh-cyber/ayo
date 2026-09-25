@@ -2563,6 +2563,13 @@ const Auth = {
   isLoggedIn() { return !!Auth.currentUser; },
 };
 
+/* ============================== real-time listeners ==============================
+   Global Socket listeners that don't belong to a specific feature module. */
+Socket.on('online-count', ({ count }) => {
+  const el = document.getElementById('live-users-count');
+  if (el) el.textContent = String(count);
+});
+
 /* ============================== State (boot) ============================== */
 
 const State = {
@@ -3545,45 +3552,6 @@ function validateDuration(inputId, errorId, min, max) {
   errorEl.hidden = ok;
   return ok ? n : null;
 }
-
-/* ============================== LiveUsers (simulated) ============================== */
-// No backend exists to source real concurrent-user counts, so this is an honest, purely
-// client-side visual simulation — a slowly-drifting number, not real telemetry.
-const LiveUsers = {
-  MIN: 40,
-  MAX: 65,
-  _count: 0,
-  _timer: null,
-
-  start() {
-    LiveUsers._count = LiveUsers.MIN + Math.floor(Math.random() * (LiveUsers.MAX - LiveUsers.MIN + 1));
-    LiveUsers._render();
-    LiveUsers._schedule();
-    document.addEventListener('visibilitychange', () => {
-      if (document.hidden) LiveUsers._stop();
-      else if (!LiveUsers._timer) LiveUsers._schedule();
-    });
-  },
-  _schedule() {
-    LiveUsers._timer = setTimeout(() => {
-      LiveUsers._tick();
-      LiveUsers._schedule();
-    }, 3000 + Math.random() * 2000);
-  },
-  _stop() {
-    clearTimeout(LiveUsers._timer);
-    LiveUsers._timer = null;
-  },
-  _tick() {
-    const delta = Math.round((Math.random() - 0.5) * 6); // drift by roughly -3..+3
-    LiveUsers._count = Math.min(LiveUsers.MAX, Math.max(LiveUsers.MIN, LiveUsers._count + delta));
-    LiveUsers._render();
-  },
-  _render() {
-    const el = document.getElementById('live-users-count');
-    if (el) el.textContent = String(LiveUsers._count);
-  },
-};
 
 /* ============================== Lounge (Study Lounge, simulated) ============================== */
 // No backend exists — friends and group members are entirely a local simulation. Honest, not a stopgap.
@@ -4943,6 +4911,7 @@ const UI = {
 
   init() {
     State.init();
+    Auth.init();
     UI.renderTasks();
     UI.renderPomodoroCount();
     UI.renderStatsDashboard();
@@ -4957,7 +4926,6 @@ const UI = {
     UI.renderTimerControls();
     Media.applyBackground();
     UI.renderMusicUI();
-    LiveUsers.start();
 
     ['dashboard', 'reports', 'leaderboard', 'lounge'].forEach((v) => {
       document.getElementById(`nav-${v}`).addEventListener('click', () => {
