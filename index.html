@@ -2531,8 +2531,8 @@ const Auth = {
     }
   },
 
-  async register(username, password, displayName) {
-    const { token, user } = await Api.post('/api/auth/register', { username, password, displayName });
+  async register(username, password, displayName, email) {
+    const { token, user } = await Api.post('/api/auth/register', { username, password, displayName, email });
     Auth._onAuthenticated(token, user);
   },
   async login(identifier, password) {
@@ -3957,6 +3957,13 @@ const UI = {
     UI.renderProfileModalView();
   },
 
+  syncAuthUI() {
+    const loggedIn = Auth.isLoggedIn();
+    document.getElementById('notif-picker').hidden = !loggedIn;
+    document.getElementById('user-name-display').textContent =
+      loggedIn ? Auth.currentUser.displayName : state.profile.username;
+  },
+
   renderProfileModalView() {
     const pfp = document.getElementById('profile-modal-pfp');
     if (!pfp) return;
@@ -4909,9 +4916,13 @@ const UI = {
     });
   },
 
-  init() {
+  async init() {
     State.init();
-    Auth.init();
+    await Auth.init();
+    UI.syncAuthUI();
+    if (!Auth.isLoggedIn() && !safeParseGlobal('pomodoroGuestChoice')) {
+      document.getElementById('auth-modal').showModal();
+    }
     UI.renderTasks();
     UI.renderPomodoroCount();
     UI.renderStatsDashboard();
@@ -4979,6 +4990,48 @@ const UI = {
       if (UI._pendingAvatarPhoto instanceof File) ObjectURLRegistry.revoke('profile-avatar-preview');
       document.getElementById('profile-modal-view').hidden = false;
       document.getElementById('profile-modal-edit').hidden = true;
+    });
+
+    // ---- Auth modal ----
+    const selectAuthTab = (tab) => {
+      const isLogin = tab === 'login';
+      document.getElementById('auth-tab-login').classList.toggle('is-active', isLogin);
+      document.getElementById('auth-tab-login').setAttribute('aria-selected', String(isLogin));
+      document.getElementById('auth-tab-signup').classList.toggle('is-active', !isLogin);
+      document.getElementById('auth-tab-signup').setAttribute('aria-selected', String(!isLogin));
+      document.getElementById('auth-panel-login').hidden = !isLogin;
+      document.getElementById('auth-panel-signup').hidden = isLogin;
+    };
+    document.getElementById('auth-tab-login').addEventListener('click', () => selectAuthTab('login'));
+    document.getElementById('auth-tab-signup').addEventListener('click', () => selectAuthTab('signup'));
+    document.getElementById('auth-login-submit').addEventListener('click', async () => {
+      const status = document.getElementById('status-auth-login');
+      const identifier = document.getElementById('auth-login-identifier').value.trim();
+      const password = document.getElementById('auth-login-password').value;
+      setFieldStatus(status, '', '');
+      try {
+        await Auth.login(identifier, password);
+        document.getElementById('auth-modal').close();
+      } catch (err) {
+        setFieldStatus(status, err.message, 'error');
+      }
+    });
+    document.getElementById('auth-signup-submit').addEventListener('click', async () => {
+      const status = document.getElementById('status-auth-signup');
+      const username = document.getElementById('auth-signup-username').value.trim();
+      const email = document.getElementById('auth-signup-email').value.trim();
+      const password = document.getElementById('auth-signup-password').value;
+      setFieldStatus(status, '', '');
+      try {
+        await Auth.register(username, password, username, email);
+        document.getElementById('auth-modal').close();
+      } catch (err) {
+        setFieldStatus(status, err.message, 'error');
+      }
+    });
+    document.getElementById('auth-guest-btn').addEventListener('click', () => {
+      Auth.continueAsGuest();
+      document.getElementById('auth-modal').close();
     });
 
     const emojiPickerEl = document.getElementById('profile-modal-emoji-picker');
