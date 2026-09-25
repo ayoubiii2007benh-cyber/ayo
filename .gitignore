@@ -1,2 +1,6 @@
 .playwright-mcp/
 .superpowers/
+server/node_modules/
+server/data.db
+server/data.db-*
+server/.env
