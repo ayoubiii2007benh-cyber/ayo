@@ -70,6 +70,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
 `);
 
+// Added after the initial schema shipped -- ALTER TABLE, not CREATE TABLE
+// IF NOT EXISTS, because this column doesn't exist on a database created
+// before this change. Guarded so it's also safe to run against a
+// database that already has it (a fresh install's CREATE TABLE could be
+// updated instead, but this guard means either database layout works).
+const userCols = db.prepare('PRAGMA table_info(users)').all();
+if (!userCols.some((c) => c.name === 'token_version')) {
+  db.exec('ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0');
+}
+
 function id() {
   return crypto.randomUUID();
 }

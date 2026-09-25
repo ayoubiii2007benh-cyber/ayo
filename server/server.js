@@ -105,7 +105,7 @@ app.post('/api/auth/register', (req, res) => {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, username, email || null, hash, (displayName || username).slice(0, 40), (avatar || '').slice(0, 8), '', now, now);
     const user = getUserById(id);
-    res.status(201).json({ token: signToken(id), user: publicUser(user) });
+    res.status(201).json({ token: signToken(id, 0), user: publicUser(user) });
   }).catch(() => res.status(500).json({ error: 'Could not create the account. Try again.' }));
 });
 
@@ -117,7 +117,7 @@ app.post('/api/auth/login', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Incorrect username/email or password.' });
   verifyPassword(password, user.password_hash).then((ok) => {
     if (!ok) return res.status(401).json({ error: 'Incorrect username/email or password.' });
-    res.json({ token: signToken(user.id), user: publicUser(user) });
+    res.json({ token: signToken(user.id, user.token_version), user: publicUser(user) });
   }).catch(() => res.status(500).json({ error: 'Login failed. Try again.' }));
 });
 
@@ -135,6 +135,11 @@ app.patch('/api/auth/me', requireAuth, (req, res) => {
   const avatar = typeof req.body.avatar === 'string' ? req.body.avatar.slice(0, 8) : user.avatar;
   db.prepare('UPDATE users SET display_name = ?, bio = ?, avatar = ? WHERE id = ?').run(displayName || user.username, bio, avatar, req.userId);
   res.json({ user: publicUser(getUserById(req.userId)) });
+});
+
+app.post('/api/auth/logout', requireAuth, (req, res) => {
+  db.prepare('UPDATE users SET token_version = token_version + 1 WHERE id = ?').run(req.userId);
+  res.json({ ok: true });
 });
 
 /* ============================== users ============================== */
@@ -400,11 +405,12 @@ server.on('upgrade', (req, socket, head) => {
 wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://internal');
   const token = url.searchParams.get('token');
-  const userId = token ? verifyToken(token) : null;
-  const user = userId ? getUserById(userId) : null;
+  const payload = token ? verifyToken(token) : null;
+  const user = payload ? getUserById(payload.userId) : null;
+  const validSession = !!user && user.token_version === payload.tokenVersion;
 
   ws.isAlive = true;
-  ws.userId = user ? user.id : null;
+  ws.userId = validSession ? user.id : null;
   allSockets.add(ws);
 
   if (ws.userId) {

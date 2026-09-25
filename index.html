@@ -2553,6 +2553,7 @@ const Auth = {
     if (typeof UI !== 'undefined') UI.syncAuthUI();
   },
   logout() {
+    Api.post('/api/auth/logout').catch(() => {}); // best-effort; the local clear below is what actually logs this device out
     Api.setToken(null);
     Auth.currentUser = null;
     Socket.connect();
