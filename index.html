@@ -188,18 +188,7 @@
     margin-bottom: var(--space-2);
   }
 
-  header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: var(--space-6) clamp(20px, 4vw, 48px) var(--space-3);
-  }
-  #app-title {
-    font-family: var(--font-serif); font-style: italic; font-weight: 500;
-    font-size: var(--text-xl); letter-spacing: 0; color: var(--text);
-  }
+  /* Header styles live in the consolidated ---------- site header ---------- block below. */
 
   main {
     max-width: 1280px;
@@ -236,6 +225,13 @@
   }
   .icon-btn:hover { transform: translateY(-1px); background-color: color-mix(in srgb, var(--surface) 92%, var(--text) 8%); }
   .icon-btn:active { transform: translateY(0); }
+
+  /* ---------- svg iconography ----------
+     One consistent icon system app-wide: 18px, 1.6px stroke, round caps/joins.
+     .icon--fill is used only for the handful of conventionally-filled glyphs (play/pause/skip). */
+  .icon { width: 18px; height: 18px; flex-shrink: 0; display: block; }
+  .icon--stroke { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .icon--fill { fill: currentColor; stroke: none; }
 
   /* ---------- timer card ---------- */
   .hero {
@@ -444,14 +440,17 @@
     border: none;
     background: transparent;
     cursor: pointer;
-    font-size: 1rem;
     width: 36px;
     height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     border-radius: 50%;
     flex-shrink: 0;
-    transition: background-color var(--transition-fast);
+    color: var(--text-muted);
+    transition: background-color var(--transition-fast), color var(--transition-fast);
   }
-  .task__delete:hover { background: rgba(192, 57, 43, 0.12); }
+  .task__delete:hover { background: rgba(192, 57, 43, 0.12); color: var(--danger); }
 
   /* ---------- stats dashboard ---------- */
   #stats-dashboard {
@@ -534,45 +533,158 @@
   .skill-row__bar { height: 10px; border-radius: var(--radius-pill); background: color-mix(in srgb, var(--text) 8%, transparent); overflow: hidden; }
   .skill-row__fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width var(--transition-fast); }
 
-  /* ---------- user profile / header controls ---------- */
-  .header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
-  .user-profile { display: flex; align-items: center; gap: 8px; position: relative; }
+  /* ---------- site header ---------- */
+  .site-header {
+    position: relative;
+    z-index: 43;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    transition: background-color var(--transition-theme);
+  }
+  .site-header__row {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: var(--space-5) clamp(20px, 4vw, 48px);
+    display: flex;
+    align-items: center;
+    gap: var(--space-6);
+  }
+
+  /* -- brand -- */
+  .brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .brand__mark {
+    width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0; position: relative;
+    background: conic-gradient(var(--accent) 0deg 252deg, color-mix(in srgb, var(--accent) 18%, transparent) 252deg 360deg);
+  }
+  .brand__mark::after {
+    content: ''; position: absolute; inset: 6px; border-radius: 50%; background: var(--bg);
+    transition: background-color var(--transition-theme);
+  }
+  .brand__word {
+    font-family: var(--font-serif); font-style: italic; font-weight: 600;
+    font-size: clamp(1.2rem, 2vw, 1.4rem); letter-spacing: -0.01em; color: var(--text);
+  }
+
+  /* -- nav panel: houses primary nav + header actions, becomes the mobile menu below 1140px -- */
+  .nav-panel { display: flex; align-items: center; flex: 1; min-width: 0; }
+
+  .primary-nav {
+    display: flex; align-items: center; gap: var(--space-6);
+    position: relative; padding-left: var(--space-6); margin-right: auto;
+  }
+  .primary-nav::before {
+    content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+    width: 1px; height: 22px; background: var(--border);
+  }
+  .nav-link {
+    border: none; background: transparent; color: var(--text-muted);
+    font-size: 0.95rem; font-weight: 600; letter-spacing: -0.005em;
+    padding: 6px 0; cursor: pointer; white-space: nowrap; position: relative;
+    transition: color var(--transition-fast);
+  }
+  .nav-link::after {
+    content: ''; position: absolute; left: 50%; bottom: -4px; width: 14px; height: 2px; border-radius: 1px;
+    background: var(--accent); transform: translateX(-50%) scaleX(0); transition: transform var(--transition-fast);
+  }
+  .nav-link[aria-current="page"] { color: var(--text); font-weight: 700; }
+  .nav-link[aria-current="page"]::after { transform: translateX(-50%) scaleX(1); }
+  .nav-link:not([aria-current="page"]):hover { color: var(--text); }
+
+  /* -- header actions: status pills, icon toolbar, account chip -- */
+  .header-actions { display: flex; align-items: center; gap: var(--space-4); flex-shrink: 0; }
+  .status-cluster { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; justify-content: flex-end; }
+
+  .icon-toolbar {
+    display: flex; align-items: center; gap: 2px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-pill); padding: 4px;
+  }
+  .icon-toolbar .icon-btn { width: 36px; height: 36px; border: none; background: transparent; box-shadow: none; }
+  .icon-toolbar .icon-btn:hover { background: color-mix(in srgb, var(--text) 8%, transparent); transform: none; }
+
+  .user-profile {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid var(--border); border-radius: var(--radius-pill);
+    padding: 4px 14px 4px 4px; background: var(--surface);
+    transition: background-color var(--transition-fast);
+  }
+  .user-profile:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
   .user-profile__avatar {
-    width: 32px; height: 32px; border-radius: 50%; border: none; flex-shrink: 0;
-    background: var(--primary); color: var(--accent-contrast); font-weight: 700; font-size: 0.85rem;
+    width: 30px; height: 30px; border-radius: 50%; border: none; flex-shrink: 0;
+    background: var(--primary); color: var(--accent-contrast); font-weight: 700; font-size: 0.8rem;
     display: flex; align-items: center; justify-content: center; cursor: pointer;
   }
   .user-profile__name {
-    border: none; background: transparent; color: var(--text); font-weight: 600; font-size: 0.88rem;
-    cursor: pointer; padding: 4px 2px; border-radius: var(--radius-sm); max-width: 120px;
+    border: none; background: transparent; color: var(--text); font-weight: 600; font-size: 0.85rem;
+    cursor: pointer; padding: 0; max-width: 120px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .user-profile__name:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
-  @media (max-width: 560px) {
-    .user-profile__name { display: none; }
-  }
-  .user-profile__avatar--emoji { font-size: 1.05rem; background: color-mix(in srgb, var(--text) 6%, transparent); color: inherit; }
+  .user-profile__avatar--emoji { font-size: 1rem; background: color-mix(in srgb, var(--text) 6%, transparent); color: inherit; }
   .user-profile__avatar--photo { background-size: cover; background-position: center; color: transparent; }
 
-  /* ---------- top nav ---------- */
-  .top-nav {
-    display: flex; gap: var(--space-2); max-width: 1280px; margin: 0 auto; padding: 0 clamp(20px, 4vw, 48px) var(--space-3);
-    overflow-x: auto;
+  /* -- mobile menu toggle -- */
+  .nav-toggle {
+    display: none; width: 44px; height: 44px; align-items: center; justify-content: center; flex-direction: column; gap: 4px;
+    border: 1px solid var(--border); border-radius: 50%; background: var(--surface);
+    flex-shrink: 0; cursor: pointer; margin-left: auto;
   }
-  .nav-link {
-    border: none; background: transparent; color: var(--text-muted); font-weight: 600; font-size: var(--text-xs);
-    text-transform: uppercase; letter-spacing: 0.08em;
-    padding: 8px 4px; margin: 0 10px; border-radius: var(--radius-sm); cursor: pointer; white-space: nowrap; flex-shrink: 0;
-    position: relative;
-    transition: color var(--transition-fast), background-color var(--transition-fast);
+  .nav-toggle__bar { width: 16px; height: 2px; background: var(--text); border-radius: 1px; transition: transform var(--transition-fast), opacity var(--transition-fast); }
+  .site-header.is-open .nav-toggle__bar:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+  .site-header.is-open .nav-toggle__bar:nth-child(2) { opacity: 0; }
+  .site-header.is-open .nav-toggle__bar:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
+
+  .nav-panel-backdrop { position: fixed; inset: 0; background: rgba(20, 16, 14, 0.45); z-index: 42; }
+
+  /* This threshold is deliberately wider than the 860px main-grid breakpoint: the full desktop
+     header (brand + 4 nav links + status pill + 4-icon toolbar + account chip) needs ~1080px+
+     to lay out without crowding, so it switches to the mobile menu earlier than the page body does. */
+  @media (max-width: 1140px) {
+    .nav-toggle { display: inline-flex; }
+
+    .nav-panel {
+      position: absolute; top: 100%; left: 16px; right: 16px; margin-top: 8px;
+      max-height: calc(100vh - 112px); overflow-y: auto;
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg); padding: var(--space-4);
+      flex-direction: column; align-items: stretch; gap: var(--space-4);
+      opacity: 0; visibility: hidden; transform: translateY(-8px); pointer-events: none;
+      transition: opacity var(--transition-fast), transform var(--transition-fast), visibility var(--transition-fast);
+    }
+    .site-header.is-open .nav-panel { opacity: 1; visibility: visible; transform: translateY(0); pointer-events: auto; }
+
+    .primary-nav { flex-direction: column; align-items: stretch; gap: 2px; padding-left: 0; margin-right: 0; }
+    .primary-nav::before { display: none; }
+    .nav-link { padding: 12px 10px 12px 16px; border-radius: var(--radius-md); font-size: 1rem; }
+    .nav-link::after { display: none; }
+    .nav-link[aria-current="page"] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+    .nav-link[aria-current="page"]::before {
+      content: ''; position: absolute; left: 4px; top: 8px; bottom: 8px; width: 3px; border-radius: 2px; background: var(--accent);
+    }
+
+    .header-actions {
+      flex-direction: column; align-items: stretch; gap: var(--space-3);
+      padding-top: var(--space-3); border-top: 1px solid var(--border);
+    }
+    .status-cluster { flex-wrap: wrap; justify-content: flex-start; }
+    .icon-toolbar { flex-direction: column; align-items: stretch; background: none; border: none; padding: 0; gap: 2px; }
+    .icon-toolbar .icon-btn {
+      width: 100%; height: auto; justify-content: flex-start; gap: 12px; padding: 12px 10px; border-radius: var(--radius-md);
+    }
+    .icon-toolbar .icon-btn:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+    .icon-toolbar .icon-btn::after { content: attr(aria-label); font-size: 0.92rem; font-weight: 600; color: var(--text); }
+
+    .notif-picker { width: 100%; }
+    .notif-picker__trigger {
+      width: 100%; height: auto; justify-content: flex-start; gap: 12px; padding: 12px 10px; border-radius: var(--radius-md);
+      border: none; background: none;
+    }
+    .notif-picker__trigger:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+    .notif-picker__trigger::after { content: 'Notifications'; font-size: 0.92rem; font-weight: 600; color: var(--text); }
+    .notif-picker__badge { top: 8px; left: 26px; right: auto; }
+    .notif-picker__menu { position: static; width: 100%; max-width: none; margin-top: 4px; box-shadow: none; }
+
+    .user-profile { width: 100%; padding: 10px 12px; }
+    .user-profile__name { max-width: none; flex: 1; text-align: left; font-size: 0.95rem; }
   }
-  .nav-link::after {
-    content: ''; position: absolute; left: 4px; right: 4px; bottom: -5px; height: 2px;
-    background: var(--accent); transform: scaleX(0); transition: transform var(--transition-fast);
-  }
-  .nav-link[aria-current="page"] { color: var(--text); font-weight: 700; background: transparent; }
-  .nav-link[aria-current="page"]::after { transform: scaleX(1); }
-  .nav-link:not([aria-current="page"]):hover { color: var(--text); background: color-mix(in srgb, var(--text) 6%, transparent); }
 
   /* ---------- reports & leaderboard views ---------- */
   #view-reports, #view-leaderboard {
@@ -619,17 +731,14 @@
     70% { box-shadow: 0 0 0 6px rgba(47, 158, 87, 0); }
     100% { box-shadow: 0 0 0 0 rgba(47, 158, 87, 0); }
   }
-  @media (max-width: 460px) {
-    .live-users__label { display: none; }
-  }
   .lounge-chip { border: 1px solid var(--border); cursor: pointer; font-weight: 700; color: var(--text); }
   .lounge-chip:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
 
   /* ---------- friends drawer, chat, invite toast ---------- */
-  .friends-drawer-backdrop { position: fixed; inset: 0; background: rgba(20, 16, 14, 0.45); z-index: 40; }
+  .friends-drawer-backdrop { position: fixed; inset: 0; background: rgba(20, 16, 14, 0.45); z-index: 44; }
   .friends-drawer {
     position: fixed; top: 0; right: 0; height: 100vh; width: min(360px, 100vw);
-    background: var(--surface); box-shadow: var(--shadow-lg); z-index: 41;
+    background: var(--surface); box-shadow: var(--shadow-lg); z-index: 45;
     display: flex; flex-direction: column; padding: 20px; overflow-y: auto;
   }
   .friends-drawer__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
@@ -728,7 +837,7 @@
     flex: 1; border: none; background: transparent; padding: 8px; border-radius: var(--radius-sm);
     font-weight: 600; font-size: 0.85rem; color: var(--text-muted); cursor: pointer;
   }
-  .auth-modal__tab.is-active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-sm); }
+  .auth-modal__tab.is-active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-xs); }
   #auth-panel-login, #auth-panel-signup { display: flex; flex-direction: column; gap: 10px; }
   .auth-modal__form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); }
   .auth-modal__form input {
@@ -749,7 +858,11 @@
     font-size: var(--text-md); letter-spacing: 0.01em; color: var(--text-muted);
     margin: var(--space-5) 0 var(--space-2);
   }
-  .lounge-lobby-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); margin-top: 8px; }
+  .lounge-lobby-grid { display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; gap: var(--space-6); margin-top: 8px; }
+  .lounge-lobby-grid > section {
+    border-radius: var(--radius-lg); padding: clamp(22px, 4vw, 30px);
+    display: flex; flex-direction: column;
+  }
   @media (max-width: 700px) { .lounge-lobby-grid { grid-template-columns: 1fr; } }
   .lounge-friends-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
   .lounge-friend-item {
@@ -761,17 +874,104 @@
     flex: 1 1 0%; min-width: 0; font-weight: 600;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .lounge-friend-item__status { font-size: 0.76rem; color: var(--text-muted); white-space: nowrap; }
+  .lounge-friend-item__status,
+  .lounge-grid-card__status {
+    font-size: 0.76rem; color: var(--text-muted); white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .lounge-friend-item__status::before,
+  .lounge-grid-card__status::before {
+    content: ''; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    background: var(--text-muted); opacity: 0.5;
+  }
+  .lounge-friend-item__status[data-status="focusing"]::before,
+  .lounge-grid-card__status[data-status="focusing"]::before,
+  .lounge-friend-item__status[data-status="online"]::before,
+  .lounge-grid-card__status[data-status="online"]::before {
+    background: var(--success); opacity: 1;
+  }
+  .lounge-friend-item__status[data-status="resting"]::before,
+  .lounge-grid-card__status[data-status="resting"]::before {
+    background: var(--warning); opacity: 1;
+  }
   .lounge-panel--left .lounge-friend-item > button { flex: 1 1 100%; }
-  .lounge-inline-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .lounge-inline-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .lounge-inline-form input[type="text"] {
-    flex: 1 1 140px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border);
-    border-radius: var(--radius-sm); background: var(--surface); color: var(--text); font-size: 0.88rem;
+    flex: 1 1 140px; min-width: 0; padding: 10px 16px; border: 1px solid var(--border);
+    border-radius: var(--radius-pill); background: var(--surface); color: var(--text); font-size: 0.88rem;
   }
-  .lounge-inline-form select {
-    padding: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
-    background: var(--surface); color: var(--text); font-size: 1rem;
+
+  /* -- emoji avatar picker: a custom trigger + listbox over a visually-hidden native
+     <select>, which stays the source of truth for .value so existing submit handlers
+     (which just read avatarSelect.value) need no changes. -- */
+  .emoji-picker { position: relative; display: inline-flex; flex-shrink: 0; }
+  .emoji-picker__native {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; white-space: nowrap; border: 0; clip: rect(0, 0, 0, 0);
   }
+  .emoji-picker__trigger {
+    width: 44px; height: 44px; flex-shrink: 0; border-radius: var(--radius-pill);
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    font-size: 1.15rem; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: border-color var(--transition-fast), background-color var(--transition-fast);
+  }
+  .emoji-picker__trigger:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+  .emoji-picker__trigger[aria-expanded="true"] { border-color: var(--accent); }
+  .emoji-picker__menu {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 30;
+    width: 216px; max-height: 220px; overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg); padding: 6px;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 2px;
+  }
+  .emoji-picker__item {
+    border: none; background: transparent; border-radius: var(--radius-sm);
+    font-size: 1.2rem; width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: background-color var(--transition-fast);
+  }
+  .emoji-picker__item:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
+  .emoji-picker__item[aria-selected="true"] {
+    background: var(--accent-soft); outline: 2px solid var(--accent); outline-offset: -2px;
+  }
+
+  /* -- notifications bell + dropdown -- */
+  .notif-picker { position: relative; display: inline-flex; flex-shrink: 0; }
+  .notif-picker__trigger { position: relative; }
+  .notif-picker__trigger[aria-expanded="true"] { border-color: var(--accent); }
+  .notif-picker__badge {
+    position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; padding: 0 3px;
+    border-radius: var(--radius-pill); background: var(--danger); color: #fff;
+    font-size: 0.65rem; font-weight: 700; line-height: 16px; text-align: center;
+  }
+  .notif-picker__menu {
+    position: absolute; top: calc(100% + 8px); left: 0; z-index: 30;
+    width: 320px; max-width: calc(100vw - 32px); max-height: 360px; overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg); padding: 10px;
+  }
+  .notif-picker__header {
+    display: flex; align-items: center; justify-content: space-between;
+    font-weight: 700; font-size: 0.88rem; padding: 4px 6px 10px;
+  }
+  .notif-picker__mark-read {
+    border: none; background: none; color: var(--accent); font-size: 0.78rem; font-weight: 600; cursor: pointer; padding: 0;
+  }
+  .notif-picker__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .notif-item {
+    display: flex; align-items: flex-start; gap: 10px; padding: 8px 6px; border-radius: var(--radius-sm);
+    font-size: 0.84rem; cursor: default;
+  }
+  .notif-item[data-unread="true"] { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  .notif-item__dot {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex-shrink: 0; margin-top: 6px;
+    visibility: hidden;
+  }
+  .notif-item[data-unread="true"] .notif-item__dot { visibility: visible; }
+  .notif-item__body { flex: 1; min-width: 0; }
+  .notif-item__text { color: var(--text); }
+  .notif-item__text strong { font-weight: 700; }
+  .notif-item__time { display: block; color: var(--text-muted); font-size: 0.74rem; margin-top: 2px; }
+
   .lounge-active-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
   .lounge-room-code { font-family: ui-monospace, monospace; font-size: 1.1rem; font-weight: 800; letter-spacing: 0.04em; margin-right: 8px; }
   .lounge-dashboard {
@@ -800,7 +1000,6 @@
   .lounge-ring__avatar { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 2rem; }
   .lounge-grid-card__name { font-weight: 700; font-size: 0.92rem; }
   .lounge-grid-card__level { color: var(--text-muted); font-size: 0.74rem; }
-  .lounge-grid-card__status { font-size: 0.8rem; }
   .lounge-grid-card__metrics { color: var(--text-muted); font-size: 0.72rem; }
   #lounge-mission {
     border-top: 2px solid transparent; border-image: var(--accent-gradient) 1;
@@ -957,9 +1156,14 @@
   }
   #settings-form input[aria-invalid="true"] { border-color: #c0392b; }
   .field-error { display: block; margin-top: 6px; font-size: 0.78rem; color: #c0392b; font-weight: 500; }
-  .field-status { display: block; margin-top: 6px; font-size: 0.78rem; color: var(--text-muted); font-weight: 500; }
+  .field-status { display: flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 0.78rem; color: var(--text-muted); font-weight: 500; }
   .field-status.is-error { color: #c0392b; }
   .field-status.is-success { color: #2f9e57; }
+  .field-status.is-success::before {
+    content: ''; width: 7px; height: 11px; flex-shrink: 0;
+    border-right: 1.6px solid #2f9e57; border-bottom: 1.6px solid #2f9e57;
+    transform: rotate(45deg) translateY(-1px);
+  }
   .field-hint { font-size: 0.8rem; color: var(--text-muted); margin: 0 0 14px; line-height: 1.4; }
   #panel-ai #ai-key-clear { border: 1px solid var(--border); background: transparent; border-radius: var(--radius-sm); padding: 8px 14px; cursor: pointer; min-height: 40px; font-weight: 600; margin-top: 4px; }
 
@@ -974,7 +1178,11 @@
   .track-list .track__category { font-size: 0.75rem; color: var(--text-muted); font-weight: 500; }
 
   .music-player-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
-  .music-player-bar button { border: none; background: color-mix(in srgb, var(--text) 6%, transparent); border-radius: 50%; width: 36px; height: 36px; cursor: pointer; font-size: 0.95rem; }
+  .music-player-bar button {
+    border: none; background: color-mix(in srgb, var(--text) 6%, transparent); border-radius: 50%;
+    width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--text);
+  }
   .music-player-bar button:disabled { opacity: 0.4; cursor: not-allowed; }
   .music-player-bar button[aria-pressed="true"] { background: var(--primary-soft); }
   #music-progress { flex: 1 1 100px; min-width: 80px; accent-color: var(--primary); }
@@ -1034,7 +1242,10 @@
     border: none;
     background: color-mix(in srgb, var(--text) 8%, transparent);
     cursor: pointer;
-    font-size: 1rem;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
   }
   #media-panel button:hover { background: color-mix(in srgb, var(--text) 16%, transparent); }
@@ -1082,32 +1293,68 @@
 <div id="background-layer" data-empty></div>
 <div id="background-overlay"></div>
 
-<header>
-  <h1 id="app-title">Pomodoro</h1>
-  <div class="header-right">
-    <div class="user-profile" id="user-profile">
-      <button type="button" class="user-profile__avatar" id="user-avatar" aria-label="Open your profile" aria-haspopup="dialog">Y</button>
-      <button type="button" class="user-profile__name" id="user-name-display" aria-label="Open your profile" aria-haspopup="dialog">You</button>
+<header class="site-header" id="site-header">
+  <div class="site-header__row">
+    <h1 id="app-title" class="brand">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__word">Pomodoro</span>
+    </h1>
+
+    <div class="nav-panel" id="nav-panel">
+      <nav class="primary-nav" aria-label="Main navigation">
+        <button type="button" class="nav-link" id="nav-dashboard" aria-current="page">Dashboard</button>
+        <button type="button" class="nav-link" id="nav-reports">Reports</button>
+        <button type="button" class="nav-link" id="nav-leaderboard">Leaderboard</button>
+        <button type="button" class="nav-link" id="nav-lounge">Study Lounge</button>
+      </nav>
+
+      <div class="header-actions">
+        <div class="status-cluster">
+          <div id="live-users" class="live-users" aria-hidden="true">
+            <span class="live-users__dot"></span>
+            <span id="live-users-count" class="live-users__count">—</span>
+            <span class="live-users__label">online</span>
+          </div>
+          <button type="button" id="lounge-chip" class="live-users lounge-chip" hidden></button>
+        </div>
+
+        <div class="notif-picker" id="notif-picker" hidden>
+          <button type="button" class="icon-btn notif-picker__trigger" id="notif-trigger" aria-haspopup="true" aria-expanded="false" aria-label="Notifications">
+            <svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M5 8a5 5 0 0 1 10 0c0 3 1 4.2 1.5 5H3.5C4 12.2 5 11 5 8Z"/><path d="M8.2 15.5a1.8 1.8 0 0 0 3.6 0"/></svg>
+            <span class="notif-picker__badge" id="notif-badge" hidden>0</span>
+          </button>
+          <div class="notif-picker__menu" id="notif-menu" role="menu" hidden>
+            <div class="notif-picker__header">
+              <span>Notifications</span>
+              <button type="button" id="notif-mark-all-read" class="notif-picker__mark-read">Mark all read</button>
+            </div>
+            <ul class="notif-picker__list" id="notif-list"></ul>
+            <p class="field-hint" id="notif-empty" hidden>You're all caught up.</p>
+          </div>
+        </div>
+
+        <div class="icon-toolbar">
+          <button id="darkmode-toggle" type="button" class="icon-btn" aria-label="Switch to dark mode"><svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M15.5 12.3A6.5 6.5 0 1 1 8.2 4.5a5.2 5.2 0 0 0 7.3 7.8Z"/></svg></button>
+          <button id="mute-toggle" type="button" class="icon-btn" aria-label="Mute background music" aria-pressed="false"><svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M3 7.4h2.7L10 4v12l-4.3-3.4H3z"/><path d="M13.1 7.3a3.9 3.9 0 0 1 0 5.4M15.2 5.1a6.9 6.9 0 0 1 0 9.8"/></svg></button>
+          <button id="friends-drawer-toggle" type="button" class="icon-btn" aria-label="Open friends" aria-haspopup="dialog"><svg class="icon icon--stroke" viewBox="0 0 20 20"><circle cx="7.3" cy="6.6" r="2.5"/><path d="M2.4 16c0-2.9 2.1-4.7 4.9-4.7s4.9 1.8 4.9 4.7"/><circle cx="14.2" cy="7.1" r="1.9"/><path d="M13.4 11.5c2.1.1 3.9 1.8 3.9 4.5"/></svg></button>
+          <button id="settings-btn" type="button" class="icon-btn" aria-label="Open settings" aria-haspopup="dialog"><svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M3 6h6.2M13.8 6H17M3 10h2.2M9.8 10H17M3 14h7.2M14.8 14H17"/><circle cx="11.5" cy="6" r="1.6"/><circle cx="6.5" cy="10" r="1.6"/><circle cx="13" cy="14" r="1.6"/></svg></button>
+        </div>
+
+        <div class="user-profile" id="user-profile">
+          <button type="button" class="user-profile__avatar" id="user-avatar" aria-label="Open your profile" aria-haspopup="dialog">Y</button>
+          <button type="button" class="user-profile__name" id="user-name-display" aria-label="Open your profile" aria-haspopup="dialog">You</button>
+        </div>
+      </div>
     </div>
-    <button id="darkmode-toggle" type="button" class="icon-btn" aria-label="Switch to dark mode">&#127769;</button>
-    <button id="mute-toggle" type="button" class="icon-btn" aria-label="Mute background music" aria-pressed="false">&#128266;</button>
-    <div id="live-users" class="live-users" aria-hidden="true">
-      <span class="live-users__dot"></span>
-      <span id="live-users-count" class="live-users__count">—</span>
-      <span class="live-users__label">online</span>
-    </div>
-    <button type="button" id="lounge-chip" class="live-users lounge-chip" hidden></button>
-    <button id="friends-drawer-toggle" type="button" class="icon-btn" aria-label="Open friends" aria-haspopup="dialog">&#128101;</button>
-    <button id="settings-btn" type="button" class="icon-btn" aria-label="Open settings" aria-haspopup="dialog">&#9881;</button>
+
+    <button type="button" id="nav-toggle" class="nav-toggle" aria-label="Open menu" aria-expanded="false" aria-controls="nav-panel">
+      <span class="nav-toggle__bar"></span>
+      <span class="nav-toggle__bar"></span>
+      <span class="nav-toggle__bar"></span>
+    </button>
   </div>
 </header>
-
-<nav class="top-nav" aria-label="Main navigation">
-  <button type="button" class="nav-link" id="nav-dashboard" aria-current="page">Dashboard</button>
-  <button type="button" class="nav-link" id="nav-reports">Reports</button>
-  <button type="button" class="nav-link" id="nav-leaderboard">Leaderboard</button>
-  <button type="button" class="nav-link" id="nav-lounge">Study Lounge</button>
-</nav>
+<div id="nav-panel-backdrop" class="nav-panel-backdrop" hidden></div>
 
 <main>
 <div id="view-dashboard">
@@ -1240,11 +1487,8 @@
     <section class="glass" aria-label="Friends">
       <h3>Friends</h3>
       <ul class="lounge-friends-list" id="lounge-friends-list"></ul>
-      <form id="lounge-add-friend-form" class="lounge-inline-form">
-        <input type="text" id="lounge-friend-name-input" maxlength="24" placeholder="Friend's name" aria-label="Friend's name" required>
-        <select id="lounge-friend-avatar-select" aria-label="Friend's avatar"></select>
-        <button type="submit" class="btn btn-secondary">Add Friend</button>
-      </form>
+      <p class="field-hint" id="lounge-friends-empty" hidden>No friends yet.</p>
+      <button type="button" class="btn btn-secondary" id="lounge-manage-friends-btn">Add Friends</button>
     </section>
     <section class="glass" aria-label="Room">
       <div id="lounge-lobby">
@@ -1275,11 +1519,6 @@
         </div>
         <h3>Friends</h3>
         <ul class="lounge-friends-list" id="lounge-friends-list-active"></ul>
-        <form id="lounge-add-friend-form-active" class="lounge-inline-form">
-          <input type="text" id="lounge-friend-name-input-active" maxlength="24" placeholder="Friend's name" aria-label="Friend's name" required>
-          <select id="lounge-friend-avatar-select-active" aria-label="Friend's avatar"></select>
-          <button type="submit" class="btn btn-secondary">Add Friend</button>
-        </form>
         <div id="lounge-mission" aria-label="Group mission"></div>
       </section>
       <section class="glass lounge-panel lounge-panel--center" aria-label="Members">
@@ -1435,14 +1674,14 @@
         </div>
 
         <div class="music-player-bar">
-          <button type="button" id="music-prev" aria-label="Previous track">⏮</button>
-          <button type="button" id="music-play" aria-label="Play or pause music" aria-pressed="false">▶</button>
-          <button type="button" id="music-next" aria-label="Next track">⏭</button>
+          <button type="button" id="music-prev" aria-label="Previous track"><svg class="icon icon--fill" viewBox="0 0 20 20"><rect x="4" y="4" width="1.7" height="12" rx="0.4"/><path d="M16 4.6 7.3 10 16 15.4Z"/></svg></button>
+          <button type="button" id="music-play" aria-label="Play or pause music" aria-pressed="false"><svg class="icon icon--fill" viewBox="0 0 20 20"><path d="M6.2 4.3v11.4c0 .6.7 1 1.2.7l9-5.7c.5-.3.5-1 0-1.3l-9-5.7c-.5-.3-1.2 0-1.2.6Z"/></svg></button>
+          <button type="button" id="music-next" aria-label="Next track"><svg class="icon icon--fill" viewBox="0 0 20 20"><path d="M4 4.6 12.7 10 4 15.4Z"/><rect x="14.3" y="4" width="1.7" height="12" rx="0.4"/></svg></button>
           <input type="range" id="music-progress" min="0" max="1000" value="0" disabled aria-label="Playback progress">
           <span id="music-time">0:00 / 0:00</span>
           <input type="range" id="music-volume" min="0" max="100" value="50" aria-label="Music volume">
-          <button type="button" id="music-mute" aria-label="Mute or unmute music" aria-pressed="false">🔊</button>
-          <button type="button" id="music-loop" aria-label="Toggle loop" aria-pressed="true">🔁</button>
+          <button type="button" id="music-mute" aria-label="Mute or unmute music" aria-pressed="false"><svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M3 7.4h2.7L10 4v12l-4.3-3.4H3z"/><path d="M13.1 7.3a3.9 3.9 0 0 1 0 5.4M15.2 5.1a6.9 6.9 0 0 1 0 9.8"/></svg></button>
+          <button type="button" id="music-loop" aria-label="Toggle loop" aria-pressed="true"><svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M4 8V6.6A2.6 2.6 0 0 1 6.6 4H14"/><path d="M11.8 1.7 14.3 4l-2.5 2.3"/><path d="M16 12v1.4a2.6 2.6 0 0 1-2.6 2.6H6"/><path d="M8.2 15.7 5.7 13.4l2.5-2.3"/></svg></button>
         </div>
       </fieldset>
     </div>
@@ -1511,21 +1750,32 @@
 <div id="friends-drawer" class="friends-drawer" hidden aria-label="Friends">
   <div class="friends-drawer__header">
     <h2>Friends</h2>
-    <button type="button" class="icon-btn" id="friends-drawer-close" aria-label="Close friends panel">&#10005;</button>
+    <button type="button" class="icon-btn" id="friends-drawer-close" aria-label="Close friends panel"><svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
   </div>
-  <ul class="lounge-friends-list" id="friends-drawer-list"></ul>
-  <form id="friends-drawer-add-form" class="lounge-inline-form">
-    <input type="text" id="friends-drawer-name-input" maxlength="24" placeholder="Friend's name" aria-label="Friend's name" required>
-    <select id="friends-drawer-avatar-select" aria-label="Friend's avatar"></select>
-    <button type="submit" class="btn btn-secondary">Add Friend</button>
+
+  <form id="friend-search-form" class="lounge-inline-form">
+    <input type="text" id="friend-search-input" maxlength="24" placeholder="Search by username" aria-label="Search by username" required>
+    <button type="submit" class="btn btn-secondary">Search</button>
   </form>
+  <p class="field-status" id="friend-search-status"></p>
+  <ul class="lounge-friends-list" id="friend-search-results" hidden></ul>
+
+  <div id="friend-requests-section" hidden>
+    <h3>Friend Requests</h3>
+    <ul class="lounge-friends-list" id="friend-requests-incoming"></ul>
+    <ul class="lounge-friends-list" id="friend-requests-outgoing"></ul>
+  </div>
+
+  <h3>Friends</h3>
+  <ul class="lounge-friends-list" id="friends-drawer-list"></ul>
+  <p class="field-hint" id="friends-drawer-empty" hidden>No friends yet — search for a username above to send a request.</p>
 </div>
 
 <dialog id="chat-dialog" aria-labelledby="chat-dialog-title">
   <form method="dialog" class="chat-dialog__form">
     <div class="chat-dialog__header">
       <h2 id="chat-dialog-title">Chat</h2>
-      <button type="button" id="chat-dialog-close" class="icon-btn" aria-label="Close chat">&#10005;</button>
+      <button type="button" id="chat-dialog-close" class="icon-btn" aria-label="Close chat"><svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
     </div>
     <ul class="chat-dialog__messages" id="chat-dialog-messages"></ul>
     <div class="chat-dialog__composer">
@@ -1547,7 +1797,7 @@
   <form method="dialog" class="profile-modal__form">
     <div class="profile-modal__header">
       <h2 id="profile-modal-title">Profile</h2>
-      <button type="button" id="profile-modal-close" class="icon-btn" aria-label="Close profile">&#10005;</button>
+      <button type="button" id="profile-modal-close" class="icon-btn" aria-label="Close profile"><svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M5 5l10 10M15 5L5 15"/></svg></button>
     </div>
 
     <div id="profile-modal-view">
@@ -1594,7 +1844,7 @@
 <dialog id="auth-modal" aria-labelledby="auth-modal-title">
   <form method="dialog" class="auth-modal__form">
     <h2 id="auth-modal-title">Welcome</h2>
-    <p class="field-hint">This app runs entirely on your device — there's no server or real account security. Accounts here just keep separate people's stats and settings apart if you share this computer.</p>
+    <p class="field-hint">Create a real account to add friends, see who's online, and chat in real time. Your timer, tasks, and stats always stay local to this device.</p>
 
     <div class="auth-modal__tabs" role="tablist">
       <button type="button" role="tab" id="auth-tab-login" class="auth-modal__tab is-active" aria-selected="true">Log In</button>
@@ -1631,13 +1881,30 @@
 </dialog>
 
 <div id="media-panel" class="glass" hidden role="group" aria-label="Background media controls">
-  <button id="media-play" type="button" aria-label="Play or pause background media" aria-pressed="false">&#9654;</button>
-  <button id="media-mute" type="button" aria-label="Mute or unmute background media" aria-pressed="false">&#128266;</button>
+  <button id="media-play" type="button" aria-label="Play or pause background media" aria-pressed="false"><svg class="icon icon--fill" viewBox="0 0 20 20"><path d="M6.2 4.3v11.4c0 .6.7 1 1.2.7l9-5.7c.5-.3.5-1 0-1.3l-9-5.7c-.5-.3-1.2 0-1.2.6Z"/></svg></button>
+  <button id="media-mute" type="button" aria-label="Mute or unmute background media" aria-pressed="false"><svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M3 7.4h2.7L10 4v12l-4.3-3.4H3z"/><path d="M13.1 7.3a3.9 3.9 0 0 1 0 5.4M15.2 5.1a6.9 6.9 0 0 1 0 9.8"/></svg></button>
   <input id="media-volume" type="range" min="0" max="100" value="50" aria-label="Background media volume">
 </div>
 
 <script>
 'use strict';
+
+/* ============================== icons ==============================
+   Inline SVG markup for every button whose icon changes with state
+   (dark/light, muted/unmuted, playing/paused) so JS can swap it via
+   innerHTML. Buttons whose icon never changes (settings, close, skip,
+   repeat, users) render their SVG directly in the static HTML instead —
+   no JS twin needed. Stroke icons share the .icon.icon--stroke look;
+   play/pause are conventionally filled shapes, sharing .icon.icon--fill. */
+const Icons = {
+  moon: '<svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M15.5 12.3A6.5 6.5 0 1 1 8.2 4.5a5.2 5.2 0 0 0 7.3 7.8Z"/></svg>',
+  sun: '<svg class="icon icon--stroke" viewBox="0 0 20 20"><circle cx="10" cy="10" r="3.3"/><path d="M10 2.6v2M10 15.4v2M2.6 10h2M15.4 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M15.3 4.7l-1.4 1.4M5.7 14.3l-1.4 1.4"/></svg>',
+  volumeOn: '<svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M3 7.4h2.7L10 4v12l-4.3-3.4H3z"/><path d="M13.1 7.3a3.9 3.9 0 0 1 0 5.4M15.2 5.1a6.9 6.9 0 0 1 0 9.8"/></svg>',
+  volumeMute: '<svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M3 7.4h2.7L10 4v12l-4.3-3.4H3z"/><path d="M13 7.6l4 4.8M17 7.6l-4 4.8"/></svg>',
+  play: '<svg class="icon icon--fill" viewBox="0 0 20 20"><path d="M6.2 4.3v11.4c0 .6.7 1 1.2.7l9-5.7c.5-.3.5-1 0-1.3l-9-5.7c-.5-.3-1.2 0-1.2.6Z"/></svg>',
+  pause: '<svg class="icon icon--fill" viewBox="0 0 20 20"><rect x="5" y="4" width="3.3" height="12" rx="0.8"/><rect x="11.7" y="4" width="3.3" height="12" rx="0.8"/></svg>',
+  trash: '<svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M4 6h12"/><path d="M7.5 6V4.3c0-.6.5-1.1 1.1-1.1h2.8c.6 0 1.1.5 1.1 1.1V6"/><path d="M5.5 6l.6 9.2c0 .7.6 1.3 1.3 1.3h5.2c.7 0 1.3-.6 1.3-1.3L14.5 6"/><path d="M8.3 9v4.5M11.7 9v4.5"/></svg>',
+};
 
 /* ============================== helpers ============================== */
 
@@ -1860,41 +2127,6 @@ const Storage = {
   saveProfile(p) {
     safeSet('profile', { username: p.username, avatar: p.avatar, bio: p.bio || '', localAvatarId: p.localAvatarId ?? null });
   },
-
-  loadLoungeFriends() {
-    const raw = safeParse('loungeFriends');
-    const arr = Array.isArray(raw) ? raw : [];
-    return arr
-      .filter((f) => f && typeof f.id === 'string' && typeof f.name === 'string' && f.name.trim())
-      .map((f) => ({
-        id: f.id,
-        name: f.name.trim().slice(0, 24),
-        avatar: typeof f.avatar === 'string' && f.avatar.trim() ? f.avatar.trim().slice(0, 4) : '🙂',
-      }))
-      .slice(0, 50);
-  },
-  saveLoungeFriends(friends) {
-    safeSet('loungeFriends', friends.map((f) => ({ id: f.id, name: f.name, avatar: f.avatar })));
-  },
-
-  loadLoungeChats() {
-    const raw = safeParse('loungeChats') || {};
-    const out = {};
-    for (const [friendId, arr] of Object.entries(raw)) {
-      if (!Array.isArray(arr)) continue;
-      out[friendId] = arr
-        .filter((m) => m && typeof m.text === 'string' && (m.from === 'me' || m.from === 'friend'))
-        .map((m) => ({
-          id: typeof m.id === 'string' ? m.id : makeId(),
-          from: m.from,
-          text: m.text.slice(0, 500),
-          ts: typeof m.ts === 'number' ? m.ts : Date.now(),
-        }))
-        .slice(-200);
-    }
-    return out;
-  },
-  saveLoungeChats(chats) { safeSet('loungeChats', chats); },
 
   loadDailyHistory() {
     try {
@@ -2227,68 +2459,116 @@ const Planner = {
   },
 };
 
-/* ============================== Auth (local, device-only profile switcher) ==============================
-   There is no server anywhere in this app. "Accounts" are just named local
-   storage namespaces on this one device/browser, used to keep separate
-   people's stats/tasks/profile/Lounge data apart when sharing a computer.
-   passwordHash is NOT a security boundary — see simpleHash below. */
-
-// Rolling hash (not cryptographic) — only ever compared against another
-// value produced the same way, purely to gate local profile switching.
-function simpleHash(str) {
-  let h = 0;
-  for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
-  return String(h);
-}
-
-const Auth = {
-  loadAccounts() {
-    const raw = safeParseGlobal('pomodoroAccounts');
-    return Array.isArray(raw) ? raw : [];
+/* ============================== Api ==============================
+   Thin fetch wrapper for the real backend (server/). Same-origin by default
+   (the server itself serves this file), so no base URL is needed. */
+const Api = {
+  token: safeParseGlobal('pomodoroAuthToken'),
+  setToken(t) {
+    this.token = t || null;
+    if (t) safeSetGlobal('pomodoroAuthToken', t); else localStorage.removeItem('pomodoroAuthToken');
   },
-  saveAccounts(accounts) { safeSetGlobal('pomodoroAccounts', accounts); },
-
-  signUp(username, email, password) {
-    const trimmedUser = (username || '').trim().slice(0, 24);
-    const trimmedEmail = (email || '').trim().slice(0, 100);
-    if (!trimmedUser || !trimmedEmail || !password) return { ok: false, reason: 'Please fill in all fields.' };
-    const accounts = Auth.loadAccounts();
-    if (accounts.some((a) => a.email.toLowerCase() === trimmedEmail.toLowerCase())) {
-      return { ok: false, reason: 'An account with that email already exists.' };
+  async request(method, path, body) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    let res;
+    try {
+      res = await fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+    } catch {
+      throw new Error('Can’t reach the server. Check your connection and try again.');
     }
-    const account = { id: makeId(), username: trimmedUser, email: trimmedEmail, passwordHash: simpleHash(password), createdAt: Date.now() };
-    accounts.push(account);
-    Auth.saveAccounts(accounts);
-    Auth.logIn(account.id);
-    return { ok: true };
+    let json = null;
+    try { json = await res.json(); } catch { /* empty body */ }
+    if (!res.ok) throw new Error((json && json.error) || `Request failed (${res.status}).`);
+    return json;
+  },
+  get(path) { return this.request('GET', path); },
+  post(path, body) { return this.request('POST', path, body); },
+  patch(path, body) { return this.request('PATCH', path, body); },
+  del(path) { return this.request('DELETE', path); },
+};
+
+/* ============================== Socket ==============================
+   Realtime push from the server: presence, online count, friend requests,
+   messages, notifications. Auto-reconnects with backoff; the server itself
+   pings every 30s and drops sockets that stop answering (see server/server.js). */
+const Socket = {
+  ws: null,
+  listeners: {},
+  reconnectDelay: 1000,
+  connect() {
+    if (this.ws) { try { this.ws.onclose = null; this.ws.close(); } catch { /* already closed */ } }
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    const query = Api.token ? `?token=${encodeURIComponent(Api.token)}` : '';
+    const ws = new WebSocket(`${proto}://${location.host}/ws${query}`);
+    this.ws = ws;
+    ws.addEventListener('open', () => { this.reconnectDelay = 1000; });
+    ws.addEventListener('message', (e) => {
+      let msg;
+      try { msg = JSON.parse(e.data); } catch { return; }
+      this.emit(msg.type, msg);
+    });
+    ws.addEventListener('close', () => {
+      if (this.ws !== ws) return; // superseded by a newer connect() call (e.g. login/logout)
+      setTimeout(() => { if (this.ws === ws) this.connect(); }, this.reconnectDelay);
+      this.reconnectDelay = Math.min(this.reconnectDelay * 1.6, 20000);
+    });
+  },
+  on(type, fn) {
+    if (!this.listeners[type]) this.listeners[type] = [];
+    this.listeners[type].push(fn);
+  },
+  emit(type, msg) { (this.listeners[type] || []).forEach((fn) => fn(msg)); },
+};
+
+/* ============================== Auth ==============================
+   Real accounts against the backend in server/. Guests (no account) can
+   still use the timer/tasks/stats fully — those always stay local to this
+   device — but friends/presence/chat/notifications require signing in. */
+const Auth = {
+  currentUser: null,
+
+  async init() {
+    Socket.connect();
+    if (!Api.token) return;
+    try {
+      const { user } = await Api.get('/api/auth/me');
+      Auth.currentUser = user;
+    } catch {
+      Api.setToken(null); // expired/invalid token
+    }
   },
 
-  logInWithCredentials(identifier, password) {
-    const trimmed = (identifier || '').trim().toLowerCase();
-    if (!trimmed || !password) return { ok: false, reason: 'Please fill in all fields.' };
-    const accounts = Auth.loadAccounts();
-    const account = accounts.find((a) => a.username.toLowerCase() === trimmed || a.email.toLowerCase() === trimmed);
-    if (!account) return { ok: false, reason: 'No account found with that username or email.' };
-    if (account.passwordHash !== simpleHash(password)) return { ok: false, reason: 'Incorrect password.' };
-    Auth.logIn(account.id);
-    return { ok: true };
+  async register(username, password, displayName) {
+    const { token, user } = await Api.post('/api/auth/register', { username, password, displayName });
+    Auth._onAuthenticated(token, user);
   },
-
-  // Reloads so every subsystem (Timer, Lounge engine, IndexedDB media,
-  // music player, AI chat) re-boots fresh under the new storage namespace,
-  // rather than trying to manually re-init each one in place.
-  logIn(accountId) {
-    safeSetGlobal('pomodoroActiveAccount', accountId);
-    location.reload();
+  async login(identifier, password) {
+    const { token, user } = await Api.post('/api/auth/login', { identifier, password });
+    Auth._onAuthenticated(token, user);
+  },
+  _onAuthenticated(token, user) {
+    Api.setToken(token);
+    Auth.currentUser = user;
+    safeSetGlobal('pomodoroGuestChoice', null);
+    Socket.connect();
+    state.profile.username = user.displayName;
+    state.profile.avatar = user.avatar || state.profile.avatar;
+    Storage.saveProfile(state.profile);
+    if (typeof UI !== 'undefined') { UI.renderProfile(); UI.syncAuthUI(); }
+    if (typeof Friends !== 'undefined') Friends.refreshAll();
   },
   continueAsGuest() {
-    // No reload: guest already IS the unprefixed keys the app booted with.
-    safeSetGlobal('pomodoroActiveAccount', 'guest');
+    safeSetGlobal('pomodoroGuestChoice', true);
+    if (typeof UI !== 'undefined') UI.syncAuthUI();
   },
-  logOut() {
-    localStorage.removeItem('pomodoroActiveAccount');
-    location.reload();
+  logout() {
+    Api.setToken(null);
+    Auth.currentUser = null;
+    Socket.connect();
+    if (typeof UI !== 'undefined') UI.syncAuthUI();
   },
+  isLoggedIn() { return !!Auth.currentUser; },
 };
 
 /* ============================== State (boot) ============================== */
@@ -3194,6 +3474,76 @@ function setFieldStatus(el, text, kind) {
   else if (kind === 'success') el.classList.add('is-success');
 }
 
+/* Wraps a native <select> of emoji options with a custom trigger + listbox so it can be
+   positioned, sized, and dismissed the way a real dropdown component would be. The select
+   itself stays in the DOM (visually hidden) and remains the source of truth for `.value`,
+   so nothing that already reads avatarSelect.value needs to change. */
+function enhanceEmojiSelect(selectId) {
+  const select = document.getElementById(selectId);
+  if (!select || select.dataset.enhanced) return;
+  select.dataset.enhanced = 'true';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'emoji-picker';
+
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'emoji-picker__trigger';
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.setAttribute('aria-label', select.getAttribute('aria-label') || 'Choose an avatar');
+
+  const menu = document.createElement('div');
+  menu.className = 'emoji-picker__menu';
+  menu.setAttribute('role', 'listbox');
+  menu.hidden = true;
+
+  const syncTrigger = () => { trigger.textContent = select.value || (select.options[0] && select.options[0].value) || ''; };
+
+  const closeMenu = () => {
+    menu.hidden = true;
+    trigger.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('click', onDocClick, true);
+    document.removeEventListener('keydown', onKeydown);
+  };
+  function onDocClick(e) { if (!wrap.contains(e.target)) closeMenu(); }
+  function onKeydown(e) { if (e.key === 'Escape') { closeMenu(); trigger.focus(); } }
+
+  const openMenu = () => {
+    menu.replaceChildren();
+    for (const opt of select.options) {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'emoji-picker__item';
+      item.textContent = opt.value;
+      item.setAttribute('role', 'option');
+      item.setAttribute('aria-selected', String(opt.value === select.value));
+      item.addEventListener('click', () => {
+        select.value = opt.value;
+        syncTrigger();
+        closeMenu();
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      menu.appendChild(item);
+    }
+    menu.hidden = false;
+    trigger.setAttribute('aria-expanded', 'true');
+    document.addEventListener('click', onDocClick, true);
+    document.addEventListener('keydown', onKeydown);
+  };
+
+  trigger.addEventListener('click', () => { if (menu.hidden) openMenu(); else closeMenu(); });
+
+  select.parentNode.insertBefore(wrap, select);
+  wrap.append(trigger, menu, select);
+  select.classList.add('emoji-picker__native');
+  select.tabIndex = -1;
+  select.setAttribute('aria-hidden', 'true');
+
+  syncTrigger();
+  new MutationObserver(syncTrigger).observe(select, { childList: true });
+}
+
 function validateDuration(inputId, errorId, min, max) {
   const inputEl = document.getElementById(inputId);
   const errorEl = document.getElementById(errorId);
@@ -3250,34 +3600,6 @@ const Lounge = {
   PROFILE_EMOJI: ['🎯', '🔥', '🌙', '⚡', '📚', '🌱', '☁️', '🚀', '🧠', '☕', '🎧', '🏆'],
 
   init() {
-    state.lounge.friends = Storage.loadLoungeFriends().map((f) => ({ ...f, ...Lounge._simFields() }));
-    state.lounge.chats = Storage.loadLoungeChats();
-    Lounge._syncEngine();
-  },
-
-  _simFields() {
-    const focusMs = state.settings.pomodoro * 60000;
-    return {
-      status: 'focusing',
-      remainingMs: Math.round(focusMs * (0.1 + Math.random() * 0.8)),
-      studyMinutesToday: 0, restMinutesToday: 0, pomodorosToday: 0,
-      simXP: Math.floor(Math.random() * 300),
-      online: true,
-    };
-  },
-
-  addFriend(name, avatar) {
-    const trimmed = (name || '').trim().slice(0, 24);
-    if (!trimmed) return false;
-    const emoji = Lounge.PROFILE_EMOJI.includes(avatar) ? avatar : Lounge.PROFILE_EMOJI[0];
-    state.lounge.friends.push({ id: makeId(), name: trimmed, avatar: emoji, ...Lounge._simFields() });
-    Storage.saveLoungeFriends(state.lounge.friends);
-    Lounge._syncEngine();
-    return true;
-  },
-  removeFriend(id) {
-    state.lounge.friends = state.lounge.friends.filter((f) => f.id !== id);
-    Storage.saveLoungeFriends(state.lounge.friends);
     Lounge._syncEngine();
   },
 
@@ -3315,52 +3637,11 @@ const Lounge = {
   ],
 
   statusLabel(member) {
-    if (member.status === 'focusing') return `🟢 Focusing (${Timer.formatTime(member.remainingMs)})`;
-    if (member.status === 'resting') return '☕ Resting (Break)';
-    return '⚪ Idle / Ready';
+    if (member.status === 'focusing') return { status: 'focusing', text: `Focusing (${Timer.formatTime(member.remainingMs)})` };
+    if (member.status === 'resting') return { status: 'resting', text: 'Resting (Break)' };
+    return { status: 'idle', text: 'Idle / Ready' };
   },
 
-  friendPresenceLabel(f) {
-    if (!f.online) return '⚪ Offline';
-    if (f.status === 'focusing') return `🔴 Focusing (${Timer.formatTime(f.remainingMs)})`;
-    if (f.status === 'resting') return '☕ Resting';
-    return '🟢 Online';
-  },
-
-  REPLY_BANK: [
-    'Sounds good! 💪', "Let's do it!", "I'm mid-focus right now, talk soon!",
-    '😄 Nice, good luck with your sprint!', 'On it!', 'Haha same here.',
-    "Let's start a co-op sprint later?", '👍', 'Just finished a pomodoro, feeling great!',
-  ],
-  sendMessage(friendId, text) {
-    const trimmed = (text || '').trim().slice(0, 500);
-    if (!trimmed) return false;
-    if (!state.lounge.chats[friendId]) state.lounge.chats[friendId] = [];
-    const thread = state.lounge.chats[friendId];
-    thread.push({ id: makeId(), from: 'me', text: trimmed, ts: Date.now() });
-    if (thread.length > 200) thread.splice(0, thread.length - 200);
-    Storage.saveLoungeChats(state.lounge.chats);
-    if (typeof UI !== 'undefined') UI.renderChatThread(friendId);
-    const friend = state.lounge.friends.find((f) => f.id === friendId);
-    if (friend) {
-      setTimeout(() => {
-        thread.push({ id: makeId(), from: 'friend', text: Lounge.REPLY_BANK[Math.floor(Math.random() * Lounge.REPLY_BANK.length)], ts: Date.now() });
-        if (thread.length > 200) thread.splice(0, thread.length - 200);
-        Storage.saveLoungeChats(state.lounge.chats);
-        if (state.lounge.activeChatFriendId === friendId && typeof UI !== 'undefined') UI.renderChatThread(friendId);
-      }, 800 + Math.random() * 1200);
-    }
-    return true;
-  },
-
-  _maybeSimulateInvite() {
-    if (state.lounge.room || state.lounge.pendingInvite || state.lounge.friends.length === 0) return;
-    if (Math.random() < 0.003) {
-      const friend = state.lounge.friends[Math.floor(Math.random() * state.lounge.friends.length)];
-      state.lounge.pendingInvite = { friendId: friend.id, friendName: friend.name, code: Lounge.generateRoomCode() };
-      if (typeof UI !== 'undefined') UI.renderInviteToast();
-    }
-  },
   acceptInvite() {
     const pending = state.lounge.pendingInvite;
     if (!pending) return;
@@ -3394,6 +3675,18 @@ const Lounge = {
       restMinutesToday: state.stats.restMinutesToday,
       pomodorosToday: state.stats.pomodorosCompletedToday,
       missionProgress: 0, missionState: 'pending',
+    };
+  },
+  _simFields() {
+    const focusing = Math.random() < 0.6;
+    const totalMs = (focusing ? state.settings.pomodoro : state.settings.shortBreak) * 60000;
+    return {
+      status: focusing ? 'focusing' : 'resting',
+      remainingMs: Math.floor(Math.random() * totalMs),
+      studyMinutesToday: Math.floor(Math.random() * 90),
+      restMinutesToday: Math.floor(Math.random() * 20),
+      pomodorosToday: Math.floor(Math.random() * 4),
+      simXP: Math.floor(Math.random() * 200),
     };
   },
   _makeBotMember(name, avatar) {
@@ -3464,7 +3757,7 @@ const Lounge = {
     Lounge._engineTimer = null;
   },
   _syncEngine() {
-    const shouldRun = !!state.lounge.room || state.lounge.friends.length > 0;
+    const shouldRun = !!state.lounge.room;
     if (shouldRun) Lounge._startEngine(); else Lounge._stopEngine();
   },
 
@@ -3516,7 +3809,7 @@ const Lounge = {
     if (typeof UI !== 'undefined') { UI.renderMissions(); UI.renderStatsDashboard(); }
     if (typeof SoundFX !== 'undefined') SoundFX.playCompletionSound();
     if (typeof Confetti !== 'undefined') Confetti.burst();
-    Lounge._logActivity(room, '🎉 Everyone finished! Sprint complete.');
+    Lounge._logActivity(room, 'Everyone finished! Sprint complete.');
     room.mission = null;
     for (const m of room.members) { m.missionProgress = 0; m.missionState = 'pending'; }
   },
@@ -3536,14 +3829,8 @@ const Lounge = {
         Lounge._tickBot(m, room);
       }
     }
-    for (const f of state.lounge.friends) {
-      if (Math.random() < 0.01) f.online = !f.online;
-      if (f.online) Lounge._tickBot(f, null);
-    }
-    Lounge._maybeSimulateInvite();
     if (typeof UI !== 'undefined') {
       UI.renderLoungeChip();
-      UI.renderLoungeFriends();
       if (state.currentView === 'lounge') {
         if (room) UI.renderLoungeRoom();
       }
@@ -3781,7 +4068,10 @@ const UI = {
         }
         li.querySelector('.lounge-friend-item__avatar').textContent = f.avatar;
         li.querySelector('.lounge-friend-item__name').textContent = f.name;
-        li.querySelector('.lounge-friend-item__status').textContent = Lounge.friendPresenceLabel(f);
+        const presence = Lounge.friendPresenceLabel(f);
+        const statusEl = li.querySelector('.lounge-friend-item__status');
+        statusEl.textContent = presence.text;
+        statusEl.dataset.status = presence.status;
         li.querySelector('.lounge-friend-item__invite').disabled = !state.lounge.room;
       }
       for (const li of [...list.children]) {
@@ -3847,12 +4137,14 @@ const UI = {
 
       const status = document.createElement('span');
       status.className = 'lounge-grid-card__status';
-      status.textContent = Lounge.statusLabel(m);
+      const memberStatus = Lounge.statusLabel(m);
+      status.textContent = memberStatus.text;
+      status.dataset.status = memberStatus.status;
 
       const metrics = document.createElement('span');
       metrics.className = 'lounge-grid-card__metrics';
       const h = Math.floor(m.studyMinutesToday / 60), min = m.studyMinutesToday % 60;
-      metrics.textContent = `${h > 0 ? `${h}h ${min}m` : `${min}m`} study · ${m.restMinutesToday}m rest · ${m.pomodorosToday} 🍅`;
+      metrics.textContent = `${h > 0 ? `${h}h ${min}m` : `${min}m`} study · ${m.restMinutesToday}m rest · ${m.pomodorosToday} pomodoros`;
 
       card.append(ring, name, levelEl, status, metrics);
       grid.appendChild(card);
@@ -4060,7 +4352,7 @@ const UI = {
     const btn = document.getElementById('darkmode-toggle');
     if (!btn) return;
     const dark = Theme.isDark();
-    btn.innerHTML = dark ? '&#9728;' : '&#127769;';
+    btn.innerHTML = dark ? Icons.sun : Icons.moon;
     btn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
   },
 
@@ -4068,7 +4360,7 @@ const UI = {
     const btn = document.getElementById('mute-toggle');
     if (!btn) return;
     const muted = state.musicSettings.muted;
-    btn.innerHTML = muted ? '&#128264;' : '&#128266;';
+    btn.innerHTML = muted ? Icons.volumeMute : Icons.volumeOn;
     btn.setAttribute('aria-pressed', String(muted));
     btn.setAttribute('aria-label', muted ? 'Unmute background music' : 'Mute background music');
   },
@@ -4150,7 +4442,7 @@ const UI = {
       date.textContent = d.date;
       const count = document.createElement('span');
       count.className = 'leaderboard-item__count';
-      count.textContent = `${d.pomodoros} 🍅`;
+      count.textContent = `${d.pomodoros} pomodoros`;
       li.append(rank, date, count);
       list.appendChild(li);
     });
@@ -4167,7 +4459,7 @@ const UI = {
     const skillLevelEl = document.getElementById('stat-skill-level');
     if (totalPomodorosEl) totalPomodorosEl.textContent = String(s.totalPomodoros);
     if (focusTimeEl) focusTimeEl.textContent = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
-    if (streakEl) streakEl.textContent = `${s.currentStreak} 🔥`;
+    if (streakEl) streakEl.textContent = String(s.currentStreak);
     if (skillLevelEl) skillLevelEl.textContent = `Lv. ${focusLevel}`;
   },
 
@@ -4337,7 +4629,7 @@ const UI = {
       del.type = 'button';
       del.className = 'task__delete';
       del.setAttribute('aria-label', `Delete "${task.text}"`);
-      del.textContent = '\u{1F5D1}️';
+      del.innerHTML = Icons.trash;
       del.addEventListener('click', (e) => { e.stopPropagation(); Planner.deleteTask(task.id); });
 
       li.addEventListener('click', () => Planner.setActiveTask(task.id));
@@ -4383,7 +4675,7 @@ const UI = {
     setFieldStatus(status, 'Loading…', '');
     const result = kind === 'image' ? await MediaService.loadImageFromUrl(url) : await MediaService.loadVideoFromUrl(url);
     if (!result.ok) { setFieldStatus(status, result.reason, 'error'); return; }
-    setFieldStatus(status, 'Looks good ✓', 'success');
+    setFieldStatus(status, 'Looks good', 'success');
     if (kind === 'image') {
       const img = document.createElement('img');
       img.src = url; img.alt = ''; img.style.cssText = 'max-height:120px;border-radius:8px;';
@@ -4410,7 +4702,7 @@ const UI = {
     setFieldStatus(status, 'Loading…', '');
     const result = await YouTube.checkEmbeddable(id);
     if (!result.ok) { setFieldStatus(status, result.reason, 'error'); return; }
-    setFieldStatus(status, 'Looks good ✓', 'success');
+    setFieldStatus(status, 'Looks good', 'success');
     const iframe = document.createElement('iframe');
     iframe.src = `https://www.youtube.com/embed/${id}?controls=1`;
     iframe.style.cssText = 'width:213px;max-width:100%;height:120px;border:0;border-radius:8px;';
@@ -4430,7 +4722,7 @@ const UI = {
     setFieldStatus(status, 'Loading…', '');
     const result = await MediaService.validateLocalFile(file, kind);
     if (!result.ok) { setFieldStatus(status, result.reason, 'error'); return; }
-    setFieldStatus(status, 'Looks good ✓', 'success');
+    setFieldStatus(status, 'Looks good', 'success');
     UI._pendingLocalMedia[kind] = file;
     document.getElementById(kind === 'image' ? 'name-local-bg-image' : 'name-local-bg-video').textContent = file.name;
     const previewBox = document.getElementById(kind === 'image' ? 'preview-box-local-bg-image' : 'preview-box-local-bg-video');
@@ -4593,8 +4885,8 @@ const UI = {
     const volume = document.getElementById('media-volume');
     const c = Media.getActiveController();
     const playing = c ? c.isPlaying() : false;
-    if (playBtn) { playBtn.textContent = playing ? '⏸' : '▶'; playBtn.setAttribute('aria-pressed', String(playing)); }
-    if (muteBtn) { muteBtn.textContent = state.mediaSettings.muted ? '\u{1F507}' : '\u{1F50A}'; muteBtn.setAttribute('aria-pressed', String(state.mediaSettings.muted)); }
+    if (playBtn) { playBtn.innerHTML = playing ? Icons.pause : Icons.play; playBtn.setAttribute('aria-pressed', String(playing)); }
+    if (muteBtn) { muteBtn.innerHTML = state.mediaSettings.muted ? Icons.volumeMute : Icons.volumeOn; muteBtn.setAttribute('aria-pressed', String(state.mediaSettings.muted)); }
     if (volume) volume.value = Math.round(state.mediaSettings.volume * 100);
   },
 
@@ -4616,10 +4908,10 @@ const UI = {
     });
     const playing = MusicPlayer.isPlaying();
     const playBtn = document.getElementById('music-play');
-    playBtn.textContent = playing ? '⏸' : '▶';
+    playBtn.innerHTML = playing ? Icons.pause : Icons.play;
     playBtn.setAttribute('aria-pressed', String(playing));
     const muteBtn = document.getElementById('music-mute');
-    muteBtn.textContent = state.musicSettings.muted ? '🔇' : '🔊';
+    muteBtn.innerHTML = state.musicSettings.muted ? Icons.volumeMute : Icons.volumeOn;
     muteBtn.setAttribute('aria-pressed', String(state.musicSettings.muted));
     document.getElementById('music-loop').setAttribute('aria-pressed', String(state.musicSettings.loop));
     document.getElementById('music-volume').value = Math.round(state.musicSettings.volume * 100);
@@ -4677,7 +4969,10 @@ const UI = {
     LiveUsers.start();
 
     ['dashboard', 'reports', 'leaderboard', 'lounge'].forEach((v) => {
-      document.getElementById(`nav-${v}`).addEventListener('click', () => UI.selectView(v));
+      document.getElementById(`nav-${v}`).addEventListener('click', () => {
+        UI.selectView(v);
+        closeMobileNav();
+      });
     });
 
     document.getElementById('darkmode-toggle').addEventListener('click', () => Theme.toggleDarkMode());
@@ -4685,6 +4980,35 @@ const UI = {
       MusicPlayer.setMuted(!state.musicSettings.muted);
       UI.renderMuteToggle();
       if (typeof UI.renderMusicUI === 'function') UI.renderMusicUI();
+    });
+
+    // ---- Mobile header menu ----
+    const siteHeader = document.getElementById('site-header');
+    const navToggle = document.getElementById('nav-toggle');
+    const navPanelBackdrop = document.getElementById('nav-panel-backdrop');
+    const openMobileNav = () => {
+      siteHeader.classList.add('is-open');
+      navToggle.setAttribute('aria-expanded', 'true');
+      navToggle.setAttribute('aria-label', 'Close menu');
+      navPanelBackdrop.hidden = false;
+      document.body.style.overflow = 'hidden';
+    };
+    const closeMobileNav = () => {
+      siteHeader.classList.remove('is-open');
+      navToggle.setAttribute('aria-expanded', 'false');
+      navToggle.setAttribute('aria-label', 'Open menu');
+      navPanelBackdrop.hidden = true;
+      document.body.style.overflow = '';
+    };
+    navToggle.addEventListener('click', () => {
+      if (siteHeader.classList.contains('is-open')) closeMobileNav(); else openMobileNav();
+    });
+    navPanelBackdrop.addEventListener('click', closeMobileNav);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && siteHeader.classList.contains('is-open')) closeMobileNav();
+    });
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 1140 && siteHeader.classList.contains('is-open')) closeMobileNav();
     });
 
     // ---- Profile modal ----
@@ -4732,7 +5056,7 @@ const UI = {
       const preview = document.getElementById('profile-modal-pfp-edit-preview');
       preview.textContent = '';
       preview.style.backgroundImage = `url(${previewUrl})`;
-      setFieldStatus(status, 'Looks good ✓', 'success');
+      setFieldStatus(status, 'Looks good', 'success');
     });
     document.getElementById('profile-remove-photo-btn').addEventListener('click', () => {
       UI._pendingAvatarPhoto = 'remove';
@@ -4938,7 +5262,7 @@ const UI = {
       setFieldStatus(status, 'Loading…', '');
       const result = await MediaService.loadAudioFromUrl(url);
       if (!result.ok) { setFieldStatus(status, result.reason, 'error'); return; }
-      setFieldStatus(status, 'Looks good ✓', 'success');
+      setFieldStatus(status, 'Looks good', 'success');
     });
 
     document.getElementById('choose-local-music').addEventListener('click', () => {
@@ -4951,7 +5275,7 @@ const UI = {
       setFieldStatus(status, 'Loading…', '');
       const result = await MediaService.validateLocalFile(file, 'audio');
       if (!result.ok) { setFieldStatus(status, result.reason, 'error'); return; }
-      setFieldStatus(status, 'Looks good ✓', 'success');
+      setFieldStatus(status, 'Looks good', 'success');
       document.getElementById('name-local-music').textContent = file.name;
       UI._pendingLocalAudio = file;
     });
@@ -5011,24 +5335,6 @@ const UI = {
     });
 
     // ---- Study Lounge ----
-    document.getElementById('lounge-add-friend-form').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const nameInput = document.getElementById('lounge-friend-name-input');
-      const avatarSelect = document.getElementById('lounge-friend-avatar-select');
-      if (Lounge.addFriend(nameInput.value, avatarSelect.value)) {
-        nameInput.value = '';
-        UI.renderLoungeView();
-      }
-    });
-    document.getElementById('lounge-add-friend-form-active').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const nameInput = document.getElementById('lounge-friend-name-input-active');
-      const avatarSelect = document.getElementById('lounge-friend-avatar-select-active');
-      if (Lounge.addFriend(nameInput.value, avatarSelect.value)) {
-        nameInput.value = '';
-        UI.renderLoungeView();
-      }
-    });
     document.getElementById('lounge-create-room-form').addEventListener('submit', (e) => {
       e.preventDefault();
       const goalInput = document.getElementById('lounge-goal-input');
@@ -5075,15 +5381,6 @@ const UI = {
     document.getElementById('friends-drawer-toggle').addEventListener('click', openFriendsDrawer);
     document.getElementById('friends-drawer-close').addEventListener('click', closeFriendsDrawer);
     document.getElementById('friends-drawer-backdrop').addEventListener('click', closeFriendsDrawer);
-    document.getElementById('friends-drawer-add-form').addEventListener('submit', (e) => {
-      e.preventDefault();
-      const nameInput = document.getElementById('friends-drawer-name-input');
-      const avatarSelect = document.getElementById('friends-drawer-avatar-select');
-      if (Lounge.addFriend(nameInput.value, avatarSelect.value)) {
-        nameInput.value = '';
-        UI.renderLoungeFriends();
-      }
-    });
 
     // ---- Chat dialog ----
     document.getElementById('chat-dialog-close').addEventListener('click', () => document.getElementById('chat-dialog').close());
@@ -5104,6 +5401,7 @@ const UI = {
 
     UI.renderLoungeLobby();
     UI.renderLoungeFriends();
+    ['lounge-friend-avatar-select', 'lounge-friend-avatar-select-active', 'friends-drawer-avatar-select'].forEach(enhanceEmojiSelect);
 
     UI.renderAppearanceUI();
   },
