@@ -413,6 +413,11 @@ function broadcastOnlineCount() { broadcastAll({ type: 'online-count', count: on
 
 server.on('upgrade', (req, socket, head) => {
   if (!req.url.startsWith('/ws')) { socket.destroy(); return; }
+  const origin = req.headers.origin;
+  if (allowedOrigins.length && origin && !allowedOrigins.includes(origin)) {
+    socket.destroy();
+    return;
+  }
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
 
