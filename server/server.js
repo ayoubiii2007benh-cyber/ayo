@@ -1,6 +1,7 @@
 'use strict';
 
 const path = require('node:path');
+const fs = require('node:fs');
 const http = require('node:http');
 const crypto = require('node:crypto');
 const express = require('express');
@@ -371,7 +372,25 @@ app.get('/api/presence/online-count', (req, res) => res.json({ count: onlineUser
 
 /* ============================== static frontend ============================== */
 
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, '..', 'index.html')));
+const INDEX_HTML_PATH = path.join(__dirname, '..', 'index.html');
+
+app.get('/', (req, res) => {
+  const nonce = crypto.randomBytes(16).toString('base64');
+  const html = fs.readFileSync(INDEX_HTML_PATH, 'utf8')
+    .replace('<script>', `<script nonce="${nonce}">`);
+  res.set('Content-Security-Policy', [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' https://www.youtube.com`,
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src https://fonts.gstatic.com",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' data: blob: https:",
+    "frame-src https://www.youtube.com",
+    "connect-src 'self' https://generativelanguage.googleapis.com",
+    "frame-ancestors 'none'",
+  ].join('; '));
+  res.type('html').send(html);
+});
 
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   console.error(err);
