@@ -3560,6 +3560,14 @@ const Theme = {
     root.setProperty('--mesh-3', mix(colors.accentLongBreak, colors.bg, 0.3));
     root.setProperty('--mesh-4', mix(colors.primary, colors.bg, 0.3));
     document.documentElement.setAttribute('data-theme-preset', state.themeSettings.preset);
+    // Every path that changes the visible theme (preset picker, reset button,
+    // each custom color swatch, the dark-mode toggle itself) funnels through
+    // this one function -- so the toggle's icon is refreshed right here,
+    // once, instead of relying on each call site to remember to do it. That
+    // was the actual bug: three call sites changed `colors.bg` (which is
+    // what isDark() reads) without ever re-rendering the toggle, so it could
+    // show light while the page was dark, or vice versa.
+    UI.renderDarkModeToggle();
   },
   applyPreset(id) {
     const colors = Theme.PRESETS[id] || Theme.PRESETS.default;
@@ -3591,8 +3599,8 @@ const Theme = {
   resetToDefault() { Theme.applyPreset('default'); },
   isDark() { return relLuminance(state.themeSettings.colors.bg) < 0.5; },
   toggleDarkMode() {
+    // applyPreset() -> apply() already refreshes the toggle icon; no need to do it here too.
     Theme.applyPreset(Theme.isDark() ? 'default' : 'midnight');
-    UI.renderDarkModeToggle();
     if (typeof UI.renderAppearanceUI === 'function') UI.renderAppearanceUI();
   },
   contrastRatio(hexA, hexB) {
