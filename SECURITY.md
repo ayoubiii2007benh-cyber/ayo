@@ -86,6 +86,81 @@ phished) and connects directly with a WS client of their own. Locally,
 with `ALLOWED_ORIGIN` unset, the check is skipped entirely (`allowedOrigins.length`
 is `0`) so same-origin dev traffic isn't affected.
 
+## CAPTCHA (Cloudflare Turnstile)
+
+`POST /api/auth/register` and `POST /api/auth/login` verify a Turnstile
+token server-side (`verifyCaptcha()` in `server/server.js`) against
+Cloudflare's `siteverify` endpoint before touching the database or bcrypt.
+The secret key (`TURNSTILE_SECRET_KEY`) is a backend-only environment
+variable, never sent to the client; only the public site key
+(`TURNSTILE_SITE_KEY`) is exposed, via `GET /api/config`.
+
+Three explicit behaviors worth knowing:
+
+- **Unconfigured (no `TURNSTILE_SECRET_KEY`) → verification is skipped
+  entirely**, so local dev and CI never need a Cloudflare account. This is
+  a real gap, not an oversight — see Deployment security requirements.
+- **A network failure reaching Cloudflare fails closed** (the attempt is
+  rejected), not open. A Cloudflare outage means login/signup are
+  unavailable rather than silently unprotected.
+- The frontend (`Captcha` in `index.html`) only loads Turnstile's script
+  and renders the widget if `GET /api/config` reports it enabled — so an
+  unconfigured deployment never fetches anything from
+  `challenges.cloudflare.com`.
+
+## OAuth ("Continue with Google" / "Continue with Microsoft")
+
+`server/oauth.js` implements standard authorization-code + PKCE (RFC 7636)
+against each provider directly — no SDK, no dependency, two `fetch` calls
+per sign-in (token exchange, then the provider's OIDC `userinfo` endpoint).
+PKCE is used even though these are confidential (secret-holding) clients:
+it costs nothing and stops an intercepted `code` from being redeemed by
+anyone but the browser that started that exact flow.
+
+- **CSRF/state**: `GET /api/auth/:provider/start` generates a random
+  `state` and a PKCE verifier, stored server-side in memory keyed by
+  `state` (`oauthStates`), and never trusts the client to round-trip
+  anything but that opaque value. `state` is deleted the moment the
+  callback looks it up — replay of a callback URL fails immediately.
+- **No JWT signature verification needed**: profile data comes from calling
+  the provider's own `userinfo` endpoint with the access token we just
+  received, not from decoding the `id_token` ourselves — that endpoint is
+  only reachable with a token the provider itself issued to us over this
+  exact request, so there's no JWKS/signature-verification code to get
+  wrong.
+- **The real session JWT never appears in a URL.** The OAuth callback
+  redirects to `/?oauth=<one-time code>`; the frontend immediately calls
+  `POST /api/auth/oauth/exchange` to trade that code for the actual token
+  (`oauthExchangeCodes`, single-use, 60s expiry) and strips the query
+  param via `history.replaceState`. The alternative — putting the JWT
+  itself in the redirect URL — would leave it in browser history and any
+  access log that captures full URLs.
+- **Account linking trust assumption**: a new OAuth sign-in is linked to an
+  existing password-based account by email match only when the provider
+  asserts the email is verified. Google's `userinfo` response has an
+  explicit `email_verified` claim, honored directly. Microsoft's does not
+  expose that claim, so an email returned there is treated as verified on
+  the assumption that Microsoft only returns a mailbox it authenticated
+  the sign-in against — the same assumption most production apps make,
+  but a real one, stated here rather than left implicit.
+- **No client secret ever reaches the browser.** `GOOGLE_CLIENT_SECRET` /
+  `MICROSOFT_CLIENT_SECRET` are read only from environment variables on
+  the server; the frontend only ever navigates to `/api/auth/:provider/start`
+  (a same-origin link) and never sees a provider's credentials.
+- **Provider buttons are hidden, not just disabled, when unconfigured.**
+  `GET /api/config` reports `oauth.google`/`oauth.microsoft` as `false`
+  unless both that provider's client id and secret are set; the frontend
+  hides the corresponding button, and `/api/auth/:provider/start` 404s
+  regardless of what the frontend shows.
+- **An OAuth-created account gets no usable password.** Its
+  `password_hash` is a bcrypt hash of random bytes nobody knows; signing in
+  again means going through the same provider, the only identity actually
+  verified for that account.
+
+Known gap: there is no UI yet for a *logged-in* user to link a second
+provider (or a password) to their existing account — only the automatic
+email-match linking described above. Explicitly out of scope for this pass.
+
 ## Rate limiting
 
 An in-memory limiter (`rateLimited()` in `server/server.js`) throttles:
@@ -94,6 +169,7 @@ An in-memory limiter (`rateLimited()` in `server/server.js`) throttles:
 |---|---|---|
 | `POST /api/auth/register` | 10/min | IP |
 | `POST /api/auth/login` | 20/min | IP |
+| `GET /api/auth/:provider/start` | 20/min | IP |
 | `GET /api/users/search` | 30/min | user id |
 | `POST /api/friends/requests` | 20/min | user id |
 | `POST /api/conversations/:friendId/messages` | 60/min | user id |
@@ -135,12 +211,12 @@ Content-Security-Policy (`server/server.js`, the `GET /` handler):
 
 ```
 default-src 'self'
-script-src 'self' 'nonce-<random per request>' https://www.youtube.com
+script-src 'self' 'nonce-<random per request>' https://www.youtube.com https://challenges.cloudflare.com
 style-src 'self' 'unsafe-inline' https://fonts.googleapis.com
 font-src https://fonts.gstatic.com
 img-src 'self' data: blob: https:
 media-src 'self' data: blob: https:
-frame-src https://www.youtube.com
+frame-src https://www.youtube.com https://challenges.cloudflare.com
 connect-src 'self' https://generativelanguage.googleapis.com
 frame-ancestors 'none'
 ```
@@ -164,10 +240,14 @@ oversights:
 
 `https://www.youtube.com` is allowlisted for `script-src`/`frame-src`
 because the background-video feature loads the YouTube IFrame API.
-`connect-src` allows `https://generativelanguage.googleapis.com` because
-the AI chat feature calls Google's Gemini API directly from the browser
-with a user-supplied key (the app's own Settings UI already tells the
-user that key is sent directly to Google, never to this app's server).
+`https://challenges.cloudflare.com` is allowlisted the same way for the
+Turnstile CAPTCHA widget (see CAPTCHA below) — its script and the iframe
+it renders both need it, and neither is loaded at all unless CAPTCHA is
+actually configured. `connect-src` allows
+`https://generativelanguage.googleapis.com` because the AI chat feature
+calls Google's Gemini API directly from the browser with a user-supplied
+key (the app's own Settings UI already tells the user that key is sent
+directly to Google, never to this app's server).
 
 Baseline headers (`X-Content-Type-Options: nosniff`, `Referrer-Policy:
 no-referrer`, `X-Frame-Options: DENY`, HSTS) come from `helmet`, configured
@@ -214,8 +294,11 @@ mistakes silence for "solved":
   for that user, everywhere, because there's no per-device session
   table. If you only meant to sign out one browser, you'll need to log
   back in on the others too.
-- **No email verification.** An email address can be attached to an
-  account without proving the account owner controls it.
+- **No email verification for password-based signup.** An email address
+  attached via `POST /api/auth/register` is never confirmed to belong to
+  the account owner. (An email attached via Google/Microsoft sign-in *is*
+  provider-verified — see OAuth above — but that only covers accounts
+  created that way.)
 - **No two-factor authentication.**
 - **The WebSocket Origin check does not gate non-browser clients.** As
   described in Realtime security above, `ALLOWED_ORIGIN` only rejects
@@ -225,8 +308,9 @@ mistakes silence for "solved":
   regardless of this setting. The real backstop against token compromise
   is the token's short lifetime and revocability via logout, not the
   Origin check.
-- **No CAPTCHA or bot protection** beyond the rate limits described
-  above.
+- **CAPTCHA is opt-in via environment variables (see CAPTCHA above).** A
+  deployment that never sets `TURNSTILE_SECRET_KEY` has no bot protection
+  beyond the rate limits described below.
 - **The WebSocket token is passed in the URL query string.** This is the
   standard pattern for authenticating browser WebSockets (they can't set
   custom headers on the upgrade request), but it does mean the token can
@@ -263,3 +347,21 @@ Before deploying this anywhere real:
 - Serve everything over HTTPS. This is required for HSTS to have any
   effect, and it's what keeps the WebSocket's query-string token from
   ever crossing the network in plaintext.
+- Set `BASE_URL` to the real production origin (e.g.
+  `https://your-app.example.com`, no trailing slash) before enabling
+  either OAuth provider — it's used to build the redirect URI sent to
+  Google/Microsoft, which must exactly match what's registered in their
+  consoles. A stale `localhost` value here breaks OAuth silently in
+  production (their consent screen will report a redirect_uri mismatch).
+- Set `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` (Cloudflare
+  dashboard) to turn on bot protection for signup/login. Without both,
+  those endpoints are protected only by the rate limits above.
+- Set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` and/or
+  `MICROSOFT_CLIENT_ID`/`MICROSOFT_CLIENT_SECRET` to enable "Continue
+  with Google/Microsoft" — each pair is independent, and a provider stays
+  hidden until both its values are set. Register the redirect URI
+  `<BASE_URL>/api/auth/<provider>/callback` in that provider's console
+  first, or the callback will fail.
+- Use separate OAuth client registrations (and separate Turnstile
+  widgets, if you want per-environment analytics) for development and
+  production — `server/.env.example` documents this per variable.

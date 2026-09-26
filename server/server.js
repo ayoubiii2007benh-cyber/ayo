@@ -11,9 +11,15 @@ const { WebSocketServer } = require('ws');
 
 const { db, id: newId, pairKey } = require('./db');
 const { hashPassword, verifyPassword, signToken, verifyToken, requireAuth } = require('./auth');
+const OAuth = require('./oauth');
 
 const PORT = Number(process.env.PORT) || 3000;
 const allowedOrigins = (process.env.ALLOWED_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
+// Must exactly match the redirect URI registered with each OAuth provider's
+// console -- that's their defense against a code being redeemed against the
+// wrong deployment. Defaults to localhost so OAuth "just works" in dev once
+// a developer sets client id/secret; production must set this explicitly.
+const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
 
 const app = express();
 // Only ever enable this when actually deployed behind a real reverse
@@ -54,6 +60,87 @@ setInterval(() => {
     if (record.start < cutoff) attempts.delete(key);
   }
 }, 5 * 60_000).unref();
+
+/* ============================== captcha (Cloudflare Turnstile) ============================== */
+
+/* No TURNSTILE_SECRET_KEY set: verification is skipped so local dev and CI
+   never need a Cloudflare account. This is a real, intentional gap -- see
+   SECURITY.md and the deploy checklist. Once the secret is set, a missing,
+   invalid, expired, or already-used token is always rejected, and a
+   network failure reaching Cloudflare fails closed (rejected), not open. */
+async function verifyCaptcha(token, ip) {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret) return true;
+  if (typeof token !== 'string' || !token) return false;
+  try {
+    const body = new URLSearchParams({ secret, response: token, remoteip: ip || '' });
+    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body });
+    const data = await res.json();
+    return data.success === true;
+  } catch {
+    return false;
+  }
+}
+
+/* ============================== oauth (Google / Microsoft) ============================== */
+
+/** state -> { verifier, provider, expiresAt }: created by /start, consumed once by /callback. */
+const oauthStates = new Map();
+/** one-time code -> { token, user, expiresAt }: bridges the server-side OAuth
+    redirect back to a normal JSON response the frontend can consume, without
+    ever putting the real session JWT in a URL (query strings end up in
+    browser history and server access logs). */
+const oauthExchangeCodes = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, v] of oauthStates) if (v.expiresAt < now) oauthStates.delete(key);
+  for (const [key, v] of oauthExchangeCodes) if (v.expiresAt < now) oauthExchangeCodes.delete(key);
+}, 60_000).unref();
+
+function usernameFromEmail(email) {
+  const base = (email.split('@')[0] || 'user').replace(/[^a-zA-Z0-9_]/g, '').slice(0, 16).padEnd(3, '0') || 'user';
+  let candidate = base;
+  for (let i = 1; getUserByUsername(candidate); i += 1) candidate = `${base}${i}`.slice(0, 20);
+  return candidate;
+}
+
+/* Thrown when an OAuth email collides with an existing account that was
+   never proven to belong to that address. See findOrCreateOAuthUser. */
+class OAuthEmailInUseError extends Error {}
+
+/* Links or creates a local account for a verified OAuth identity. Deliberately
+   does not create a usable password for a brand-new account -- signing in
+   again means going through the same provider, which is the only identity
+   this server has actually verified.
+
+   Does NOT auto-link to a pre-existing account by email match, even when the
+   provider says the email is verified. That merge is a well-documented
+   account **pre-hijacking** pattern (Paverd & Sudhodanan, USENIX Security
+   '23; also covered in real-world OAuth bug bounty writeups): registration
+   here never confirms a password account's email belongs to whoever typed
+   it, so an attacker can squat a victim's address at signup time and simply
+   wait -- the victim's later "Continue with Google" would otherwise land
+   them in the attacker's pre-created, attacker-controlled account. Refusing
+   the merge and telling the user to log in with their password instead
+   closes that off; self-service linking from a *logged-in* session is a
+   documented known gap (see SECURITY.md), not implemented here. */
+async function findOrCreateOAuthUser(provider, profile) {
+  const link = db.prepare('SELECT user_id FROM oauth_accounts WHERE provider = ? AND provider_user_id = ?').get(provider, profile.sub);
+  if (link) return getUserById(link.user_id);
+
+  if (getUserByEmail(profile.email)) throw new OAuthEmailInUseError();
+
+  const id = newId();
+  const now = Date.now();
+  const unusablePassword = await hashPassword(crypto.randomBytes(32).toString('hex'));
+  db.prepare(`INSERT INTO users (id, username, email, password_hash, display_name, avatar, bio, created_at, last_seen_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, usernameFromEmail(profile.email), profile.email, unusablePassword, (profile.name || profile.email.split('@')[0]).slice(0, 40), '', '', now, now);
+  const user = getUserById(id);
+  db.prepare('INSERT OR IGNORE INTO oauth_accounts (provider, provider_user_id, user_id, email, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(provider, profile.sub, user.id, profile.email, now);
+  return user;
+}
 
 /* ============================== db helpers ============================== */
 
@@ -101,9 +188,10 @@ function createNotification(userId, type, data) {
 
 /* ============================== auth routes ============================== */
 
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   if (rateLimited(`register:${req.ip}`, 10, 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again shortly.' });
-  const { username, password, email, displayName, avatar } = req.body || {};
+  const { username, password, email, displayName, avatar, captchaToken } = req.body || {};
+  if (!(await verifyCaptcha(captchaToken, req.ip))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
   if (!isValidUsername(username)) return res.status(400).json({ error: 'Username must be 3-20 characters: letters, numbers, underscore.' });
   if (!isValidPassword(password)) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   if (email !== undefined && email !== '' && !isValidEmail(email)) return res.status(400).json({ error: 'That email address looks invalid.' });
@@ -112,31 +200,98 @@ app.post('/api/auth/register', (req, res) => {
 
   const id = newId();
   const now = Date.now();
-  hashPassword(password).then((hash) => {
+  try {
+    const hash = await hashPassword(password);
     db.prepare(`INSERT INTO users (id, username, email, password_hash, display_name, avatar, bio, created_at, last_seen_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, username, email || null, hash, (displayName || username).slice(0, 40), (avatar || '').slice(0, 8), '', now, now);
     const user = getUserById(id);
     res.status(201).json({ token: signToken(id, 0), user: publicUser(user) });
-  }).catch(() => res.status(500).json({ error: 'Could not create the account. Try again.' }));
+  } catch {
+    res.status(500).json({ error: 'Could not create the account. Try again.' });
+  }
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   if (rateLimited(`login:${req.ip}`, 20, 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again shortly.' });
-  const { identifier, password } = req.body || {};
+  const { identifier, password, captchaToken } = req.body || {};
+  if (!(await verifyCaptcha(captchaToken, req.ip))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
   if (typeof identifier !== 'string' || typeof password !== 'string') return res.status(400).json({ error: 'Username/email and password are required.' });
   const user = identifier.includes('@') ? getUserByEmail(identifier) : getUserByUsername(identifier);
   if (!user) {
     console.warn(`[auth] failed login for "${identifier}" from ${req.ip}`);
     return res.status(401).json({ error: 'Incorrect username/email or password.' });
   }
-  verifyPassword(password, user.password_hash).then((ok) => {
+  try {
+    const ok = await verifyPassword(password, user.password_hash);
     if (!ok) {
       console.warn(`[auth] failed login for "${identifier}" from ${req.ip}`);
       return res.status(401).json({ error: 'Incorrect username/email or password.' });
     }
     res.json({ token: signToken(user.id, user.token_version), user: publicUser(user) });
-  }).catch(() => res.status(500).json({ error: 'Login failed. Try again.' }));
+  } catch {
+    res.status(500).json({ error: 'Login failed. Try again.' });
+  }
+});
+
+/* ============================== oauth (Google / Microsoft) ============================== */
+
+app.get('/api/config', (req, res) => {
+  res.json({
+    captcha: { enabled: !!process.env.TURNSTILE_SECRET_KEY, siteKey: process.env.TURNSTILE_SITE_KEY || null },
+    oauth: { google: OAuth.isConfigured('google'), microsoft: OAuth.isConfigured('microsoft') },
+  });
+});
+
+app.get('/api/auth/:provider/start', (req, res) => {
+  const provider = req.params.provider;
+  if (!OAuth.PROVIDERS[provider] || !OAuth.isConfigured(provider)) {
+    return res.status(404).json({ error: 'That sign-in method is not available.' });
+  }
+  if (rateLimited(`oauth-start:${req.ip}`, 20, 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again shortly.' });
+  const { verifier, challenge } = OAuth.pkcePair();
+  const state = crypto.randomBytes(24).toString('base64url');
+  oauthStates.set(state, { verifier, provider, expiresAt: Date.now() + 5 * 60_000 });
+  const redirectUri = `${BASE_URL}/api/auth/${provider}/callback`;
+  res.redirect(OAuth.authorizeUrl(provider, { state, challenge, redirectUri }));
+});
+
+app.get('/api/auth/:provider/callback', async (req, res) => {
+  const provider = req.params.provider;
+  const { code, state, error } = req.query;
+  const entry = typeof state === 'string' ? oauthStates.get(state) : null;
+  if (entry) oauthStates.delete(state); // single use regardless of outcome below
+
+  if (error || typeof code !== 'string' || !entry || entry.provider !== provider || entry.expiresAt < Date.now()) {
+    return res.redirect('/?oauthError=1');
+  }
+  try {
+    const redirectUri = `${BASE_URL}/api/auth/${provider}/callback`;
+    const tokens = await OAuth.exchangeCode(provider, { code, verifier: entry.verifier, redirectUri });
+    const profile = await OAuth.fetchProfile(provider, tokens.access_token);
+    const user = await findOrCreateOAuthUser(provider, profile);
+    const exchangeCode = crypto.randomBytes(24).toString('base64url');
+    oauthExchangeCodes.set(exchangeCode, {
+      token: signToken(user.id, user.token_version),
+      user: publicUser(user),
+      expiresAt: Date.now() + 60_000,
+    });
+    res.redirect(`/?oauth=${exchangeCode}`);
+  } catch (err) {
+    if (err instanceof OAuthEmailInUseError) return res.redirect('/?oauthError=email_in_use');
+    console.error(`[oauth] ${provider} sign-in failed:`, err.message);
+    res.redirect('/?oauthError=1');
+  }
+});
+
+/* One-time code -> real session token, so the JWT itself never appears in a
+   URL (server access logs, browser history, Referer headers). */
+app.post('/api/auth/oauth/exchange', (req, res) => {
+  const code = req.body && req.body.code;
+  const entry = typeof code === 'string' ? oauthExchangeCodes.get(code) : null;
+  if (entry) oauthExchangeCodes.delete(code);
+  if (!entry || entry.expiresAt < Date.now()) return res.status(400).json({ error: 'Invalid or expired sign-in code.' });
+  res.json({ token: entry.token, user: entry.user });
 });
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
@@ -386,12 +541,12 @@ app.get('/', (req, res) => {
     .replace('<script>', `<script nonce="${nonce}">`);
   res.set('Content-Security-Policy', [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' https://www.youtube.com`,
+    `script-src 'self' 'nonce-${nonce}' https://www.youtube.com https://challenges.cloudflare.com`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src https://fonts.gstatic.com",
     "img-src 'self' data: blob: https:",
     "media-src 'self' data: blob: https:",
-    "frame-src https://www.youtube.com",
+    "frame-src https://www.youtube.com https://challenges.cloudflare.com",
     "connect-src 'self' https://generativelanguage.googleapis.com",
     "frame-ancestors 'none'",
   ].join('; '));
@@ -399,6 +554,16 @@ app.get('/', (req, res) => {
 });
 
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+  // body-parser reports malformed/oversized request bodies as errors with a
+  // 4xx status attached -- those are client mistakes, not server failures.
+  // Reporting them as 500 mislabels them in logs/monitoring and (for
+  // malformed JSON) leaks that a JSON parser threw. Anything without a
+  // 4xx status is a genuine unexpected error and still gets logged + 500.
+  const status = Number(err.status || err.statusCode) || 500;
+  if (status >= 400 && status < 500) {
+    const message = status === 413 ? 'Request body too large.' : 'Malformed request.';
+    return res.status(status).json({ error: message });
+  }
   console.error(err);
   res.status(500).json({ error: 'Something went wrong.' });
 });

@@ -829,6 +829,8 @@
   }
   .auth-modal__tab.is-active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-xs); }
   #auth-panel-login, #auth-panel-signup { display: flex; flex-direction: column; gap: 10px; }
+  .auth-modal__oauth { display: flex; flex-direction: column; gap: 8px; }
+  .auth-modal__oauth:not(:has(> :not([hidden]))) { padding: 0; }
   .auth-modal__form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); }
   .auth-modal__form input {
     padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -1848,6 +1850,7 @@
       <label for="auth-login-password">Password
         <input type="password" id="auth-login-password" autocomplete="current-password">
       </label>
+      <div id="captcha-login" hidden></div>
       <span class="field-status" id="status-auth-login"></span>
       <button type="button" class="btn btn-primary" id="auth-login-submit">Log In</button>
     </div>
@@ -1862,8 +1865,14 @@
       <label for="auth-signup-password">Password
         <input type="password" id="auth-signup-password" autocomplete="new-password">
       </label>
+      <div id="captcha-signup" hidden></div>
       <span class="field-status" id="status-auth-signup"></span>
       <button type="button" class="btn btn-primary" id="auth-signup-submit">Create Account</button>
+    </div>
+
+    <div class="auth-modal__oauth" id="auth-oauth-row">
+      <a href="/api/auth/google/start" class="btn btn-secondary" id="auth-oauth-google" hidden>Continue with Google</a>
+      <a href="/api/auth/microsoft/start" class="btn btn-secondary" id="auth-oauth-microsoft" hidden>Continue with Microsoft</a>
     </div>
 
     <button type="button" class="btn btn-secondary" id="auth-guest-btn">Continue as Guest</button>
@@ -2508,6 +2517,65 @@ const Socket = {
   emit(type, msg) { (this.listeners[type] || []).forEach((fn) => fn(msg)); },
 };
 
+/* ============================== Captcha (Cloudflare Turnstile) ==============================
+   Loaded and rendered only if the server reports it's configured (GET
+   /api/config) -- so local dev, with no Turnstile keys, never even fetches
+   Cloudflare's script. Widgets are single-use: reset() after every submit,
+   success or failure, or the next attempt's token() call returns stale data. */
+const Captcha = {
+  enabled: false,
+  siteKey: null,
+  widgets: {},
+  async init(config) {
+    this.enabled = !!(config.captcha && config.captcha.enabled && config.captcha.siteKey);
+    this.siteKey = this.enabled ? config.captcha.siteKey : null;
+    if (!this.enabled) return;
+    try {
+      await this._loadScript();
+      this._render('login', 'captcha-login');
+      this._render('signup', 'captcha-signup');
+    } catch {
+      this.enabled = false; // Cloudflare unreachable: fail visibly rather than silently block submits
+    }
+  },
+  _loadScript() {
+    return new Promise((resolve, reject) => {
+      if (window.turnstile) return resolve();
+      const s = document.createElement('script');
+      s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js';
+      s.async = true;
+      s.defer = true;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('turnstile script failed to load'));
+      document.head.appendChild(s);
+    });
+  },
+  _render(key, elId) {
+    const el = document.getElementById(elId);
+    if (!el || !window.turnstile) return;
+    el.hidden = false;
+    this.widgets[key] = window.turnstile.render(el, { sitekey: this.siteKey });
+  },
+  token(key) {
+    if (!this.enabled || !window.turnstile || this.widgets[key] === undefined) return undefined;
+    return window.turnstile.getResponse(this.widgets[key]) || undefined;
+  },
+  reset(key) {
+    if (window.turnstile && this.widgets[key] !== undefined) window.turnstile.reset(this.widgets[key]);
+  },
+};
+
+/* ============================== OAuthUI ==============================
+   Reveals "Continue with Google/Microsoft" only for providers the server
+   has real credentials for (GET /api/config) — an unconfigured provider's
+   /start route 404s, so showing its button anyway would just be a dead end. */
+const OAuthUI = {
+  init(config) {
+    document.getElementById('auth-oauth-google').hidden = !(config.oauth && config.oauth.google);
+    document.getElementById('auth-oauth-microsoft').hidden = !(config.oauth && config.oauth.microsoft);
+  },
+};
+
 /* ============================== Auth ==============================
    Real accounts against the backend in server/. Guests (no account) can
    still use the timer/tasks/stats fully — those always stay local to this
@@ -2517,6 +2585,33 @@ const Auth = {
 
   async init() {
     Socket.connect();
+    try {
+      const config = await Api.get('/api/config');
+      Captcha.init(config);
+      OAuthUI.init(config);
+    } catch { /* config unreachable: OAuth/CAPTCHA UI just stay hidden */ }
+
+    // A completed OAuth redirect lands back here as ?oauth=<one-time code>
+    // (or ?oauthError=1 on failure) — never as the real session token, which
+    // would otherwise sit in the URL, browser history, and access logs.
+    const params = new URLSearchParams(location.search);
+    const oauthCode = params.get('oauth');
+    const oauthError = params.get('oauthError');
+    if (oauthCode || oauthError) history.replaceState(null, '', location.pathname);
+    if (oauthCode) {
+      try {
+        const { token, user } = await Api.post('/api/auth/oauth/exchange', { code: oauthCode });
+        Auth._onAuthenticated(token, user);
+        return;
+      } catch { /* fall through to the normal token-based session check below */ }
+    }
+    if (oauthError) {
+      const message = oauthError === 'email_in_use'
+        ? 'An account already exists with that email. Log in with your password to continue.'
+        : 'Sign-in failed. Please try again.';
+      Auth._pendingAuthMessage = message;
+    }
+
     if (!Api.token) return;
     try {
       const { user } = await Api.get('/api/auth/me');
@@ -2530,11 +2625,11 @@ const Auth = {
   },
 
   async register(username, password, displayName, email) {
-    const { token, user } = await Api.post('/api/auth/register', { username, password, displayName, email });
+    const { token, user } = await Api.post('/api/auth/register', { username, password, displayName, email, captchaToken: Captcha.token('signup') });
     Auth._onAuthenticated(token, user);
   },
   async login(identifier, password) {
-    const { token, user } = await Api.post('/api/auth/login', { identifier, password });
+    const { token, user } = await Api.post('/api/auth/login', { identifier, password, captchaToken: Captcha.token('login') });
     Auth._onAuthenticated(token, user);
   },
   _onAuthenticated(token, user) {
@@ -5016,8 +5111,11 @@ const UI = {
     // catches up as soon as the session check resolves.
     Auth.init().then(() => {
       UI.syncAuthUI();
-      if (!Auth.isLoggedIn() && !safeParseGlobal('pomodoroGuestChoice')) {
+      const pendingMessage = Auth._pendingAuthMessage;
+      Auth._pendingAuthMessage = null;
+      if (!Auth.isLoggedIn() && (pendingMessage || !safeParseGlobal('pomodoroGuestChoice'))) {
         document.getElementById('auth-modal').showModal();
+        if (pendingMessage) setFieldStatus(document.getElementById('status-auth-login'), pendingMessage, 'error');
       }
     });
     UI.renderTasks();
@@ -5141,6 +5239,8 @@ const UI = {
         clearAuthModalInputs();
       } catch (err) {
         setFieldStatus(status, err.message, 'error');
+      } finally {
+        Captcha.reset('login');
       }
     });
     document.getElementById('auth-signup-submit').addEventListener('click', async () => {
@@ -5155,6 +5255,8 @@ const UI = {
         clearAuthModalInputs();
       } catch (err) {
         setFieldStatus(status, err.message, 'error');
+      } finally {
+        Captcha.reset('signup');
       }
     });
     document.getElementById('auth-guest-btn').addEventListener('click', () => {

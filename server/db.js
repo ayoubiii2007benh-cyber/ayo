@@ -68,6 +68,19 @@ db.exec(`
     read_at INTEGER
   );
   CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, created_at);
+
+  -- Links a user row to an external identity (Google/Microsoft "sub" claim).
+  -- One user can hold links to both providers; one provider identity can
+  -- never point at two different users (that's the primary key).
+  CREATE TABLE IF NOT EXISTS oauth_accounts (
+    provider TEXT NOT NULL,
+    provider_user_id TEXT NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email TEXT,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (provider, provider_user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_oauth_user ON oauth_accounts(user_id);
 `);
 
 // Added after the initial schema shipped -- ALTER TABLE, not CREATE TABLE
