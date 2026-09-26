@@ -126,9 +126,15 @@ app.post('/api/auth/login', (req, res) => {
   const { identifier, password } = req.body || {};
   if (typeof identifier !== 'string' || typeof password !== 'string') return res.status(400).json({ error: 'Username/email and password are required.' });
   const user = identifier.includes('@') ? getUserByEmail(identifier) : getUserByUsername(identifier);
-  if (!user) return res.status(401).json({ error: 'Incorrect username/email or password.' });
+  if (!user) {
+    console.warn(`[auth] failed login for "${identifier}" from ${req.ip}`);
+    return res.status(401).json({ error: 'Incorrect username/email or password.' });
+  }
   verifyPassword(password, user.password_hash).then((ok) => {
-    if (!ok) return res.status(401).json({ error: 'Incorrect username/email or password.' });
+    if (!ok) {
+      console.warn(`[auth] failed login for "${identifier}" from ${req.ip}`);
+      return res.status(401).json({ error: 'Incorrect username/email or password.' });
+    }
     res.json({ token: signToken(user.id, user.token_version), user: publicUser(user) });
   }).catch(() => res.status(500).json({ error: 'Login failed. Try again.' }));
 });

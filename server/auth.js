@@ -38,9 +38,13 @@ function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   const payload = token && verifyToken(token);
-  if (!payload) return res.status(401).json({ error: 'Not authenticated.' });
+  if (!payload) {
+    console.warn(`[auth] rejected request to ${req.method} ${req.path} from ${req.ip}: no valid token`);
+    return res.status(401).json({ error: 'Not authenticated.' });
+  }
   const row = db.prepare('SELECT token_version FROM users WHERE id = ?').get(payload.userId);
   if (!row || row.token_version !== payload.tokenVersion) {
+    console.warn(`[auth] rejected request to ${req.method} ${req.path} from ${req.ip}: stale/revoked token for user ${payload.userId}`);
     return res.status(401).json({ error: 'Session expired. Please log in again.' });
   }
   req.userId = payload.userId;
