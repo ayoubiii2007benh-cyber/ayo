@@ -40,6 +40,10 @@ const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
 function isValidUsername(u) { return typeof u === 'string' && USERNAME_RE.test(u); }
 function isValidPassword(p) { return typeof p === 'string' && p.length >= 6 && p.length <= 200; }
 function isValidEmail(e) { return typeof e === 'string' && e.length <= 200 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
+/* https:// only (no data:/blob:/http:) -- this URL is stored and handed to every
+   other user's browser as an <img src>, so it must be something any client can
+   actually fetch, not a same-origin-only blob: URL or an unbounded inline data: URI. */
+function isValidAvatarUrl(u) { return typeof u === 'string' && u.length <= 500 && /^https:\/\/\S+$/.test(u); }
 
 /* Minimal in-memory throttle on auth endpoints: N attempts per key per window.
    No new dependency, resets on restart -- adequate for this app's scale. */
@@ -151,6 +155,7 @@ function publicUser(row, extra) {
     username: row.username,
     displayName: row.display_name,
     avatar: row.avatar,
+    avatarUrl: row.avatar_url || null,
     bio: row.bio,
     createdAt: row.created_at,
     lastSeenAt: row.last_seen_at,
@@ -239,7 +244,7 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/config', (req, res) => {
   res.json({
     captcha: { enabled: !!process.env.TURNSTILE_SECRET_KEY, siteKey: process.env.TURNSTILE_SITE_KEY || null },
-    oauth: { google: OAuth.isConfigured('google'), microsoft: OAuth.isConfigured('microsoft') },
+    oauth: { google: OAuth.isConfigured('google'), microsoft: OAuth.isConfigured('microsoft'), facebook: OAuth.isConfigured('facebook') },
   });
 });
 
@@ -306,7 +311,13 @@ app.patch('/api/auth/me', requireAuth, (req, res) => {
   const displayName = typeof req.body.displayName === 'string' ? req.body.displayName.slice(0, 40).trim() : user.display_name;
   const bio = typeof req.body.bio === 'string' ? req.body.bio.slice(0, 160) : user.bio;
   const avatar = typeof req.body.avatar === 'string' ? req.body.avatar.slice(0, 8) : user.avatar;
-  db.prepare('UPDATE users SET display_name = ?, bio = ?, avatar = ? WHERE id = ?').run(displayName || user.username, bio, avatar, req.userId);
+  let avatarUrl = user.avatar_url;
+  if (req.body.avatarUrl === '' || req.body.avatarUrl === null) avatarUrl = null;
+  else if (typeof req.body.avatarUrl === 'string') {
+    if (!isValidAvatarUrl(req.body.avatarUrl)) return res.status(400).json({ error: 'Avatar URL must be a valid https:// link, 500 characters or fewer.' });
+    avatarUrl = req.body.avatarUrl;
+  }
+  db.prepare('UPDATE users SET display_name = ?, bio = ?, avatar = ?, avatar_url = ? WHERE id = ?').run(displayName || user.username, bio, avatar, avatarUrl, req.userId);
   res.json({ user: publicUser(getUserById(req.userId)) });
 });
 
@@ -525,6 +536,303 @@ app.post('/api/notifications/:id/read', requireAuth, (req, res) => {
 app.post('/api/notifications/read-all', requireAuth, (req, res) => {
   db.prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL').run(Date.now(), req.userId);
   res.json({ ok: true });
+});
+
+/* ============================== study lounge rooms ==============================
+   Real multi-user co-working rooms, replacing the former all-client-side bot
+   simulation. A user is seated in at most one room at a time; membership,
+   live status (focusing/resting/idle + remaining time) and sprint ("mission")
+   progress all live server-side so every member's client renders the same
+   truth. Status pushes are REST-triggered + WS-broadcast, the same pattern
+   already used for friend requests and messages elsewhere in this file --
+   no new client-initiated WebSocket message type was introduced. */
+
+const ROOM_CODE_WORDS = ['FOCUS', 'FLOW', 'GRIND', 'DEEP', 'CALM', 'ZEN', 'LOCK', 'PUSH'];
+const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function generateRoomCode() {
+  const word = ROOM_CODE_WORDS[Math.floor(Math.random() * ROOM_CODE_WORDS.length)];
+  const suffix = ROOM_CODE_CHARS[Math.floor(Math.random() * ROOM_CODE_CHARS.length)] + ROOM_CODE_CHARS[Math.floor(Math.random() * ROOM_CODE_CHARS.length)];
+  return `${word}-${suffix}`;
+}
+const ROOM_STATUSES = ['idle', 'focusing', 'resting'];
+
+function getRoomByCode(code) { return db.prepare('SELECT * FROM rooms WHERE code = ? COLLATE NOCASE').get(code); }
+function getRoomById(id) { return db.prepare('SELECT * FROM rooms WHERE id = ?').get(id); }
+function getMembership(roomId, userId) { return db.prepare('SELECT * FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, userId); }
+/** A user can only ever be seated in one room; this is how callers find "their" room. */
+function getCurrentRoomMembership(userId) {
+  return db.prepare(
+    `SELECT room_members.*, rooms.code AS room_code FROM room_members JOIN rooms ON rooms.id = room_members.room_id WHERE room_members.user_id = ?`
+  ).get(userId);
+}
+
+function publicRoom(room) {
+  const memberRows = db.prepare(
+    `SELECT rm.*, u.display_name, u.username, u.avatar, u.avatar_url FROM room_members rm JOIN users u ON u.id = rm.user_id WHERE rm.room_id = ? ORDER BY rm.joined_at ASC`
+  ).all(room.id);
+  return {
+    code: room.code,
+    goal: room.goal,
+    hostId: room.host_user_id,
+    createdAt: room.created_at,
+    mission: room.mission_state ? { targetPomodoros: room.mission_target, state: room.mission_state } : null,
+    members: memberRows.map((m) => ({
+      id: m.user_id,
+      displayName: m.display_name,
+      username: m.username,
+      avatar: m.avatar,
+      avatarUrl: m.avatar_url || null,
+      online: isOnline(m.user_id),
+      isHost: m.user_id === room.host_user_id,
+      status: m.status,
+      remainingMs: m.remaining_ms,
+      statusUpdatedAt: m.status_updated_at,
+      missionProgress: m.mission_progress,
+      missionState: m.mission_state,
+    })),
+  };
+}
+
+function broadcastRoom(roomId) {
+  const room = getRoomById(roomId);
+  if (!room) return;
+  const payload = { type: 'lounge-room', room: publicRoom(room) };
+  const memberIds = db.prepare('SELECT user_id FROM room_members WHERE room_id = ?').all(roomId).map((r) => r.user_id);
+  for (const uid of memberIds) sendToUser(uid, payload);
+}
+
+/* Removes a user from whichever room they're currently in (a no-op if none),
+   promoting the longest-seated remaining member to host, or deleting the room
+   if it's now empty. Called both by an explicit leave and at the start of
+   every join, since a user can only be in one room at a time. */
+function leaveCurrentRoom(userId) {
+  const membership = getCurrentRoomMembership(userId);
+  if (!membership) return;
+  const roomId = membership.room_id;
+  db.prepare('DELETE FROM room_members WHERE room_id = ? AND user_id = ?').run(roomId, userId);
+  const remaining = db.prepare('SELECT * FROM room_members WHERE room_id = ? ORDER BY joined_at ASC').all(roomId);
+  if (remaining.length === 0) {
+    db.prepare('DELETE FROM rooms WHERE id = ?').run(roomId);
+    return;
+  }
+  const room = getRoomById(roomId);
+  if (room.host_user_id === userId) {
+    db.prepare('UPDATE rooms SET host_user_id = ? WHERE id = ?').run(remaining[0].user_id, roomId);
+  }
+  broadcastRoom(roomId);
+}
+
+function joinRoomByCode(userId, code) {
+  const room = getRoomByCode(code);
+  if (!room) return { error: 'not_found' };
+  if (getMembership(room.id, userId)) return { room }; // already seated here -- idempotent, not an error
+  leaveCurrentRoom(userId);
+  const now = Date.now();
+  db.prepare(`INSERT INTO room_members (room_id, user_id, joined_at, status, remaining_ms, status_updated_at, mission_progress, mission_state)
+              VALUES (?, ?, ?, 'idle', 0, ?, 0, 'pending')`).run(room.id, userId, now, now);
+  broadcastRoom(room.id);
+  return { room };
+}
+
+/** Returns true if a sprint just completed (every seated member checked in). Resets it either way once done. */
+function checkMissionCompletion(roomId) {
+  const room = getRoomById(roomId);
+  if (!room || room.mission_state !== 'active') return false;
+  const members = db.prepare('SELECT mission_state FROM room_members WHERE room_id = ?').all(roomId);
+  if (members.length === 0 || !members.every((m) => m.mission_state === 'checked-in')) return false;
+  db.prepare('UPDATE rooms SET mission_target = NULL, mission_state = NULL WHERE id = ?').run(roomId);
+  db.prepare(`UPDATE room_members SET mission_progress = 0, mission_state = 'pending' WHERE room_id = ?`).run(roomId);
+  return true;
+}
+
+app.post('/api/lounge/rooms', requireAuth, (req, res) => {
+  if (rateLimited(`room-create:${req.userId}`, 10, 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again shortly.' });
+  const goal = typeof req.body.goal === 'string' ? req.body.goal.trim().slice(0, 80) : '';
+  leaveCurrentRoom(req.userId);
+  const id = newId();
+  const now = Date.now();
+  let code = generateRoomCode();
+  for (let i = 0; i < 10 && getRoomByCode(code); i += 1) code = generateRoomCode();
+  db.prepare('INSERT INTO rooms (id, code, host_user_id, goal, created_at) VALUES (?, ?, ?, ?, ?)').run(id, code, req.userId, goal, now);
+  db.prepare(`INSERT INTO room_members (room_id, user_id, joined_at, status, remaining_ms, status_updated_at, mission_progress, mission_state)
+              VALUES (?, ?, ?, 'idle', 0, ?, 0, 'pending')`).run(id, req.userId, now, now);
+  res.status(201).json({ room: publicRoom(getRoomById(id)) });
+});
+
+// Registered before /:code so the literal path "mine" can never be swallowed as a room code param.
+app.get('/api/lounge/rooms/mine', requireAuth, (req, res) => {
+  const membership = getCurrentRoomMembership(req.userId);
+  res.json({ room: membership ? publicRoom(getRoomById(membership.room_id)) : null });
+});
+
+app.get('/api/lounge/rooms/:code', requireAuth, (req, res) => {
+  const room = getRoomByCode(req.params.code);
+  if (!room || !getMembership(room.id, req.userId)) return res.status(404).json({ error: 'Room not found.' });
+  res.json({ room: publicRoom(room) });
+});
+
+app.post('/api/lounge/rooms/:code/join', requireAuth, (req, res) => {
+  if (rateLimited(`room-join:${req.userId}`, 20, 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again shortly.' });
+  const result = joinRoomByCode(req.userId, req.params.code);
+  if (result.error) return res.status(404).json({ error: 'No room with that code.' });
+  res.json({ room: publicRoom(getRoomById(result.room.id)) });
+});
+
+app.post('/api/lounge/rooms/:code/leave', requireAuth, (req, res) => {
+  const room = getRoomByCode(req.params.code);
+  if (!room || !getMembership(room.id, req.userId)) return res.status(404).json({ error: 'You are not in that room.' });
+  leaveCurrentRoom(req.userId);
+  res.json({ ok: true });
+});
+
+app.post('/api/lounge/rooms/:code/status', requireAuth, (req, res) => {
+  if (rateLimited(`room-status:${req.userId}`, 60, 60_000)) return res.status(429).json({ error: 'Too many updates. Try again shortly.' });
+  const room = getRoomByCode(req.params.code);
+  if (!room || !getMembership(room.id, req.userId)) return res.status(404).json({ error: 'You are not in that room.' });
+  const status = ROOM_STATUSES.includes(req.body.status) ? req.body.status : 'idle';
+  const remainingMs = Number.isFinite(req.body.remainingMs) ? Math.max(0, Math.min(req.body.remainingMs, 4 * 60 * 60_000)) : 0;
+  db.prepare('UPDATE room_members SET status = ?, remaining_ms = ?, status_updated_at = ? WHERE room_id = ? AND user_id = ?')
+    .run(status, remainingMs, Date.now(), room.id, req.userId);
+  broadcastRoom(room.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/lounge/rooms/:code/mission/start', requireAuth, (req, res) => {
+  const room = getRoomByCode(req.params.code);
+  if (!room || !getMembership(room.id, req.userId)) return res.status(404).json({ error: 'You are not in that room.' });
+  if (room.host_user_id !== req.userId) return res.status(403).json({ error: 'Only the host can start a sprint.' });
+  const memberCount = db.prepare('SELECT COUNT(*) AS c FROM room_members WHERE room_id = ?').get(room.id).c;
+  if (memberCount < 2) return res.status(400).json({ error: 'Need at least 2 members to start a sprint.' });
+  if (room.mission_state === 'active') return res.status(409).json({ error: 'A sprint is already active.' });
+  const target = Math.min(4, Math.max(1, Math.trunc(Number(req.body.targetPomodoros)) || 1));
+  db.prepare('UPDATE rooms SET mission_target = ?, mission_state = ? WHERE id = ?').run(target, 'active', room.id);
+  db.prepare(`UPDATE room_members SET mission_progress = 0, mission_state = 'pending' WHERE room_id = ?`).run(room.id);
+  broadcastRoom(room.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/lounge/rooms/:code/mission/cancel', requireAuth, (req, res) => {
+  const room = getRoomByCode(req.params.code);
+  if (!room || !getMembership(room.id, req.userId)) return res.status(404).json({ error: 'You are not in that room.' });
+  if (room.host_user_id !== req.userId) return res.status(403).json({ error: 'Only the host can cancel a sprint.' });
+  db.prepare('UPDATE rooms SET mission_target = NULL, mission_state = NULL WHERE id = ?').run(room.id);
+  db.prepare(`UPDATE room_members SET mission_progress = 0, mission_state = 'pending' WHERE room_id = ?`).run(room.id);
+  broadcastRoom(room.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/lounge/rooms/:code/mission/checkin', requireAuth, (req, res) => {
+  const room = getRoomByCode(req.params.code);
+  const membership = room && getMembership(room.id, req.userId);
+  if (!membership) return res.status(404).json({ error: 'You are not in that room.' });
+  if (room.mission_state !== 'active' || membership.mission_state !== 'pending') return res.status(400).json({ error: 'No active sprint to check in to.' });
+  const progress = membership.mission_progress + 1;
+  const done = progress >= room.mission_target;
+  db.prepare('UPDATE room_members SET mission_progress = ?, mission_state = ? WHERE room_id = ? AND user_id = ?')
+    .run(progress, done ? 'checked-in' : 'pending', room.id, req.userId);
+  if (done && checkMissionCompletion(room.id)) {
+    const memberIds = db.prepare('SELECT user_id FROM room_members WHERE room_id = ?').all(room.id).map((r) => r.user_id);
+    for (const uid of memberIds) sendToUser(uid, { type: 'lounge-mission-complete', roomCode: room.code });
+  }
+  broadcastRoom(room.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/lounge/rooms/:code/mission/giveup', requireAuth, (req, res) => {
+  const room = getRoomByCode(req.params.code);
+  const membership = room && getMembership(room.id, req.userId);
+  if (!membership) return res.status(404).json({ error: 'You are not in that room.' });
+  if (room.mission_state !== 'active' || membership.mission_state !== 'pending') return res.status(400).json({ error: 'No active sprint to give up on.' });
+  db.prepare(`UPDATE room_members SET mission_state = 'abandoned' WHERE room_id = ? AND user_id = ?`).run(room.id, req.userId);
+  broadcastRoom(room.id);
+  res.json({ ok: true });
+});
+
+/* -------- room invites: friends only, direct one-click join -------- */
+
+app.post('/api/lounge/invites', requireAuth, (req, res) => {
+  if (rateLimited(`room-invite:${req.userId}`, 20, 60_000)) return res.status(429).json({ error: 'Too many invites. Try again shortly.' });
+  const toUserId = req.body && req.body.toUserId;
+  if (!toUserId || typeof toUserId !== 'string') return res.status(400).json({ error: 'toUserId is required.' });
+  if (!areFriends(req.userId, toUserId)) return res.status(403).json({ error: 'You can only invite friends to your room.' });
+  const membership = getCurrentRoomMembership(req.userId);
+  if (!membership) return res.status(400).json({ error: 'Join or create a room before inviting someone.' });
+  if (!getUserById(toUserId)) return res.status(404).json({ error: 'User not found.' });
+
+  const id = newId();
+  const created_at = Date.now();
+  db.prepare('INSERT INTO room_invites (id, room_id, from_user_id, to_user_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, membership.room_id, req.userId, toUserId, 'pending', created_at);
+  const room = getRoomById(membership.room_id);
+  const inviter = getUserById(req.userId);
+  const invite = { id, roomCode: room.code, goal: room.goal, createdAt: created_at, from: publicUser(inviter) };
+  const notification = createNotification(toUserId, 'lounge_invite', { requestId: id, roomCode: room.code, from: publicUser(inviter) });
+  sendToUser(toUserId, { type: 'lounge-invite', invite });
+  res.status(201).json({ invite, notification });
+});
+
+app.get('/api/lounge/invites', requireAuth, (req, res) => {
+  const rows = db.prepare(
+    `SELECT ri.*, r.code AS room_code, r.goal AS room_goal FROM room_invites ri JOIN rooms r ON r.id = ri.room_id
+     WHERE ri.to_user_id = ? AND ri.status = 'pending' ORDER BY ri.created_at DESC`
+  ).all(req.userId);
+  const invites = rows.map((r) => ({ id: r.id, roomCode: r.room_code, goal: r.room_goal, createdAt: r.created_at, from: publicUser(getUserById(r.from_user_id)) }));
+  res.json({ invites });
+});
+
+app.post('/api/lounge/invites/:id/accept', requireAuth, (req, res) => {
+  const invite = db.prepare('SELECT * FROM room_invites WHERE id = ?').get(req.params.id);
+  if (!invite || invite.to_user_id !== req.userId || invite.status !== 'pending') return res.status(404).json({ error: 'Invite not found or already handled.' });
+  db.prepare(`UPDATE room_invites SET status = 'accepted', responded_at = ? WHERE id = ?`).run(Date.now(), req.params.id);
+  const room = getRoomById(invite.room_id);
+  if (!room) return res.status(410).json({ error: 'That room no longer exists.' });
+  joinRoomByCode(req.userId, room.code);
+  res.json({ room: publicRoom(getRoomById(room.id)) });
+});
+
+app.post('/api/lounge/invites/:id/decline', requireAuth, (req, res) => {
+  const invite = db.prepare('SELECT * FROM room_invites WHERE id = ?').get(req.params.id);
+  if (!invite || invite.to_user_id !== req.userId || invite.status !== 'pending') return res.status(404).json({ error: 'Invite not found or already handled.' });
+  db.prepare(`UPDATE room_invites SET status = 'declined', responded_at = ? WHERE id = ?`).run(Date.now(), req.params.id);
+  res.json({ ok: true });
+});
+
+/* ============================== leaderboard ==============================
+   Server-recorded completed-focus-session log, the basis for a real
+   multi-user leaderboard scoped to "me + my friends" (never arbitrary other
+   users). Client-reported, but validated (sane duration, rate-limited) --
+   good enough for a small social app; not a substitute for a trusted timer
+   if this ever needs to resist a determined cheater. */
+
+app.post('/api/stats/sessions', requireAuth, (req, res) => {
+  if (rateLimited(`session-log:${req.userId}`, 30, 60_000)) return res.status(429).json({ error: 'Too many session logs. Try again shortly.' });
+  const minutes = Math.trunc(Number(req.body && req.body.minutes));
+  if (!Number.isFinite(minutes) || minutes < 1 || minutes > 180) return res.status(400).json({ error: 'minutes must be between 1 and 180.' });
+  db.prepare('INSERT INTO focus_sessions (id, user_id, minutes, completed_at) VALUES (?, ?, ?, ?)').run(newId(), req.userId, minutes, Date.now());
+  res.status(201).json({ ok: true });
+});
+
+const LEADERBOARD_RANGES = { daily: 24 * 60 * 60_000, weekly: 7 * 24 * 60 * 60_000, alltime: null };
+
+app.get('/api/leaderboard', requireAuth, (req, res) => {
+  const range = Object.prototype.hasOwnProperty.call(LEADERBOARD_RANGES, req.query.range) ? req.query.range : 'weekly';
+  const since = LEADERBOARD_RANGES[range] === null ? 0 : Date.now() - LEADERBOARD_RANGES[range];
+  const friendIds = db.prepare('SELECT friend_id FROM friendships WHERE user_id = ?').all(req.userId).map((r) => r.friend_id);
+  const ids = [req.userId, ...friendIds];
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT user_id, COALESCE(SUM(minutes), 0) AS totalMinutes, COUNT(*) AS pomodoros
+     FROM focus_sessions WHERE user_id IN (${placeholders}) AND completed_at >= ?
+     GROUP BY user_id`
+  ).all(...ids, since);
+  const rowByUser = new Map(rows.map((r) => [r.user_id, r]));
+  const entries = ids
+    .map((uid) => {
+      const row = rowByUser.get(uid);
+      return { user: publicUser(getUserById(uid)), totalMinutes: row ? row.totalMinutes : 0, pomodoros: row ? row.pomodoros : 0 };
+    })
+    .sort((a, b) => b.totalMinutes - a.totalMinutes || b.pomodoros - a.pomodoros);
+  res.json({ range, entries });
 });
 
 /* ============================== presence ============================== */

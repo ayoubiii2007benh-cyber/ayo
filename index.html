@@ -711,6 +711,7 @@
   }
   .leaderboard-item__date { flex: 1; color: var(--text-muted); }
   .leaderboard-item__count { font-weight: 700; }
+  .leaderboard-item--self { outline: 2px solid var(--accent); outline-offset: -2px; }
   @media (max-width: 600px) {
     .reports-summary { grid-template-columns: 1fr 1fr; }
   }
@@ -766,7 +767,7 @@
     border-radius: var(--radius-sm); background: var(--surface); color: var(--text);
   }
 
-  .lounge-friend-item__chat { flex-shrink: 0; }
+  .lounge-friend-item__chat, .lounge-friend-item__invite { flex-shrink: 0; }
 
   /* ---------- profile modal ---------- */
   dialog#profile-modal {
@@ -831,6 +832,12 @@
   #auth-panel-login, #auth-panel-signup { display: flex; flex-direction: column; gap: 10px; }
   .auth-modal__oauth { display: flex; flex-direction: column; gap: 8px; }
   .auth-modal__oauth:not(:has(> :not([hidden]))) { padding: 0; }
+  .auth-modal__oauth-btn { display: flex; align-items: center; justify-content: center; gap: 10px; text-decoration: none; }
+  .auth-modal__divider {
+    display: flex; align-items: center; gap: 10px; margin: 4px 0;
+    color: var(--text-muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .auth-modal__divider::before, .auth-modal__divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
   .auth-modal__form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); }
   .auth-modal__form input {
     padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -861,7 +868,12 @@
     display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--text) 4%, transparent); font-size: 0.88rem; flex-wrap: wrap;
   }
-  .lounge-friend-item__avatar { font-size: 1.1rem; }
+  .lounge-friend-item__avatar {
+    width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.7rem; font-weight: 700; background: var(--primary); color: var(--accent-contrast);
+  }
+  .avatar-badge--photo { background-size: cover; background-position: center; color: transparent; }
   .lounge-friend-item__name {
     flex: 1 1 0%; min-width: 0; font-weight: 600;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -983,13 +995,17 @@
     padding: 16px 10px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--text) 4%, transparent);
   }
   .lounge-ring { position: relative; width: 76px; height: 76px; margin-bottom: 6px; }
+  .lounge-ring--offline { opacity: 0.45; }
   .lounge-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
   .lounge-ring__track { fill: none; stroke: var(--border); stroke-width: 6; }
   .lounge-ring__fill { fill: none; stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
   .lounge-ring[data-status="focusing"] .lounge-ring__fill { stroke: var(--accent-pomodoro); }
   .lounge-ring[data-status="resting"] .lounge-ring__fill { stroke: var(--accent-shortBreak); }
   .lounge-ring[data-status="idle"] .lounge-ring__fill { stroke: transparent; }
-  .lounge-ring__avatar { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 2rem; }
+  .lounge-ring__avatar {
+    position: absolute; inset: 6px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 1.6rem; font-weight: 700; background: var(--primary); color: var(--accent-contrast); overflow: hidden;
+  }
   .lounge-grid-card__name { font-weight: 700; font-size: 0.92rem; }
   .lounge-grid-card__level { color: var(--text-muted); font-size: 0.74rem; }
   .lounge-grid-card__metrics { color: var(--text-muted); font-size: 0.72rem; }
@@ -1461,10 +1477,17 @@
   <div class="bar-chart" id="reports-chart" role="img" aria-label="Pomodoros completed per day for the last 7 days"></div>
 </div>
 
-<div id="view-leaderboard" aria-label="Your best days" hidden>
-  <span class="eyebrow">Personal record</span>
-  <h2>Your Best Days</h2>
-  <p class="field-hint">Ranked by pomodoros completed. This app has no account system or other real users, so this is a personal ranking of your own history, not a multi-user leaderboard.</p>
+<div id="view-leaderboard" aria-label="Leaderboard" hidden>
+  <span class="eyebrow">Friends</span>
+  <h2>Leaderboard</h2>
+  <p class="field-hint" id="leaderboard-guest-hint">Log in and add friends to see a shared leaderboard. Your personal best days are below either way.</p>
+  <div class="settings-tabs" role="tablist" aria-label="Leaderboard range" id="leaderboard-range-tabs" hidden>
+    <button type="button" role="tab" id="leaderboard-tab-daily" aria-selected="false" tabindex="-1">Daily</button>
+    <button type="button" role="tab" id="leaderboard-tab-weekly" aria-selected="true" tabindex="0">Weekly</button>
+    <button type="button" role="tab" id="leaderboard-tab-alltime" aria-selected="false" tabindex="-1">All-Time</button>
+  </div>
+  <ol class="leaderboard-list" id="leaderboard-friends-list" hidden></ol>
+  <h3 id="leaderboard-personal-heading">Your Best Days</h3>
   <ol class="leaderboard-list" id="leaderboard-list"></ol>
 </div>
 </main>
@@ -1473,7 +1496,7 @@
   <div class="lounge-heading">
     <span class="eyebrow">Co-op focus</span>
     <h2>Study Lounge</h2>
-    <p class="field-hint">Your friends list here is real. Rooms are still a local demo — the people in a room are simulated, not actually connected.</p>
+    <p class="field-hint" id="lounge-guest-hint" hidden>Log in to create or join a real co-working room with your friends.</p>
   </div>
   <div class="lounge-lobby-grid" id="lounge-lobby-grid">
     <section class="glass" aria-label="Friends">
@@ -1764,6 +1787,11 @@
       <ul class="lounge-friends-list" id="friend-requests-outgoing"></ul>
     </div>
 
+    <div id="room-invites-section" hidden>
+      <h3>Room Invites</h3>
+      <ul class="lounge-friends-list" id="room-invites-list"></ul>
+    </div>
+
     <h3>Friends</h3>
     <ul class="lounge-friends-list" id="friends-drawer-list"></ul>
     <p class="field-hint" id="friends-drawer-empty" hidden>No friends yet — search for a username above to send a request.</p>
@@ -1825,6 +1853,9 @@
       <label for="profile-edit-bio">Bio
         <textarea id="profile-edit-bio" maxlength="160" rows="3"></textarea>
       </label>
+      <label for="profile-edit-avatar-url" id="profile-edit-avatar-url-label" hidden>Avatar image URL (shown to friends)
+        <input type="url" id="profile-edit-avatar-url" maxlength="500" placeholder="https://example.com/photo.jpg" inputmode="url">
+      </label>
       <div class="profile-modal__edit-actions">
         <button type="button" class="btn btn-secondary" id="profile-edit-cancel">Cancel</button>
         <button type="button" class="btn btn-primary" id="profile-edit-save">Save</button>
@@ -1870,9 +1901,32 @@
       <button type="button" class="btn btn-primary" id="auth-signup-submit">Create Account</button>
     </div>
 
+    <div class="auth-modal__divider" id="auth-oauth-divider" hidden><span>or</span></div>
     <div class="auth-modal__oauth" id="auth-oauth-row">
-      <a href="/api/auth/google/start" class="btn btn-secondary" id="auth-oauth-google" hidden>Continue with Google</a>
-      <a href="/api/auth/microsoft/start" class="btn btn-secondary" id="auth-oauth-microsoft" hidden>Continue with Microsoft</a>
+      <a href="/api/auth/google/start" class="btn btn-secondary auth-modal__oauth-btn" id="auth-oauth-google" hidden>
+        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true">
+          <path fill="#4285F4" d="M19.6 10.23c0-.68-.06-1.36-.17-2H10v3.79h5.39a4.6 4.6 0 0 1-2 3.02v2.5h3.23c1.89-1.74 2.98-4.3 2.98-7.31Z"/>
+          <path fill="#34A853" d="M10 20c2.7 0 4.96-.89 6.62-2.42l-3.23-2.5c-.9.6-2.05.96-3.39.96-2.6 0-4.8-1.76-5.59-4.12H1.08v2.59A10 10 0 0 0 10 20Z"/>
+          <path fill="#FBBC05" d="M4.41 11.92a6 6 0 0 1 0-3.84V5.49H1.08a10 10 0 0 0 0 9.02l3.33-2.59Z"/>
+          <path fill="#EA4335" d="M10 3.96c1.47 0 2.79.5 3.83 1.49l2.87-2.87C14.95.99 12.7 0 10 0 6.09 0 2.7 2.24 1.08 5.49l3.33 2.59C5.2 5.72 7.4 3.96 10 3.96Z"/>
+        </svg>
+        <span>Continue with Google</span>
+      </a>
+      <a href="/api/auth/microsoft/start" class="btn btn-secondary auth-modal__oauth-btn" id="auth-oauth-microsoft" hidden>
+        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true">
+          <rect x="1" y="1" width="8.5" height="8.5" fill="#F25022"/>
+          <rect x="10.5" y="1" width="8.5" height="8.5" fill="#7FBA00"/>
+          <rect x="1" y="10.5" width="8.5" height="8.5" fill="#00A4EF"/>
+          <rect x="10.5" y="10.5" width="8.5" height="8.5" fill="#FFB900"/>
+        </svg>
+        <span>Continue with Microsoft</span>
+      </a>
+      <a href="/api/auth/facebook/start" class="btn btn-secondary auth-modal__oauth-btn" id="auth-oauth-facebook" hidden>
+        <svg class="icon" viewBox="0 0 20 20" aria-hidden="true">
+          <path fill="#1877F2" d="M20 10a10 10 0 1 0-11.56 9.88v-6.99H5.9V10h2.54V7.8c0-2.5 1.49-3.89 3.77-3.89 1.09 0 2.23.2 2.23.2v2.45h-1.26c-1.24 0-1.63.77-1.63 1.56V10h2.78l-.44 2.89h-2.34v6.99A10 10 0 0 0 20 10Z"/>
+        </svg>
+        <span>Continue with Facebook</span>
+      </a>
     </div>
 
     <button type="button" class="btn btn-secondary" id="auth-guest-btn">Continue as Guest</button>
@@ -2172,6 +2226,32 @@ const SoundFX = {
       });
     } catch { /* best-effort notification sound */ }
   },
+  /** A quick, bright two-note "ding" for incoming notifications -- distinct from the
+      timer-completion sound above, and gated on the same music mute/volume controls
+      since this app has no separate sound-effects volume setting. */
+  playNotificationChime() {
+    if (state.musicSettings.muted) return;
+    const peak = 0.15 * (typeof state.musicSettings.volume === 'number' ? state.musicSettings.volume : 1);
+    if (peak <= 0) return;
+    const ctx = SoundFX._unlock();
+    if (!ctx) return;
+    try {
+      const now = ctx.currentTime;
+      [1046.5, 1567.98].forEach((freq, i) => { // C6 then G6
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        const start = now + i * 0.09;
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.linearRampToValueAtTime(peak, start + 0.015);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.22);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(start);
+        osc.stop(start + 0.25);
+      });
+    } catch { /* best-effort notification sound */ }
+  },
 };
 
 /* ============================== Timer ============================== */
@@ -2198,6 +2278,7 @@ const Timer = {
     }
     Timer.updateTimerDisplay();
     UI.renderTimerControls();
+    Lounge.reportStatus();
   },
   pause() {
     if (!state.timer.running) return;
@@ -2206,6 +2287,7 @@ const Timer = {
     state.timer.endAt = null;
     Timer.updateTimerDisplay();
     UI.renderTimerControls();
+    Lounge.reportStatus();
   },
   reset() {
     state.timer.running = false;
@@ -2213,6 +2295,7 @@ const Timer = {
     state.timer.remainingMs = Timer.durationMs(state.timer.mode);
     Timer.updateTimerDisplay();
     UI.renderTimerControls();
+    Lounge.reportStatus();
   },
   skip() { Timer._advanceMode(false); },
 
@@ -2228,6 +2311,7 @@ const Timer = {
     Timer.updateTimerDisplay();
     UI.renderTimerControls();
     Timer.pulseDisplay();
+    Lounge.reportStatus();
   },
 
   pulseDisplay() {
@@ -2257,6 +2341,7 @@ const Timer = {
     if (state.timer.mode === 'pomodoro') {
       Planner.onPomodoroCompleted();
       Lounge.onOwnPomodoroCompleted();
+      if (Auth.isLoggedIn()) Api.post('/api/stats/sessions', { minutes: state.settings.pomodoro }).catch(() => {});
     } else {
       Lounge.onOwnBreakCompleted(state.settings[state.timer.mode]);
     }
@@ -2281,7 +2366,7 @@ const Timer = {
     const shouldAutoStart = next === 'pomodoro' ? state.settings.autoStartPomodoros : state.settings.autoStartBreaks;
     Timer.updateTimerDisplay();
     UI.renderTimerControls();
-    if (shouldAutoStart) Timer.start();
+    if (shouldAutoStart) Timer.start(); else Lounge.reportStatus();
   },
 
   updateTimerDisplay() {
@@ -2571,8 +2656,13 @@ const Captcha = {
    /start route 404s, so showing its button anyway would just be a dead end. */
 const OAuthUI = {
   init(config) {
-    document.getElementById('auth-oauth-google').hidden = !(config.oauth && config.oauth.google);
-    document.getElementById('auth-oauth-microsoft').hidden = !(config.oauth && config.oauth.microsoft);
+    const google = !!(config.oauth && config.oauth.google);
+    const microsoft = !!(config.oauth && config.oauth.microsoft);
+    const facebook = !!(config.oauth && config.oauth.facebook);
+    document.getElementById('auth-oauth-google').hidden = !google;
+    document.getElementById('auth-oauth-microsoft').hidden = !microsoft;
+    document.getElementById('auth-oauth-facebook').hidden = !facebook;
+    document.getElementById('auth-oauth-divider').hidden = !(google || microsoft || facebook);
   },
 };
 
@@ -2715,10 +2805,74 @@ Socket.on('notification', ({ notification }) => {
   Notifications.items.unshift(notification);
   Notifications.unreadCount++;
   if (typeof UI !== 'undefined') UI.renderNotifications();
+  if (typeof SoundFX !== 'undefined') SoundFX.playNotificationChime();
 });
 Socket.on('message', ({ message }) => {
   if (state.activeChatFriendId !== message.senderId) Notifications.refreshAll();
 });
+
+/* ============================== Leaderboard ==============================
+   Real multi-user ranking: server-recorded completed-focus-session minutes,
+   scoped to "me + my friends" (GET /api/leaderboard — see server/server.js).
+   Guests, or anyone with no friends yet, just see their own personal-best
+   list below (UI.renderLeaderboard, entirely local, unaffected). */
+const Leaderboard = {
+  range: 'weekly',
+
+  async refresh() {
+    const guestHint = document.getElementById('leaderboard-guest-hint');
+    const tabs = document.getElementById('leaderboard-range-tabs');
+    const list = document.getElementById('leaderboard-friends-list');
+    if (!guestHint || !tabs || !list) return;
+    if (!Auth.isLoggedIn()) {
+      guestHint.hidden = false;
+      tabs.hidden = true;
+      list.hidden = true;
+      return;
+    }
+    guestHint.hidden = true;
+    tabs.hidden = false;
+    list.hidden = false;
+    try {
+      const { entries } = await Api.get(`/api/leaderboard?range=${Leaderboard.range}`);
+      Leaderboard._render(entries);
+    } catch {
+      list.replaceChildren();
+    }
+  },
+
+  _render(entries) {
+    const list = document.getElementById('leaderboard-friends-list');
+    list.replaceChildren();
+    if (entries.length === 0) {
+      const li = document.createElement('li');
+      li.className = 'leaderboard-item';
+      li.textContent = 'No focus sessions logged yet for this range.';
+      list.appendChild(li);
+      return;
+    }
+    entries.forEach((entry, i) => {
+      const li = document.createElement('li');
+      li.className = 'leaderboard-item';
+      if (Auth.isLoggedIn() && entry.user.id === Auth.currentUser.id) li.classList.add('leaderboard-item--self');
+      const rank = document.createElement('span');
+      rank.className = 'leaderboard-item__rank';
+      rank.textContent = `#${i + 1}`;
+      const avatar = document.createElement('span');
+      avatar.className = 'lounge-friend-item__avatar';
+      Avatars.render(avatar, entry.user);
+      const name = document.createElement('span');
+      name.className = 'leaderboard-item__date';
+      name.textContent = entry.user.displayName;
+      const h = Math.floor(entry.totalMinutes / 60), m = entry.totalMinutes % 60;
+      const count = document.createElement('span');
+      count.className = 'leaderboard-item__count';
+      count.textContent = `${h > 0 ? `${h}h ${m}m` : `${m}m`} · ${entry.pomodoros} pomodoro${entry.pomodoros === 1 ? '' : 's'}`;
+      li.append(rank, avatar, name, count);
+      list.appendChild(li);
+    });
+  },
+};
 
 /* ============================== State (boot) ============================== */
 
@@ -3550,9 +3704,15 @@ const Theme = {
     root.setProperty('--accent-pomodoro', colors.accentPomodoro);
     root.setProperty('--accent-shortBreak', colors.accentShortBreak);
     root.setProperty('--accent-longBreak', colors.accentLongBreak);
-    root.setProperty('--accent-soft-pomodoro', mix(colors.accentPomodoro, '#ffffff', 0.85));
-    root.setProperty('--accent-soft-shortBreak', mix(colors.accentShortBreak, '#ffffff', 0.85));
-    root.setProperty('--accent-soft-longBreak', mix(colors.accentLongBreak, '#ffffff', 0.85));
+    // Blend toward the theme's own bg, not literal white (same reasoning as the
+    // mesh blobs below): in a light theme bg is already near-white, so this
+    // looks the same as before, but in a dark theme it keeps these "soft"
+    // tints dark-and-muted instead of rendering as a bright white-pastel patch
+    // -- e.g. the #background-layer glow and the decorative overlays that use
+    // var(--accent-soft) directly, which is where that patch was visible.
+    root.setProperty('--accent-soft-pomodoro', mix(colors.accentPomodoro, colors.bg, 0.85));
+    root.setProperty('--accent-soft-shortBreak', mix(colors.accentShortBreak, colors.bg, 0.85));
+    root.setProperty('--accent-soft-longBreak', mix(colors.accentLongBreak, colors.bg, 0.85));
     // Mesh-background blobs blend toward the theme's own bg (not toward white), so they
     // read as deep and rich rather than washed-out pastel — used only by the Deep Mesh preset.
     root.setProperty('--mesh-1', mix(colors.accentPomodoro, colors.bg, 0.3));
@@ -3645,21 +3805,24 @@ function validateDuration(inputId, errorId, min, max) {
   return ok ? n : null;
 }
 
-/* ============================== Lounge (Study Lounge, simulated) ============================== */
-// No backend exists — friends and group members are entirely a local simulation. Honest, not a stopgap.
+/* ============================== Lounge (Study Lounge) ==============================
+   Real multi-user co-working rooms against the backend in server/ -- room membership,
+   live status, and sprint ("mission") progress are all server truth, pushed over the
+   same WebSocket used for friends/chat (see server/server.js, "study lounge rooms").
+   state.lounge.room mirrors the server's room shape plus a client-only activityLog
+   synthesized by diffing successive snapshots (the server doesn't keep one). */
 const Lounge = {
   PROFILE_EMOJI: ['🎯', '🔥', '🌙', '⚡', '📚', '🌱', '☁️', '🚀', '🧠', '☕', '🎧', '🏆'],
+  pendingInvites: [],
 
   init() {
-    Lounge._syncEngine();
-  },
-
-  CODE_WORDS: ['FOCUS', 'FLOW', 'GRIND', 'DEEP', 'CALM', 'ZEN', 'LOCK', 'PUSH'],
-  generateRoomCode() {
-    const word = Lounge.CODE_WORDS[Math.floor(Math.random() * Lounge.CODE_WORDS.length)];
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    const suffix = chars[Math.floor(Math.random() * chars.length)] + chars[Math.floor(Math.random() * chars.length)];
-    return `${word}-${suffix}`;
+    // A single 1s tick just re-renders (interpolating other members' live countdowns
+    // between server snapshots -- see displayRemainingMs); it never mutates state.
+    setInterval(() => {
+      if (typeof UI === 'undefined') return;
+      UI.renderLoungeChip();
+      if (state.currentView === 'lounge' && state.lounge.room) UI.renderLoungeRoom();
+    }, 1000);
   },
 
   TITLES: [
@@ -3676,237 +3839,166 @@ const Lounge = {
     return best;
   },
 
-  _logActivity(room, text) {
-    if (!room) return;
-    room.activityLog.push({ id: makeId(), ts: Date.now(), text });
-    if (room.activityLog.length > 500) room.activityLog.splice(0, room.activityLog.length - 500);
+  isSelf(m) { return Auth.isLoggedIn() && m.id === Auth.currentUser.id; },
+  /** Self is driven live by the real Timer; every other member's countdown is
+      interpolated from their last server-reported snapshot (status pushes happen on
+      meaningful transitions only, not every second) so the ring doesn't visibly
+      freeze between them. */
+  displayRemainingMs(m) {
+    if (Lounge.isSelf(m)) return state.timer.remainingMs;
+    if (m.status === 'idle') return 0;
+    return Math.max(0, m.remainingMs - (Date.now() - m.statusUpdatedAt));
   },
-
-  DEMO_BOT_POOL: [
-    { name: 'Sam', avatar: '🌙' }, { name: 'Alex', avatar: '⚡' }, { name: 'Robin', avatar: '🌱' },
-    { name: 'Jordan', avatar: '📚' }, { name: 'Casey', avatar: '🔥' }, { name: 'Riley', avatar: '☁️' },
-  ],
-
-  statusLabel(member) {
-    if (member.status === 'focusing') return { status: 'focusing', text: `Focusing (${Timer.formatTime(member.remainingMs)})` };
-    if (member.status === 'resting') return { status: 'resting', text: 'Resting (Break)' };
+  statusLabel(m) {
+    if (m.status === 'focusing') return { status: 'focusing', text: `Focusing (${Timer.formatTime(Lounge.displayRemainingMs(m))})` };
+    if (m.status === 'resting') return { status: 'resting', text: 'Resting (Break)' };
     return { status: 'idle', text: 'Idle / Ready' };
   },
-
-
   phaseFraction(m) {
     if (m.status === 'idle') return 0;
-    // Self tracks the real Timer, which can be in 'longBreak' as well as 'shortBreak' while
-    // resting — read the actual current mode's duration rather than assuming shortBreak.
-    // Bots never enter longBreak (their simulated cycle only alternates focus/short-rest).
-    const totalMs = m.isSelf
+    const totalMs = Lounge.isSelf(m)
       ? state.settings[state.timer.mode] * 60000
       : (m.status === 'focusing' ? state.settings.pomodoro : state.settings.shortBreak) * 60000;
-    return totalMs > 0 ? Math.min(1, Math.max(0, 1 - m.remainingMs / totalMs)) : 0;
+    return totalMs > 0 ? Math.min(1, Math.max(0, 1 - Lounge.displayRemainingMs(m) / totalMs)) : 0;
   },
 
-  _makeSelfMember() {
-    return {
-      id: 'self', isSelf: true, name: state.profile.username, avatar: state.profile.avatar || '🙂',
-      status: state.timer.running ? (state.timer.mode === 'pomodoro' ? 'focusing' : 'resting') : 'idle',
-      remainingMs: state.timer.remainingMs,
-      studyMinutesToday: state.stats.focusMinutesToday,
-      restMinutesToday: state.stats.restMinutesToday,
-      pomodorosToday: state.stats.pomodorosCompletedToday,
-      missionProgress: 0, missionState: 'pending',
-    };
-  },
-  _simFields() {
-    const focusing = Math.random() < 0.6;
-    const totalMs = (focusing ? state.settings.pomodoro : state.settings.shortBreak) * 60000;
-    return {
-      status: focusing ? 'focusing' : 'resting',
-      remainingMs: Math.floor(Math.random() * totalMs),
-      studyMinutesToday: Math.floor(Math.random() * 90),
-      restMinutesToday: Math.floor(Math.random() * 20),
-      pomodorosToday: Math.floor(Math.random() * 4),
-      simXP: Math.floor(Math.random() * 200),
-    };
-  },
-  _makeBotMember(name, avatar) {
-    return {
-      id: `bot_${makeId()}`, isSelf: false, name, avatar,
-      ...Lounge._simFields(),
-      missionProgress: 0, missionState: 'pending',
-    };
-  },
-  _randomBotRoster(count) {
-    const pool = [...Lounge.DEMO_BOT_POOL];
-    const picked = [];
-    while (picked.length < count && pool.length) {
-      picked.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  async refreshAll() {
+    if (!Auth.isLoggedIn()) {
+      state.lounge.room = null;
+      Lounge.pendingInvites = [];
+    } else {
+      const [{ room }, { invites }] = await Promise.all([
+        Api.get('/api/lounge/rooms/mine'),
+        Api.get('/api/lounge/invites'),
+      ]);
+      Lounge._setRoom(room);
+      Lounge.pendingInvites = invites;
     }
-    return picked.map((p) => Lounge._makeBotMember(p.name, p.avatar));
+    if (typeof UI !== 'undefined') { UI.renderLoungeView(); UI.renderLoungeChip(); UI.renderRoomInvites(); }
   },
 
-  createRoom(goalText) {
-    if (state.lounge.room) Lounge.leaveRoom();
-    state.lounge.room = {
-      code: Lounge.generateRoomCode(),
-      goal: (goalText || '').trim().slice(0, 80),
-      hostId: 'self',
-      members: [Lounge._makeSelfMember()],
-      mission: null,
-      activityLog: [],
-    };
-    Lounge._logActivity(state.lounge.room, 'You created the room.');
-    Lounge._syncEngine();
-    return state.lounge.room.code;
+  async createRoom(goalText) {
+    const { room } = await Api.post('/api/lounge/rooms', { goal: (goalText || '').trim().slice(0, 80) });
+    Lounge._setRoom(room, ['You created the room.']);
+    return room.code;
   },
-  joinRoom(codeText) {
+  async joinRoom(codeText) {
     const code = (codeText || '').trim().slice(0, 20);
     if (!code) return false;
-    if (state.lounge.room) Lounge.leaveRoom();
-    const botCount = 2 + Math.floor(Math.random() * 3); // 2-4
-    state.lounge.room = {
-      code, goal: '', hostId: `bot_${makeId()}`,
-      members: [Lounge._makeSelfMember(), ...Lounge._randomBotRoster(botCount)],
-      mission: null,
-      activityLog: [],
-    };
-    Lounge._logActivity(state.lounge.room, 'You joined the room.');
-    Lounge._syncEngine();
+    const { room } = await Api.post(`/api/lounge/rooms/${encodeURIComponent(code)}/join`);
+    Lounge._setRoom(room, ['You joined the room.']);
     return true;
   },
-  leaveRoom() {
+  async leaveRoom() {
+    const room = state.lounge.room;
     state.lounge.room = null;
-    Lounge._syncEngine();
+    if (typeof UI !== 'undefined') { UI.renderLoungeView(); UI.renderLoungeChip(); }
+    if (room) { try { await Api.post(`/api/lounge/rooms/${encodeURIComponent(room.code)}/leave`); } catch { /* best effort */ } }
   },
 
-  _engineTimer: null,
-  _startEngine() {
-    if (Lounge._engineTimer !== null) return;
-    Lounge._engineTimer = setInterval(Lounge._tick, 1000);
-  },
-  _stopEngine() {
-    clearInterval(Lounge._engineTimer);
-    Lounge._engineTimer = null;
-  },
-  _syncEngine() {
-    const shouldRun = !!state.lounge.room;
-    if (shouldRun) Lounge._startEngine(); else Lounge._stopEngine();
+  reportStatus() {
+    if (!state.lounge.room || !Auth.isLoggedIn()) return;
+    const status = state.timer.running ? (state.timer.mode === 'pomodoro' ? 'focusing' : 'resting') : 'idle';
+    Api.post(`/api/lounge/rooms/${encodeURIComponent(state.lounge.room.code)}/status`, {
+      status, remainingMs: Math.round(state.timer.remainingMs),
+    }).catch(() => {});
   },
 
   startMission(targetPomodoros) {
-    const room = state.lounge.room;
-    if (!room || room.members.length < 2 || (room.mission && room.mission.state === 'active')) return false;
-    const target = clampInt(targetPomodoros, 1, 4, 1);
-    room.mission = { targetPomodoros: target, state: 'active' };
-    for (const m of room.members) { m.missionProgress = 0; m.missionState = 'pending'; }
-    Lounge._logActivity(room, `Sprint started: ${target} pomodoro${target > 1 ? 's' : ''}.`);
-    return true;
+    if (!state.lounge.room) return Promise.resolve();
+    return Api.post(`/api/lounge/rooms/${encodeURIComponent(state.lounge.room.code)}/mission/start`, { targetPomodoros: Number(targetPomodoros) });
   },
   cancelMission() {
-    const room = state.lounge.room;
-    if (!room) return;
-    room.mission = null;
-    Lounge._logActivity(room, 'Sprint cancelled.');
-    for (const m of room.members) { m.missionProgress = 0; m.missionState = 'pending'; }
+    if (!state.lounge.room) return Promise.resolve();
+    return Api.post(`/api/lounge/rooms/${encodeURIComponent(state.lounge.room.code)}/mission/cancel`);
+  },
+  checkIn() {
+    if (!state.lounge.room) return Promise.resolve();
+    return Api.post(`/api/lounge/rooms/${encodeURIComponent(state.lounge.room.code)}/mission/checkin`);
+  },
+  giveUpOwnMission() {
+    if (!state.lounge.room) return Promise.resolve();
+    return Api.post(`/api/lounge/rooms/${encodeURIComponent(state.lounge.room.code)}/mission/giveup`);
   },
   onOwnPomodoroCompleted() {
     const room = state.lounge.room;
     if (!room || !room.mission || room.mission.state !== 'active') return;
-    const self = room.members.find((m) => m.isSelf);
+    const self = room.members.find(Lounge.isSelf);
     if (!self || self.missionState !== 'pending') return;
-    self.missionProgress += 1;
-    if (self.missionProgress >= room.mission.targetPomodoros) self.missionState = 'checked-in';
-    if (self.missionState === 'checked-in') Lounge._logActivity(room, 'You checked in.');
-    Lounge._checkMissionCompletion();
+    Lounge.checkIn().catch(() => {});
   },
-  onOwnBreakCompleted(minutes) {
-    state.stats.restMinutesToday += clampInt(minutes, 0, 999, 0);
-    Storage.saveStats(state.stats);
+  onOwnBreakCompleted() { /* nothing server-side to report here; reportStatus() already covers status */ },
+
+  async inviteFriend(toUserId) {
+    const { invite } = await Api.post('/api/lounge/invites', { toUserId });
+    return invite;
   },
-  giveUpOwnMission() {
-    const room = state.lounge.room;
-    if (!room || !room.mission || room.mission.state !== 'active') return;
-    const self = room.members.find((m) => m.isSelf);
-    if (!self || self.missionState !== 'pending') return; // Review Focus: can't abandon after already checked in
-    self.missionState = 'abandoned';
-    Lounge._logActivity(room, 'You gave up on the sprint.');
+  async acceptInvite(inviteId) {
+    const { room } = await Api.post(`/api/lounge/invites/${inviteId}/accept`);
+    Lounge.pendingInvites = Lounge.pendingInvites.filter((i) => i.id !== inviteId);
+    Lounge._setRoom(room, ['You joined the room.']);
+    if (typeof UI !== 'undefined') UI.renderRoomInvites();
   },
-  _checkMissionCompletion() {
-    const room = state.lounge.room;
-    if (!room || !room.mission || room.mission.state !== 'active') return;
-    if (!room.members.every((m) => m.missionState === 'checked-in')) return;
-    room.mission.state = 'completed';
+  async declineInvite(inviteId) {
+    await Api.post(`/api/lounge/invites/${inviteId}/decline`);
+    Lounge.pendingInvites = Lounge.pendingInvites.filter((i) => i.id !== inviteId);
+    if (typeof UI !== 'undefined') UI.renderRoomInvites();
+  },
+
+  /* -------- applying a fresh room snapshot (initial fetch or WS push) -------- */
+
+  _setRoom(room, freshLogLines) {
+    if (!room) { state.lounge.room = null; return; }
+    const prev = state.lounge.room && state.lounge.room.code === room.code ? state.lounge.room : null;
+    room.activityLog = prev ? prev.activityLog : [];
+    if (prev) Lounge._diffActivity(prev, room);
+    else for (const line of (freshLogLines || [])) Lounge._logActivity(room, line);
+    state.lounge.room = room;
+    if (typeof UI !== 'undefined') { UI.renderLoungeView(); UI.renderLoungeChip(); }
+  },
+  _logActivity(room, text) {
+    room.activityLog.push({ id: makeId(), ts: Date.now(), text });
+    if (room.activityLog.length > 500) room.activityLog.splice(0, room.activityLog.length - 500);
+  },
+  /** Synthesizes activity-log lines client-side by diffing two successive room
+      snapshots -- the server itself keeps no log, just current state. */
+  _diffActivity(prev, next) {
+    const prevIds = new Set(prev.members.map((m) => m.id));
+    const nextIds = new Set(next.members.map((m) => m.id));
+    for (const m of next.members) if (!prevIds.has(m.id)) Lounge._logActivity(next, `${m.displayName} joined.`);
+    for (const m of prev.members) if (!nextIds.has(m.id)) Lounge._logActivity(next, `${m.displayName} left.`);
+    if (!prev.mission && next.mission) Lounge._logActivity(next, `Sprint started: ${next.mission.targetPomodoros} pomodoro${next.mission.targetPomodoros > 1 ? 's' : ''}.`);
+    if (prev.mission && !next.mission) Lounge._logActivity(next, 'Sprint ended.');
+    if (prev.mission && next.mission) {
+      const prevById = new Map(prev.members.map((m) => [m.id, m]));
+      for (const m of next.members) {
+        const before = prevById.get(m.id);
+        if (before && before.missionState !== m.missionState && m.missionState !== 'pending') {
+          Lounge._logActivity(next, `${m.displayName} ${m.missionState === 'checked-in' ? 'checked in' : 'abandoned the sprint'}.`);
+        }
+      }
+    }
+    if (prev.hostId !== next.hostId) {
+      const newHost = next.members.find((m) => m.id === next.hostId);
+      if (newHost) Lounge._logActivity(next, `${newHost.displayName} is now the host.`);
+    }
+  },
+  _onInvite(invite) {
+    Lounge.pendingInvites.unshift(invite);
+    if (typeof UI !== 'undefined') UI.renderRoomInvites();
+  },
+  _onMissionComplete() {
     state.stats.disciplineXP += 50;
     Storage.saveStats(state.stats);
     if (typeof UI !== 'undefined') { UI.renderMissions(); UI.renderStatsDashboard(); }
     if (typeof SoundFX !== 'undefined') SoundFX.playCompletionSound();
     if (typeof Confetti !== 'undefined') Confetti.burst();
-    Lounge._logActivity(room, 'Everyone finished! Sprint complete.');
-    room.mission = null;
-    for (const m of room.members) { m.missionProgress = 0; m.missionState = 'pending'; }
-  },
-
-  _tick() {
-    const room = state.lounge.room;
-    if (room) {
-      for (const m of room.members) {
-        if (m.isSelf) {
-          m.status = state.timer.running ? (state.timer.mode === 'pomodoro' ? 'focusing' : 'resting') : 'idle';
-          m.remainingMs = state.timer.remainingMs;
-          m.studyMinutesToday = state.stats.focusMinutesToday;
-          m.restMinutesToday = state.stats.restMinutesToday;
-          m.pomodorosToday = state.stats.pomodorosCompletedToday;
-          continue;
-        }
-        Lounge._tickBot(m, room);
-      }
-    }
-    if (typeof UI !== 'undefined') {
-      UI.renderLoungeChip();
-      if (state.currentView === 'lounge') {
-        if (room) UI.renderLoungeRoom();
-      }
-    }
-  },
-  _tickBot(m, room) {
-    if (m.status === 'idle') {
-      m._idleTicksLeft -= 1;
-      if (m._idleTicksLeft <= 0) Lounge._resumeBot(m);
-      return;
-    }
-    if (Math.random() < 0.05) {
-      m._resumeStatus = m.status;
-      m._idleTicksLeft = 3 + Math.floor(Math.random() * 6); // 3-8 seconds (ticks are 1s)
-      m.status = 'idle';
-      return;
-    }
-    m.remainingMs -= 1000;
-    if (m.remainingMs > 0) return;
-    if (m.status === 'focusing') {
-      m.pomodorosToday += 1;
-      m.studyMinutesToday += state.settings.pomodoro;
-      m.simXP = (m.simXP || 0) + 20;
-      m.status = 'resting';
-      m.remainingMs = state.settings.shortBreak * 60000;
-      Lounge._logActivity(room, `${m.name} completed a pomodoro.`);
-      if (room && room.mission && room.mission.state === 'active' && m.missionState === 'pending') {
-        m.missionProgress += 1;
-        if (m.missionProgress >= room.mission.targetPomodoros) {
-          m.missionState = Math.random() < 0.85 ? 'checked-in' : 'abandoned';
-          Lounge._logActivity(room, `${m.name} ${m.missionState === 'checked-in' ? 'checked in' : 'abandoned the sprint'}.`);
-          Lounge._checkMissionCompletion();
-        }
-      }
-    } else {
-      m.restMinutesToday += state.settings.shortBreak;
-      m.status = 'focusing';
-      m.remainingMs = state.settings.pomodoro * 60000;
-    }
-  },
-  _resumeBot(m) {
-    m.status = m._resumeStatus || 'focusing';
-    m._resumeStatus = null;
   },
 };
+
+Socket.on('lounge-room', (msg) => Lounge._setRoom(msg.room));
+Socket.on('lounge-invite', (msg) => Lounge._onInvite(msg.invite));
+Socket.on('lounge-mission-complete', () => Lounge._onMissionComplete());
 
 /* ============================== Confetti (tiny, no library) ============================== */
 const Confetti = {
@@ -3990,6 +4082,37 @@ const AIChat = {
   },
 };
 
+/* ============================== Avatars ==============================
+   Shared cross-user avatar rendering for anyone but yourself (Friends list,
+   Members grid, search results, notifications): a real photo (avatarUrl,
+   synced server-side) when the user has set one, otherwise a colored
+   initial -- never the old per-account emoji, which only ever reflected
+   what *that* person picked for themselves and carried no real identity. */
+const Avatars = {
+  _hue(seed) {
+    let h = 0;
+    for (let i = 0; i < String(seed).length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+    return h % 360;
+  },
+  initial(user) {
+    const source = ((user && (user.displayName || user.username)) || '?').trim();
+    return source.charAt(0).toUpperCase() || '?';
+  },
+  /** Renders into `el`, an element already sized/shaped by its own CSS class. */
+  render(el, user) {
+    if (!el || !user) return;
+    if (user.avatarUrl) {
+      el.classList.add('avatar-badge--photo');
+      el.style.background = `url(${user.avatarUrl}) center/cover`;
+      el.textContent = '';
+    } else {
+      el.classList.remove('avatar-badge--photo');
+      el.style.background = `hsl(${Avatars._hue(user.id || user.username || user.displayName || '?')}, 55%, 45%)`;
+      el.textContent = Avatars.initial(user);
+    }
+  },
+};
+
 const UI = {
   showMediaPanel() { const el = document.getElementById('media-panel'); if (el) el.hidden = false; },
   hideMediaPanel() { const el = document.getElementById('media-panel'); if (el) el.hidden = true; },
@@ -4008,9 +4131,13 @@ const UI = {
     if (!el) return;
     const name = state.profile.username;
     const emoji = state.profile.avatar;
-    if (state.profile._avatarUrl) {
+    // Local device photo (IndexedDB) wins if set; otherwise fall back to the
+    // synced avatarUrl so this device shows the same picture friends see.
+    const remoteUrl = Auth.isLoggedIn() ? Auth.currentUser.avatarUrl : null;
+    const imgUrl = state.profile._avatarUrl || remoteUrl;
+    if (imgUrl) {
       el.textContent = '';
-      el.style.backgroundImage = `url(${state.profile._avatarUrl})`;
+      el.style.backgroundImage = `url(${imgUrl})`;
       if (photoClass) el.classList.add(photoClass);
       el.classList.remove('user-profile__avatar--emoji');
     } else {
@@ -4040,6 +4167,7 @@ const UI = {
     document.getElementById('friends-drawer-content').hidden = !loggedIn;
     Friends.refreshAll();
     Notifications.refreshAll();
+    Lounge.refreshAll();
   },
 
   renderProfileModalView() {
@@ -4071,6 +4199,9 @@ const UI = {
   openProfileEdit() {
     document.getElementById('profile-edit-username').value = state.profile.username;
     document.getElementById('profile-edit-bio').value = state.profile.bio || '';
+    const urlLabel = document.getElementById('profile-edit-avatar-url-label');
+    urlLabel.hidden = !Auth.isLoggedIn();
+    document.getElementById('profile-edit-avatar-url').value = Auth.isLoggedIn() ? (Auth.currentUser.avatarUrl || '') : '';
     UI._applyAvatarVisual(document.getElementById('profile-modal-pfp-edit-preview'), null);
     document.getElementById('profile-modal-view').hidden = true;
     document.getElementById('profile-modal-edit').hidden = false;
@@ -4102,14 +4233,33 @@ const UI = {
           chatBtn.className = 'btn btn-secondary lounge-friend-item__chat';
           chatBtn.textContent = 'Chat';
           chatBtn.addEventListener('click', () => UI.openChat(f.id));
-          li.append(avatar, name, status, chatBtn);
+          const inviteBtn = document.createElement('button');
+          inviteBtn.type = 'button';
+          inviteBtn.className = 'btn btn-secondary lounge-friend-item__invite';
+          inviteBtn.textContent = 'Invite to Room';
+          inviteBtn.addEventListener('click', async () => {
+            inviteBtn.disabled = true;
+            try {
+              await Lounge.inviteFriend(f.id);
+              inviteBtn.textContent = 'Invited';
+            } catch (err) {
+              inviteBtn.textContent = 'Invite to Room';
+              inviteBtn.disabled = false;
+              setFieldStatus(document.getElementById('friend-search-status'), err.message, 'error');
+            }
+          });
+          li.append(avatar, name, status, chatBtn, inviteBtn);
           list.appendChild(li);
         }
-        li.querySelector('.lounge-friend-item__avatar').textContent = f.avatar || '🙂';
+        Avatars.render(li.querySelector('.lounge-friend-item__avatar'), f);
         li.querySelector('.lounge-friend-item__name').textContent = f.displayName;
         const statusEl = li.querySelector('.lounge-friend-item__status');
         statusEl.textContent = f.online ? 'Online' : 'Offline';
         statusEl.dataset.status = f.online ? 'online' : 'offline';
+        const inviteBtn = li.querySelector('.lounge-friend-item__invite');
+        const inRoom = !!state.lounge.room;
+        inviteBtn.hidden = !inRoom;
+        inviteBtn.disabled = !inRoom || !f.online || (state.lounge.room && state.lounge.room.members.some((m) => m.id === f.id));
       }
       const emptyMsgId = { 'lounge-friends-list': 'lounge-friends-empty', 'friends-drawer-list': 'friends-drawer-empty' }[listId];
       const emptyMsg = emptyMsgId && document.getElementById(emptyMsgId);
@@ -4135,7 +4285,7 @@ const UI = {
       li.className = 'lounge-friend-item';
       const avatar = document.createElement('span');
       avatar.className = 'lounge-friend-item__avatar';
-      avatar.textContent = u.avatar || '🙂';
+      Avatars.render(avatar, u);
       const name = document.createElement('span');
       name.className = 'lounge-friend-item__name';
       name.textContent = u.displayName;
@@ -4243,6 +4393,7 @@ const UI = {
         friend_request: `${who} sent you a friend request`,
         friend_accept: `${who} accepted your friend request`,
         message: `${who}: ${n.data.preview || ''}`,
+        lounge_invite: `${who} invited you to a study room`,
       };
       text.textContent = copy[n.type] || 'New notification';
       const time = document.createElement('span');
@@ -4284,30 +4435,32 @@ const UI = {
       svg.append(track, fill);
       const avatarEl = document.createElement('span');
       avatarEl.className = 'lounge-ring__avatar';
-      avatarEl.textContent = m.avatar;
+      Avatars.render(avatarEl, m);
       ring.append(svg, avatarEl);
+      if (!m.online) ring.classList.add('lounge-ring--offline');
 
       const name = document.createElement('span');
       name.className = 'lounge-grid-card__name';
-      name.textContent = m.name;
-
-      const level = m.isSelf ? Skills.progress(state.stats.focusXP).level : Skills.progress(m.simXP || 0).level;
-      const levelEl = document.createElement('span');
-      levelEl.className = 'lounge-grid-card__level';
-      levelEl.textContent = `Lv. ${level} · ${Lounge.titleForLevel(level)}`;
+      name.textContent = m.displayName + (m.isHost ? ' (Host)' : '');
 
       const status = document.createElement('span');
       status.className = 'lounge-grid-card__status';
-      const memberStatus = Lounge.statusLabel(m);
-      status.textContent = memberStatus.text;
-      status.dataset.status = memberStatus.status;
+      if (!m.online) {
+        status.textContent = 'Offline';
+        status.dataset.status = 'idle';
+      } else {
+        const memberStatus = Lounge.statusLabel(m);
+        status.textContent = memberStatus.text;
+        status.dataset.status = memberStatus.status;
+      }
 
       const metrics = document.createElement('span');
       metrics.className = 'lounge-grid-card__metrics';
-      const h = Math.floor(m.studyMinutesToday / 60), min = m.studyMinutesToday % 60;
-      metrics.textContent = `${h > 0 ? `${h}h ${min}m` : `${min}m`} study · ${m.restMinutesToday}m rest · ${m.pomodorosToday} pomodoros`;
+      metrics.textContent = room.mission
+        ? (m.missionState === 'checked-in' ? 'Checked in' : m.missionState === 'abandoned' ? 'Abandoned sprint' : `Sprint: ${m.missionProgress}/${room.mission.targetPomodoros}`)
+        : '';
 
-      card.append(ring, name, levelEl, status, metrics);
+      card.append(ring, name, status, metrics);
       grid.appendChild(card);
     }
     UI.renderLoungeMission();
@@ -4319,6 +4472,7 @@ const UI = {
     if (!container) return;
     const room = state.lounge.room;
     if (!room) { container.replaceChildren(); container.dataset.mode = ''; return; }
+    const isHost = Auth.isLoggedIn() && room.hostId === Auth.currentUser.id;
 
     if (!room.mission) {
       if (container.dataset.mode !== 'idle') {
@@ -4347,12 +4501,18 @@ const UI = {
         container.append(form, hint);
         form.addEventListener('submit', (e) => {
           e.preventDefault();
-          if (Lounge.startMission(select.value)) UI.renderLoungeMission();
+          btn.disabled = true;
+          Lounge.startMission(select.value)
+            .catch((err) => setFieldStatus(hint, err.message, 'error'))
+            .finally(() => { btn.disabled = false; });
         });
       }
       const solo = room.members.length < 2;
-      document.getElementById('lounge-mission-start-btn').disabled = solo;
-      document.getElementById('lounge-mission-solo-hint').textContent = solo ? 'Invite at least one member to start a group sprint.' : '';
+      const startBtn = document.getElementById('lounge-mission-start-btn');
+      const hintEl = document.getElementById('lounge-mission-solo-hint');
+      startBtn.disabled = solo || !isHost;
+      startBtn.hidden = !isHost;
+      hintEl.textContent = !isHost ? 'Only the host can start a sprint.' : solo ? 'Invite at least one member to start a group sprint.' : '';
       return;
     }
 
@@ -4380,13 +4540,14 @@ const UI = {
       giveUpBtn.id = 'lounge-mission-giveup';
       giveUpBtn.className = 'btn btn-secondary';
       giveUpBtn.textContent = 'Give Up';
-      giveUpBtn.addEventListener('click', () => { Lounge.giveUpOwnMission(); UI.renderLoungeMission(); });
+      giveUpBtn.addEventListener('click', () => { giveUpBtn.disabled = true; Lounge.giveUpOwnMission().catch(() => { giveUpBtn.disabled = false; }); });
 
       const cancelBtn = document.createElement('button');
       cancelBtn.type = 'button';
+      cancelBtn.id = 'lounge-mission-cancel';
       cancelBtn.className = 'btn btn-secondary';
       cancelBtn.textContent = 'Cancel Sprint';
-      cancelBtn.addEventListener('click', () => { Lounge.cancelMission(); UI.renderLoungeMission(); });
+      cancelBtn.addEventListener('click', () => { cancelBtn.disabled = true; Lounge.cancelMission().catch(() => { cancelBtn.disabled = false; }); });
 
       container.append(alert, progress, chips, giveUpBtn, cancelBtn);
     }
@@ -4394,7 +4555,7 @@ const UI = {
     const abandoned = room.members.filter((m) => m.missionState === 'abandoned');
     const alertEl = document.getElementById('lounge-mission-alert');
     if (abandoned.length) {
-      alertEl.textContent = `${abandoned.map((m) => m.name).join(', ')} abandoned the sprint — waiting is impossible until you cancel.`;
+      alertEl.textContent = `${abandoned.map((m) => m.displayName).join(', ')} abandoned the sprint — waiting is impossible until the host cancels.`;
       alertEl.hidden = false;
     } else {
       alertEl.hidden = true;
@@ -4409,12 +4570,15 @@ const UI = {
       const chip = document.createElement('li');
       const label = m.missionState === 'checked-in' ? 'Checked In' : m.missionState === 'abandoned' ? 'Abandoned' : 'In Progress';
       chip.className = `lounge-mission-chip lounge-mission-chip--${m.missionState}`;
-      chip.textContent = `${m.name}: ${label}`;
+      chip.textContent = `${m.displayName}: ${label}`;
       chipsEl.appendChild(chip);
     }
 
-    const self = room.members.find((m) => m.isSelf);
+    const self = room.members.find(Lounge.isSelf);
     document.getElementById('lounge-mission-giveup').disabled = !self || self.missionState !== 'pending';
+    const cancelBtnEl = document.getElementById('lounge-mission-cancel');
+    cancelBtnEl.hidden = !isHost;
+    cancelBtnEl.disabled = !isHost;
   },
 
   renderLoungeActivityLog() {
@@ -4502,10 +4666,45 @@ const UI = {
     const active = document.getElementById('lounge-active');
     if (!lobbyGrid || !active) return;
     UI.renderLoungeFriends();
-    const inRoom = !!state.lounge.room;
+    const loggedIn = Auth.isLoggedIn();
+    document.getElementById('lounge-guest-hint').hidden = loggedIn;
+    document.getElementById('lounge-lobby').hidden = !loggedIn;
+    const inRoom = loggedIn && !!state.lounge.room;
     lobbyGrid.hidden = inRoom;
     active.hidden = !inRoom;
     if (inRoom) UI.renderLoungeRoom();
+  },
+
+  renderRoomInvites() {
+    const section = document.getElementById('room-invites-section');
+    const list = document.getElementById('room-invites-list');
+    if (!section || !list) return;
+    section.hidden = Lounge.pendingInvites.length === 0;
+    list.replaceChildren();
+    for (const invite of Lounge.pendingInvites) {
+      const li = document.createElement('li');
+      li.className = 'lounge-friend-item';
+      const avatar = document.createElement('span');
+      avatar.className = 'lounge-friend-item__avatar';
+      Avatars.render(avatar, invite.from);
+      const name = document.createElement('span');
+      name.className = 'lounge-friend-item__name';
+      name.textContent = `${invite.from.displayName} invited you to a room`;
+      const joinBtn = document.createElement('button');
+      joinBtn.type = 'button'; joinBtn.className = 'btn btn-primary'; joinBtn.textContent = 'Join';
+      joinBtn.addEventListener('click', () => {
+        joinBtn.disabled = true;
+        Lounge.acceptInvite(invite.id).then(() => UI.selectView('lounge')).catch((err) => {
+          setFieldStatus(document.getElementById('friend-search-status'), err.message, 'error');
+          joinBtn.disabled = false;
+        });
+      });
+      const declineBtn = document.createElement('button');
+      declineBtn.type = 'button'; declineBtn.className = 'btn btn-secondary'; declineBtn.textContent = 'Decline';
+      declineBtn.addEventListener('click', () => { declineBtn.disabled = true; Lounge.declineInvite(invite.id); });
+      li.append(avatar, name, joinBtn, declineBtn);
+      list.appendChild(li);
+    }
   },
 
   renderDarkModeToggle() {
@@ -4580,6 +4779,7 @@ const UI = {
   },
 
   renderLeaderboard() {
+    Leaderboard.refresh();
     const list = document.getElementById('leaderboard-list');
     if (!list) return;
     list.replaceChildren();
@@ -4951,13 +5151,31 @@ const UI = {
     const long = validateDuration('setting-long-break', 'error-long-break', 1, 180);
     if (pomo === null || short === null || long === null) return;
 
+    const oldSettings = state.settings;
     state.settings = {
       pomodoro: pomo, shortBreak: short, longBreak: long,
       autoStartBreaks: document.getElementById('setting-auto-break').checked,
       autoStartPomodoros: document.getElementById('setting-auto-pomodoro').checked,
     };
     Storage.saveSettings(state.settings);
-    if (!state.timer.running) Timer.reset();
+    if (!state.timer.running) {
+      Timer.reset();
+    } else {
+      // "On-the-fly" edit: a running timer keeps its elapsed progress, but the
+      // *remaining* time shifts by however much the active mode's duration just
+      // changed -- increase it and you get more time now, decrease it and less
+      // (clamped at 0, which just completes the session on the next tick).
+      const deltaMin = state.settings[state.timer.mode] - oldSettings[state.timer.mode];
+      if (deltaMin !== 0) {
+        state.timer.remainingMs = Math.max(0, state.timer.remainingMs + deltaMin * 60000);
+        // Timer.tick() computes remainingMs from endAt every 250ms, not the other way
+        // around -- endAt is the actual authoritative countdown anchor while running, so
+        // it has to move too or the very next tick silently overwrites the change above.
+        if (state.timer.endAt !== null) state.timer.endAt = Date.now() + state.timer.remainingMs;
+        Timer.updateTimerDisplay();
+        Lounge.reportStatus();
+      }
+    }
 
     let bgType = document.getElementById('setting-bg-type').value;
     const imageUrl = document.getElementById('setting-bg-image-url').value.trim();
@@ -5343,9 +5561,22 @@ const UI = {
 
       state.profile = { ...state.profile, username, bio, avatar, localAvatarId };
       Storage.saveProfile(state.profile);
+
+      if (Auth.isLoggedIn()) {
+        const avatarUrl = document.getElementById('profile-edit-avatar-url').value.trim();
+        try {
+          const { user } = await Api.patch('/api/auth/me', { displayName: username, bio, avatar, avatarUrl });
+          Auth.currentUser = user;
+        } catch (err) {
+          setFieldStatus(document.getElementById('status-profile-upload'), err.message, 'error');
+          return; // leave the edit form open so the user can see the error and retry
+        }
+      }
+
       UI._pendingAvatarPhoto = null;
       UI._pendingAvatarEmoji = null;
       UI.renderProfile();
+      UI.syncAuthUI();
       document.getElementById('profile-modal-view').hidden = false;
       document.getElementById('profile-modal-edit').hidden = true;
       document.getElementById('profile-modal').close();
@@ -5585,25 +5816,30 @@ const UI = {
     });
 
     // ---- Study Lounge ----
-    document.getElementById('lounge-create-room-form').addEventListener('submit', (e) => {
+    document.getElementById('lounge-create-room-form').addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (!Auth.isLoggedIn()) return;
       const goalInput = document.getElementById('lounge-goal-input');
-      Lounge.createRoom(goalInput.value);
-      goalInput.value = '';
-      UI.renderLoungeView();
-      UI.renderLoungeChip();
+      const status = document.getElementById('status-lounge-join');
+      try {
+        await Lounge.createRoom(goalInput.value);
+        goalInput.value = '';
+        setFieldStatus(status, '', '');
+      } catch (err) {
+        setFieldStatus(status, err.message, 'error');
+      }
     });
-    document.getElementById('lounge-join-room-form').addEventListener('submit', (e) => {
+    document.getElementById('lounge-join-room-form').addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (!Auth.isLoggedIn()) return;
       const codeInput = document.getElementById('lounge-join-code-input');
       const status = document.getElementById('status-lounge-join');
-      if (Lounge.joinRoom(codeInput.value)) {
-        codeInput.value = '';
-        setFieldStatus(status, '', '');
-        UI.renderLoungeView();
-        UI.renderLoungeChip();
-      } else {
-        setFieldStatus(status, 'Please enter a room code.', 'error');
+      try {
+        const ok = await Lounge.joinRoom(codeInput.value);
+        if (ok) { codeInput.value = ''; setFieldStatus(status, '', ''); }
+        else setFieldStatus(status, 'Please enter a room code.', 'error');
+      } catch (err) {
+        setFieldStatus(status, err.message, 'error');
       }
     });
     document.getElementById('lounge-copy-code').addEventListener('click', () => {
@@ -5614,10 +5850,21 @@ const UI = {
     });
     document.getElementById('lounge-leave-room').addEventListener('click', () => {
       Lounge.leaveRoom();
-      UI.renderLoungeView();
-      UI.renderLoungeChip();
     });
     document.getElementById('lounge-chip').addEventListener('click', () => UI.selectView('lounge'));
+
+    // ---- Leaderboard range ----
+    [['daily', 'leaderboard-tab-daily'], ['weekly', 'leaderboard-tab-weekly'], ['alltime', 'leaderboard-tab-alltime']].forEach(([range, id]) => {
+      document.getElementById(id).addEventListener('click', () => {
+        Leaderboard.range = range;
+        ['leaderboard-tab-daily', 'leaderboard-tab-weekly', 'leaderboard-tab-alltime'].forEach((tid) => {
+          const active = tid === id;
+          document.getElementById(tid).setAttribute('aria-selected', String(active));
+          document.getElementById(tid).tabIndex = active ? 0 : -1;
+        });
+        Leaderboard.refresh();
+      });
+    });
 
     // ---- Friends drawer ----
     const openFriendsDrawer = () => {

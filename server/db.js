@@ -81,6 +81,57 @@ db.exec(`
     PRIMARY KEY (provider, provider_user_id)
   );
   CREATE INDEX IF NOT EXISTS idx_oauth_user ON oauth_accounts(user_id);
+
+  -- Study Lounge rooms: real multi-user co-working sessions (replaces the
+  -- former client-side bot simulation). One row per live room.
+  CREATE TABLE IF NOT EXISTS rooms (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    host_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    goal TEXT NOT NULL DEFAULT '',
+    mission_target INTEGER,
+    mission_state TEXT,
+    created_at INTEGER NOT NULL
+  );
+
+  -- One row per (room, member). remaining_ms/status are client-reported
+  -- snapshots (see POST /api/lounge/rooms/:code/status) -- authoritative
+  -- countdown precision isn't needed server-side, only "what to show other
+  -- members right now."
+  CREATE TABLE IF NOT EXISTS room_members (
+    room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    joined_at INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'idle',
+    remaining_ms INTEGER NOT NULL DEFAULT 0,
+    status_updated_at INTEGER NOT NULL,
+    mission_progress INTEGER NOT NULL DEFAULT 0,
+    mission_state TEXT NOT NULL DEFAULT 'pending',
+    PRIMARY KEY (room_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_room_members_user ON room_members(user_id);
+
+  CREATE TABLE IF NOT EXISTS room_invites (
+    id TEXT PRIMARY KEY,
+    room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+    from_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    to_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at INTEGER NOT NULL,
+    responded_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_room_invites_to ON room_invites(to_user_id, status);
+
+  -- One row per completed focus block, the basis for the friends leaderboard.
+  -- Nothing else server-side reads or trusts client XP/stats; this is its
+  -- own minimal, validated record (see POST /api/stats/sessions).
+  CREATE TABLE IF NOT EXISTS focus_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    minutes INTEGER NOT NULL,
+    completed_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_focus_sessions_user ON focus_sessions(user_id, completed_at);
 `);
 
 // Added after the initial schema shipped -- ALTER TABLE, not CREATE TABLE
@@ -91,6 +142,9 @@ db.exec(`
 const userCols = db.prepare('PRAGMA table_info(users)').all();
 if (!userCols.some((c) => c.name === 'token_version')) {
   db.exec('ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0');
+}
+if (!userCols.some((c) => c.name === 'avatar_url')) {
+  db.exec('ALTER TABLE users ADD COLUMN avatar_url TEXT');
 }
 
 function id() {
