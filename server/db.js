@@ -132,6 +132,26 @@ db.exec(`
     completed_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_focus_sessions_user ON focus_sessions(user_id, completed_at);
+
+  -- One row per "forgot password" request, walking through its own lifecycle:
+  -- code_hash+code_expires_at (just requested) -> verified_at+reset_token_hash+
+  -- reset_token_expires_at (code checked out, code_hash cleared so it can't be
+  -- reused) -> used_at (password actually changed). See POST /api/auth/forgot,
+  -- /api/auth/verify-code, /api/auth/reset-password in server.js.
+  CREATE TABLE IF NOT EXISTS password_resets (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash TEXT,
+    code_expires_at INTEGER,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    verified_at INTEGER,
+    reset_token_hash TEXT,
+    reset_token_expires_at INTEGER,
+    used_at INTEGER,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(reset_token_hash);
 `);
 
 // Added after the initial schema shipped -- ALTER TABLE, not CREATE TABLE

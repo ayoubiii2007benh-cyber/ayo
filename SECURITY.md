@@ -95,18 +95,32 @@ The secret key (`TURNSTILE_SECRET_KEY`) is a backend-only environment
 variable, never sent to the client; only the public site key
 (`TURNSTILE_SITE_KEY`) is exposed, via `GET /api/config`.
 
+Also gates `POST /api/auth/forgot` and `POST /api/auth/forgot-username`
+(always) and `POST /api/auth/login` specifically once an identifier has 2+
+recent failed attempts — enforced server-side regardless of what the
+frontend shows, so a client that never sends a token past that point is
+simply rejected.
+
 Three explicit behaviors worth knowing:
 
-- **Unconfigured (no `TURNSTILE_SECRET_KEY`) → verification is skipped
-  entirely**, so local dev and CI never need a Cloudflare account. This is
-  a real gap, not an oversight — see Deployment security requirements.
+- **Unconfigured (no `TURNSTILE_SECRET_KEY`/`TURNSTILE_SITE_KEY`) → falls
+  back to Cloudflare's own published test keys** (site
+  `1x00000000000000000000AA`, secret `1x0000000000000000000000000000000AA`),
+  so local dev and CI never need a Cloudflare account *and* still exercise
+  the real widget and the real `siteverify` call. These test keys always
+  pass verification — **this is a real gap, not an oversight**: a
+  deployment that never sets its own real keys shows a working-looking
+  CAPTCHA that provides zero actual bot protection. See Deployment
+  security requirements.
 - **A network failure reaching Cloudflare fails closed** (the attempt is
   rejected), not open. A Cloudflare outage means login/signup are
   unavailable rather than silently unprotected.
 - The frontend (`Captcha` in `index.html`) only loads Turnstile's script
-  and renders the widget if `GET /api/config` reports it enabled — so an
-  unconfigured deployment never fetches anything from
-  `challenges.cloudflare.com`.
+  and renders a widget if `GET /api/config` reports CAPTCHA enabled, which
+  it now always does (real keys or the test-key fallback above). The
+  login widget specifically renders lazily — only once the failed-attempt
+  threshold is crossed — so a user who gets their password right the
+  first time never sees or loads it.
 
 ## OAuth ("Continue with Google" / "Continue with Microsoft")
 
@@ -161,14 +175,51 @@ Known gap: there is no UI yet for a *logged-in* user to link a second
 provider (or a password) to their existing account — only the automatic
 email-match linking described above. Explicitly out of scope for this pass.
 
+## Password reset (email code)
+
+`POST /api/auth/forgot` → `POST /api/auth/verify-code` → `POST
+/api/auth/reset-password`, backed by the `password_resets` table
+(`server/db.js`). Notable properties:
+
+- **Never reveals whether an account exists.** `/forgot` and
+  `/forgot-username` return the identical generic response regardless of
+  whether the identifier matched a real account with an email on file —
+  checked before any rate-limit or lookup work that could otherwise leak
+  timing, and rate-limited *before* the account lookup so a 429 doesn't
+  leak existence either.
+- **The 6-digit code is never stored in plaintext.** Only
+  `hashWithPepper(code)` (SHA-256 salted with `JWT_SECRET`, see
+  `server/auth.js`) is persisted, generated with `crypto.randomInt` (a CSPRNG,
+  not `Math.random`). Comparison uses `crypto.timingSafeEqual`
+  (`safeEqual()`), not `===`.
+- **Max 5 wrong code attempts**, then the code is invalidated
+  server-side (`code_hash` cleared) and a fresh `/forgot` request is
+  required — a brute force of a 6-digit space (1,000,000 possibilities)
+  never gets more than 5 guesses per requested code.
+- **The reset token returned by `/verify-code` is single-use and
+  short-lived** (15 min, `crypto.randomBytes(32)`, hashed the same way as
+  the code before storage) — `reset-password` clears it the moment it's
+  redeemed, so a captured token can't be replayed.
+- **Resetting a password logs out every other session** for that
+  account: `reset-password` bumps `token_version`, the same mechanism
+  `POST /api/auth/logout` uses, invalidating every JWT issued before that
+  moment.
+- **Rate-limited two ways**: 3 code requests per identifier per hour and
+  10 per IP per hour (`/forgot`, `/forgot-username` independently);
+  `/verify-code` and `/reset-password` are separately capped per IP too.
+
 ## Rate limiting
 
 An in-memory limiter (`rateLimited()` in `server/server.js`) throttles:
 
 | Route | Limit | Keyed by |
 |---|---|---|
-| `POST /api/auth/register` | 10/min | IP |
-| `POST /api/auth/login` | 20/min | IP |
+| `POST /api/auth/register` | 10/15min | IP |
+| `POST /api/auth/login` | 10/15min | IP |
+| `POST /api/auth/forgot` | 3/hour + 10/hour | identifier + IP |
+| `POST /api/auth/forgot-username` | 3/hour + 10/hour | identifier + IP |
+| `POST /api/auth/verify-code` | 20/hour | IP |
+| `POST /api/auth/reset-password` | 20/hour | IP |
 | `GET /api/auth/:provider/start` | 20/min | IP |
 | `GET /api/users/search` | 30/min | user id |
 | `POST /api/friends/requests` | 20/min | user id |
@@ -179,14 +230,19 @@ yet at that point. Every other limited route is behind `requireAuth`, so
 it keys on the verified user id instead — a precise, un-spoofable key
 that sidesteps IP/proxy ambiguity entirely for those routes.
 
+Login also tracks failed attempts per identifier (separately from the
+IP-keyed limit above, never expiring early, reset on a successful login)
+to decide when to require a CAPTCHA — see CAPTCHA above.
+
 IP-based limiting is only as good as `req.ip`, which depends on
 `TRUST_PROXY`. **Only set `TRUST_PROXY=1` if this server is genuinely
 running behind a reverse proxy** (Render, or similar). Enabling it
 without one lets any client set `X-Forwarded-For` themselves and claim
 any IP, bypassing the register/login limits entirely.
 
-The limiter's internal map is swept every 5 minutes to drop stale
-entries so it doesn't grow unbounded over the server's lifetime.
+The limiter's internal map is swept every 15 minutes to drop stale
+entries (long enough to never wipe a still-active 1-hour window early)
+so it doesn't grow unbounded over the server's lifetime.
 
 ## Input validation
 
@@ -308,9 +364,11 @@ mistakes silence for "solved":
   regardless of this setting. The real backstop against token compromise
   is the token's short lifetime and revocability via logout, not the
   Origin check.
-- **CAPTCHA is opt-in via environment variables (see CAPTCHA above).** A
-  deployment that never sets `TURNSTILE_SECRET_KEY` has no bot protection
-  beyond the rate limits described below.
+- **Real CAPTCHA protection requires setting real keys (see CAPTCHA
+  above).** A deployment that never sets `TURNSTILE_SITE_KEY`/
+  `TURNSTILE_SECRET_KEY` falls back to Cloudflare's public always-pass
+  test keys — a widget renders, but it provides no bot protection beyond
+  the rate limits described below.
 - **The WebSocket token is passed in the URL query string.** This is the
   standard pattern for authenticating browser WebSockets (they can't set
   custom headers on the upgrade request), but it does mean the token can
@@ -354,8 +412,17 @@ Before deploying this anywhere real:
   consoles. A stale `localhost` value here breaks OAuth silently in
   production (their consent screen will report a redirect_uri mismatch).
 - Set `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` (Cloudflare
-  dashboard) to turn on bot protection for signup/login. Without both,
-  those endpoints are protected only by the rate limits above.
+  dashboard) to turn on *real* bot protection for signup/login/forgot-password.
+  Without both, the app still shows a working-looking CAPTCHA (Cloudflare's
+  public test keys, see CAPTCHA above) that always passes — those endpoints
+  are then protected only by the rate limits above, same as before this
+  fallback existed.
+- Set `RESEND_API_KEY` and `EMAIL_FROM` (an address on a domain verified in
+  your Resend account) to actually deliver password-reset and
+  forgot-username emails. Without `RESEND_API_KEY`, those emails are only
+  ever written to the server's own logs (see `server/email.js`) — the
+  flow still works end-to-end for testing, but no real user ever receives
+  the email.
 - Set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` and/or
   `MICROSOFT_CLIENT_ID`/`MICROSOFT_CLIENT_SECRET` to enable "Continue
   with Google/Microsoft" — each pair is independent, and a provider stays

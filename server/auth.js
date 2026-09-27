@@ -2,6 +2,7 @@
 
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('node:crypto');
 const { db } = require('./db');
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -9,6 +10,22 @@ if (!JWT_SECRET) {
   throw new Error('JWT_SECRET environment variable is required (see server/.env.example).');
 }
 const TOKEN_TTL = '7d';
+
+/* Hashes a short-lived, low-entropy value (a 6-digit reset code, a reset token)
+   with a pepper so the database alone never holds anything usable -- reuses
+   JWT_SECRET rather than requiring a whole separate secret just for this. Not
+   for passwords (bcrypt already owns those via hashPassword/verifyPassword). */
+function hashWithPepper(value) {
+  return crypto.createHash('sha256').update(`${value}:${JWT_SECRET}`).digest('hex');
+}
+/* Constant-time string compare, for checking a caller-supplied code/token
+   hash against the stored one without leaking timing information. */
+function safeEqual(a, b) {
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 function hashPassword(password) {
   return bcrypt.hash(password, 10);
@@ -51,4 +68,4 @@ function requireAuth(req, res, next) {
   next();
 }
 
-module.exports = { hashPassword, verifyPassword, signToken, verifyToken, requireAuth };
+module.exports = { hashPassword, verifyPassword, signToken, verifyToken, requireAuth, hashWithPepper, safeEqual };

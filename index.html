@@ -960,7 +960,8 @@
   .auth-modal__tabs { display: flex; gap: 4px; background: var(--track); border-radius: var(--r-pill); padding: 4px; }
   .auth-modal__tab { flex: 1; border: none; background: transparent; padding: 10px; border-radius: 18px; font-weight: 600; font-size: 14px; color: var(--dim); cursor: pointer; }
   .auth-modal__tab.is-active { background: var(--glass-active); color: var(--text); box-shadow: var(--shadow-active); }
-  #auth-panel-login, #auth-panel-signup { display: flex; flex-direction: column; gap: 10px; }
+  #auth-panel-login, #auth-panel-signup,
+  #auth-panel-forgot1, #auth-panel-forgot2, #auth-panel-forgot3 { display: flex; flex-direction: column; gap: 10px; }
   .auth-modal__oauth { display: flex; flex-direction: column; gap: 8px; }
   .auth-modal__oauth:not(:has(> :not([hidden]))) { padding: 0; }
   .auth-modal__oauth-btn { display: flex; align-items: center; justify-content: center; gap: 10px; text-decoration: none; }
@@ -972,6 +973,61 @@
     background: var(--glass-hi); color: var(--text); font: inherit;
   }
   .auth-modal__form input:focus-visible { outline: 2px solid var(--acc); outline-offset: 0; }
+
+  /* -- forgot password / username flow -- */
+  .auth-modal__forgot-row { display: flex; justify-content: flex-end; gap: 14px; margin-top: -2px; }
+  .auth-modal__forgot-link {
+    border: none; background: none; padding: 2px 0; margin: 0 auto;
+    color: var(--acc); font-size: 13px; font-weight: 600; cursor: pointer; display: block;
+  }
+  .auth-modal__forgot-link--dim { color: var(--dim); }
+  .auth-modal__forgot-link--center { margin: 0 auto; }
+  .auth-modal__forgot-link:disabled { color: var(--dim); cursor: default; }
+  .auth-modal__back-link {
+    align-self: flex-start; border: none; background: none; padding: 0;
+    color: var(--dim); font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 2px;
+  }
+  .auth-modal__back-link:hover { color: var(--text); }
+
+  .auth-code-inputs { display: flex; justify-content: center; gap: 8px; }
+  .auth-code-box {
+    width: 44px; height: 56px; text-align: center; padding: 0 !important;
+    font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums;
+    /* The general .auth-modal__form input background (--glass-hi) reads fine as a
+       full-width field, but on a small isolated box it's too close to the modal's
+       own --glass-pop background to read as a distinct box -- an explicit border
+       keeps every box visible regardless of theme. */
+    border: 2px solid var(--track) !important;
+  }
+  .auth-code-box:focus-visible { border-color: var(--acc) !important; }
+
+  .auth-password-field { position: relative; display: flex; }
+  .auth-password-field input { flex: 1; padding-right: 46px !important; }
+  .auth-password-toggle {
+    position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+    width: 38px; height: 38px; border: none; background: transparent; color: var(--dim);
+    border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .auth-password-toggle:hover { background: var(--track); color: var(--text); }
+
+  #captcha-login, #captcha-signup, #captcha-forgot { display: flex; justify-content: center; margin: 2px 0; }
+
+  /* ==================== toast ==================== */
+  #toast-container {
+    position: fixed; top: 20px; left: 50%; transform: translateX(-50%); z-index: 2000;
+    display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none;
+  }
+  .toast {
+    padding: 12px 22px; border-radius: var(--r-pill); font-size: 14px; font-weight: 600; color: var(--text);
+    background: rgba(255, 255, 255, 0.97); backdrop-filter: var(--blur-pop); -webkit-backdrop-filter: var(--blur-pop);
+    border: 1px solid var(--edge); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+    opacity: 0; transform: translateY(-14px); transition: opacity 0.25s ease, transform 0.25s ease;
+    display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 32px);
+  }
+  [data-theme="dark"] .toast { background: rgba(28, 26, 36, 0.97); }
+  .toast::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--short); flex-shrink: 0; }
+  .toast--error::before { background: var(--focus); }
+  .toast--show { opacity: 1; transform: translateY(0); }
 
   /* ==================== 18. Settings dialog ==================== */
   dialog#settings {
@@ -1762,9 +1818,9 @@
 <dialog id="auth-modal" aria-labelledby="auth-modal-title">
   <form method="dialog" class="auth-modal__form">
     <h2 id="auth-modal-title">Welcome</h2>
-    <p class="field-hint">Create a real account to add friends, see who's online, and chat in real time. Your timer, tasks, and stats always stay local to this device.</p>
+    <p class="field-hint" id="auth-modal-hint">Create a real account to add friends, see who's online, and chat in real time. Your timer, tasks, and stats always stay local to this device.</p>
 
-    <div class="auth-modal__tabs" role="tablist">
+    <div class="auth-modal__tabs" role="tablist" id="auth-modal-tabs">
       <button type="button" role="tab" id="auth-tab-login" class="auth-modal__tab is-active" aria-selected="true">Log In</button>
       <button type="button" role="tab" id="auth-tab-signup" class="auth-modal__tab" aria-selected="false">Sign Up</button>
     </div>
@@ -1776,6 +1832,10 @@
       <label for="auth-login-password">Password
         <input type="password" id="auth-login-password" autocomplete="current-password">
       </label>
+      <div class="auth-modal__forgot-row">
+        <button type="button" class="auth-modal__forgot-link auth-modal__forgot-link--dim" id="auth-forgot-username-link">Forgot username?</button>
+        <button type="button" class="auth-modal__forgot-link" id="auth-forgot-password-link">Forgot password?</button>
+      </div>
       <div id="captcha-login" hidden></div>
       <span class="field-status" id="status-auth-login"></span>
       <button type="button" class="btn btn-primary" id="auth-login-submit">Log In</button>
@@ -1794,6 +1854,51 @@
       <div id="captcha-signup" hidden></div>
       <span class="field-status" id="status-auth-signup"></span>
       <button type="button" class="btn btn-primary" id="auth-signup-submit">Create Account</button>
+    </div>
+
+    <div id="auth-panel-forgot1" hidden>
+      <button type="button" class="auth-modal__back-link" id="auth-forgot1-back">&larr; Back to log in</button>
+      <label for="auth-forgot-identifier" id="auth-forgot-identifier-label">Email or username
+        <input type="text" id="auth-forgot-identifier" autocomplete="username">
+      </label>
+      <div id="captcha-forgot" hidden></div>
+      <span class="field-status" id="status-auth-forgot1"></span>
+      <button type="button" class="btn btn-primary" id="auth-forgot1-submit">Send code</button>
+    </div>
+
+    <div id="auth-panel-forgot2" hidden>
+      <button type="button" class="auth-modal__back-link" id="auth-forgot2-back">&larr; Back to log in</button>
+      <p class="field-hint">Enter the 6-digit code we emailed you.</p>
+      <div class="auth-code-inputs" id="auth-code-inputs" role="group" aria-label="6-digit verification code">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="one-time-code" maxlength="1" class="auth-code-box" aria-label="Digit 1">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" class="auth-code-box" aria-label="Digit 2">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" class="auth-code-box" aria-label="Digit 3">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" class="auth-code-box" aria-label="Digit 4">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" class="auth-code-box" aria-label="Digit 5">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" class="auth-code-box" aria-label="Digit 6">
+      </div>
+      <span class="field-status" id="status-auth-forgot2"></span>
+      <button type="button" class="btn btn-primary" id="auth-forgot2-submit">Verify</button>
+      <button type="button" class="auth-modal__forgot-link auth-modal__forgot-link--center" id="auth-forgot2-resend">Resend code</button>
+    </div>
+
+    <div id="auth-panel-forgot3" hidden>
+      <button type="button" class="auth-modal__back-link" id="auth-forgot3-back">&larr; Back to log in</button>
+      <label for="auth-forgot-new-password">New password
+        <span class="auth-password-field">
+          <input type="password" id="auth-forgot-new-password" autocomplete="new-password">
+          <button type="button" class="auth-password-toggle" id="auth-forgot-new-password-toggle" aria-label="Show password" aria-pressed="false"></button>
+        </span>
+      </label>
+      <p class="field-hint">Use at least 8 characters.</p>
+      <label for="auth-forgot-confirm-password">Confirm password
+        <span class="auth-password-field">
+          <input type="password" id="auth-forgot-confirm-password" autocomplete="new-password">
+          <button type="button" class="auth-password-toggle" id="auth-forgot-confirm-password-toggle" aria-label="Show password" aria-pressed="false"></button>
+        </span>
+      </label>
+      <span class="field-status" id="status-auth-forgot3"></span>
+      <button type="button" class="btn btn-primary" id="auth-forgot3-submit">Save password</button>
     </div>
 
     <div class="auth-modal__divider" id="auth-oauth-divider" hidden><span>or</span></div>
@@ -1834,6 +1939,8 @@
   <input id="media-volume" type="range" min="0" max="100" value="50" aria-label="Background media volume">
 </div>
 
+<div id="toast-container" aria-live="polite"></div>
+
 <script>
 'use strict';
 
@@ -1852,6 +1959,8 @@ const Icons = {
   play: '<svg class="icon icon--fill" viewBox="0 0 20 20"><path d="M6.2 4.3v11.4c0 .6.7 1 1.2.7l9-5.7c.5-.3.5-1 0-1.3l-9-5.7c-.5-.3-1.2 0-1.2.6Z"/></svg>',
   pause: '<svg class="icon icon--fill" viewBox="0 0 20 20"><rect x="5" y="4" width="3.3" height="12" rx="0.8"/><rect x="11.7" y="4" width="3.3" height="12" rx="0.8"/></svg>',
   trash: '<svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M4 6h12"/><path d="M7.5 6V4.3c0-.6.5-1.1 1.1-1.1h2.8c.6 0 1.1.5 1.1 1.1V6"/><path d="M5.5 6l.6 9.2c0 .7.6 1.3 1.3 1.3h5.2c.7 0 1.3-.6 1.3-1.3L14.5 6"/><path d="M8.3 9v4.5M11.7 9v4.5"/></svg>',
+  eye: '<svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M1.5 10S4.8 4 10 4s8.5 6 8.5 6-3.3 6-8.5 6-8.5-6-8.5-6Z"/><circle cx="10" cy="10" r="2.4"/></svg>',
+  eyeOff: '<svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M1.5 10S4.8 4 10 4s8.5 6 8.5 6-3.3 6-8.5 6-8.5-6-8.5-6Z"/><circle cx="10" cy="10" r="2.4"/><line x1="3" y1="3" x2="17" y2="17"/></svg>',
 };
 
 /* ============================== helpers ============================== */
@@ -2491,6 +2600,10 @@ const Api = {
     if (!res.ok) {
       const err = new Error((json && json.error) || `Request failed (${res.status}).`);
       err.status = res.status;
+      // Some endpoints attach extra fields to an error response (e.g. login's
+      // captchaRequired) -- carry them onto the thrown Error so a catch block
+      // can react to them without re-parsing the response itself.
+      if (json && typeof json === 'object') for (const k of Object.keys(json)) if (k !== 'error') err[k] = json[k];
       throw err;
     }
     return json;
@@ -2537,20 +2650,31 @@ const Socket = {
 /* ============================== Captcha (Cloudflare Turnstile) ==============================
    Loaded and rendered only if the server reports it's configured (GET
    /api/config) -- so local dev, with no Turnstile keys, never even fetches
-   Cloudflare's script. Widgets are single-use: reset() after every submit,
-   success or failure, or the next attempt's token() call returns stale data. */
+   Cloudflare's script (though by default the server itself falls back to
+   Cloudflare's public test keys, so this is normally enabled everywhere; see
+   server/server.js). Widgets are single-use: reset() after every submit,
+   success or failure, or the next attempt's token() call returns stale data.
+   Signup and the forgot-password Step 1 widgets render immediately; the login
+   widget renders lazily, the first time showLogin() is called (after 2 failed
+   attempts), so a normal user typing their password right the first time
+   never sees it. Turnstile has no "track the host page's own theme" mode --
+   "auto" only follows the OS prefers-color-scheme, which this app's own
+   light/dark toggle doesn't -- so each widget is destroyed and re-rendered
+   with an explicit light/dark theme param whenever the app's theme changes. */
 const Captcha = {
   enabled: false,
   siteKey: null,
   widgets: {},
+  loaded: false,
   async init(config) {
     this.enabled = !!(config.captcha && config.captcha.enabled && config.captcha.siteKey);
     this.siteKey = this.enabled ? config.captcha.siteKey : null;
     if (!this.enabled) return;
     try {
       await this._loadScript();
-      this._render('login', 'captcha-login');
+      this.loaded = true;
       this._render('signup', 'captcha-signup');
+      this._render('forgot', 'captcha-forgot');
     } catch {
       this.enabled = false; // Cloudflare unreachable: fail visibly rather than silently block submits
     }
@@ -2567,11 +2691,24 @@ const Captcha = {
       document.head.appendChild(s);
     });
   },
+  _currentTheme() { return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'; },
   _render(key, elId) {
     const el = document.getElementById(elId);
     if (!el || !window.turnstile) return;
     el.hidden = false;
-    this.widgets[key] = window.turnstile.render(el, { sitekey: this.siteKey });
+    this.widgets[key] = window.turnstile.render(el, { sitekey: this.siteKey, theme: this._currentTheme() });
+  },
+  showLogin() {
+    if (!this.enabled || !this.loaded || this.widgets.login !== undefined) return;
+    this._render('login', 'captcha-login');
+  },
+  reRenderForTheme() {
+    if (!this.enabled || !this.loaded || !window.turnstile) return;
+    for (const key of Object.keys(this.widgets)) {
+      window.turnstile.remove(this.widgets[key]);
+      delete this.widgets[key];
+      this._render(key, `captcha-${key}`);
+    }
   },
   token(key) {
     if (!this.enabled || !window.turnstile || this.widgets[key] === undefined) return undefined;
@@ -2587,6 +2724,7 @@ const Captcha = {
    has real credentials for (GET /api/config) — an unconfigured provider's
    /start route 404s, so showing its button anyway would just be a dead end. */
 const OAuthUI = {
+  hasAnyProvider: false,
   init(config) {
     const google = !!(config.oauth && config.oauth.google);
     const microsoft = !!(config.oauth && config.oauth.microsoft);
@@ -2594,7 +2732,8 @@ const OAuthUI = {
     document.getElementById('auth-oauth-google').hidden = !google;
     document.getElementById('auth-oauth-microsoft').hidden = !microsoft;
     document.getElementById('auth-oauth-facebook').hidden = !facebook;
-    document.getElementById('auth-oauth-divider').hidden = !(google || microsoft || facebook);
+    this.hasAnyProvider = google || microsoft || facebook;
+    document.getElementById('auth-oauth-divider').hidden = !this.hasAnyProvider;
   },
 };
 
@@ -2651,8 +2790,16 @@ const Auth = {
     Auth._onAuthenticated(token, user);
   },
   async login(identifier, password) {
-    const { token, user } = await Api.post('/api/auth/login', { identifier, password, captchaToken: Captcha.token('login') });
-    Auth._onAuthenticated(token, user);
+    try {
+      const { token, user } = await Api.post('/api/auth/login', { identifier, password, captchaToken: Captcha.token('login') });
+      Auth._onAuthenticated(token, user);
+    } catch (err) {
+      // The server enforces this regardless; showing the widget here is purely
+      // so the *next* attempt's Captcha.token('login') actually has something
+      // to send, instead of failing a second time on a widget that was never shown.
+      if (err.captchaRequired) Captcha.showLogin();
+      throw err;
+    }
   },
   _onAuthenticated(token, user) {
     Api.setToken(token);
@@ -2677,6 +2824,200 @@ const Auth = {
     if (typeof UI !== 'undefined') UI.syncAuthUI();
   },
   isLoggedIn() { return !!Auth.currentUser; },
+};
+
+/* Switches the Welcome modal between its five views: Log In, Sign Up, and the
+   three forgot-password/-username steps. The three OAuth-row bits (divider,
+   the row itself, and the tabs/hint above it) only belong to Log In/Sign Up --
+   the forgot-flow takes over the whole modal, per the design brief. */
+function setAuthView(view) {
+  const isLogin = view === 'login';
+  const isSignup = view === 'signup';
+  const isForgot = view === 'forgot1' || view === 'forgot2' || view === 'forgot3';
+  document.getElementById('auth-tab-login').classList.toggle('is-active', isLogin);
+  document.getElementById('auth-tab-login').setAttribute('aria-selected', String(isLogin));
+  document.getElementById('auth-tab-signup').classList.toggle('is-active', isSignup);
+  document.getElementById('auth-tab-signup').setAttribute('aria-selected', String(isSignup));
+  document.getElementById('auth-panel-login').hidden = !isLogin;
+  document.getElementById('auth-panel-signup').hidden = !isSignup;
+  document.getElementById('auth-panel-forgot1').hidden = view !== 'forgot1';
+  document.getElementById('auth-panel-forgot2').hidden = view !== 'forgot2';
+  document.getElementById('auth-panel-forgot3').hidden = view !== 'forgot3';
+  document.getElementById('auth-modal-tabs').hidden = isForgot;
+  document.getElementById('auth-modal-hint').hidden = isForgot;
+  document.getElementById('auth-oauth-row').hidden = isForgot;
+  document.getElementById('auth-oauth-divider').hidden = isForgot || !OAuthUI.hasAnyProvider;
+  document.getElementById('auth-guest-btn').hidden = isForgot;
+  document.getElementById('auth-modal-title').textContent = {
+    login: 'Welcome', signup: 'Welcome',
+    forgot1: ForgotPassword.mode === 'username' ? 'Forgot your username?' : 'Reset your password',
+    forgot2: 'Check your email',
+    forgot3: 'New password',
+  }[view];
+  const firstInput = {
+    login: 'auth-login-identifier', signup: 'auth-signup-username', forgot1: 'auth-forgot-identifier',
+    forgot2: null, forgot3: 'auth-forgot-new-password',
+  }[view];
+  if (firstInput) setTimeout(() => document.getElementById(firstInput).focus(), 0);
+  else if (view === 'forgot2') setTimeout(() => document.querySelector('.auth-code-box').focus(), 0);
+}
+
+/* ============================== ForgotPassword ==============================
+   The 3-step "forgot password" flow (request code -> verify code -> set new
+   password), plus the sibling 1-step "forgot username" flow that reuses Step
+   1's UI in a different mode. State here is just this in-progress attempt --
+   nothing persists past a successful reset or the user backing out to Log In. */
+const ForgotPassword = {
+  mode: 'password', // 'password' | 'username'
+  identifier: '',
+  resetToken: null,
+  resendTimer: null,
+  resendSecondsLeft: 0,
+
+  start(mode) {
+    this.mode = mode;
+    const label = document.getElementById('auth-forgot-identifier-label');
+    const input = document.getElementById('auth-forgot-identifier');
+    const submitBtn = document.getElementById('auth-forgot1-submit');
+    if (mode === 'username') {
+      label.childNodes[0].textContent = 'Email ';
+      input.type = 'email';
+      input.autocomplete = 'email';
+      submitBtn.textContent = 'Email my username';
+    } else {
+      label.childNodes[0].textContent = 'Email or username ';
+      input.type = 'text';
+      input.autocomplete = 'username';
+      submitBtn.textContent = 'Send code';
+    }
+    input.value = '';
+    setFieldStatus(document.getElementById('status-auth-forgot1'), '', '');
+    setAuthView('forgot1');
+  },
+
+  async submitStep1() {
+    const status = document.getElementById('status-auth-forgot1');
+    const value = document.getElementById('auth-forgot-identifier').value.trim();
+    if (!value) { setFieldStatus(status, this.mode === 'username' ? 'Enter your email.' : 'Enter your email or username.', 'error'); return; }
+    setFieldStatus(status, '', '');
+    const btn = document.getElementById('auth-forgot1-submit');
+    btn.disabled = true;
+    try {
+      if (this.mode === 'username') {
+        const { message } = await Api.post('/api/auth/forgot-username', { email: value, captchaToken: Captcha.token('forgot') });
+        showToast(message);
+        this.backToLogin();
+      } else {
+        const { message } = await Api.post('/api/auth/forgot', { identifier: value, captchaToken: Captcha.token('forgot') });
+        this.identifier = value;
+        setFieldStatus(status, message, 'success');
+        this.showStep2();
+      }
+    } catch (err) {
+      setFieldStatus(status, err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      Captcha.reset('forgot');
+    }
+  },
+
+  showStep2() {
+    setAuthView('forgot2');
+    setFieldStatus(document.getElementById('status-auth-forgot2'), '', '');
+    document.querySelectorAll('.auth-code-box').forEach((b) => { b.value = ''; });
+    this.startResendTimer();
+  },
+
+  startResendTimer() {
+    clearInterval(this.resendTimer);
+    this.resendSecondsLeft = 60;
+    const link = document.getElementById('auth-forgot2-resend');
+    const tick = () => {
+      link.disabled = this.resendSecondsLeft > 0;
+      link.textContent = this.resendSecondsLeft > 0 ? `Resend code (${this.resendSecondsLeft}s)` : 'Resend code';
+      if (this.resendSecondsLeft <= 0) clearInterval(this.resendTimer);
+      this.resendSecondsLeft--;
+    };
+    tick();
+    this.resendTimer = setInterval(tick, 1000);
+  },
+
+  async resend() {
+    const status = document.getElementById('status-auth-forgot2');
+    try {
+      const { message } = await Api.post('/api/auth/forgot', { identifier: this.identifier, captchaToken: Captcha.token('forgot') });
+      setFieldStatus(status, message, 'success');
+      this.startResendTimer();
+    } catch (err) {
+      setFieldStatus(status, err.message, 'error');
+    } finally {
+      Captcha.reset('forgot');
+    }
+  },
+
+  getCode() { return Array.from(document.querySelectorAll('.auth-code-box')).map((b) => b.value).join(''); },
+
+  async submitStep2() {
+    const status = document.getElementById('status-auth-forgot2');
+    const code = this.getCode();
+    if (code.length !== 6) { setFieldStatus(status, 'Enter the 6-digit code.', 'error'); return; }
+    setFieldStatus(status, '', '');
+    const btn = document.getElementById('auth-forgot2-submit');
+    btn.disabled = true;
+    try {
+      const { resetToken } = await Api.post('/api/auth/verify-code', { identifier: this.identifier, code });
+      this.resetToken = resetToken;
+      clearInterval(this.resendTimer);
+      this.showStep3();
+    } catch (err) {
+      setFieldStatus(status, err.message, 'error');
+      document.querySelectorAll('.auth-code-box').forEach((b) => { b.value = ''; });
+      document.querySelector('.auth-code-box').focus();
+    } finally {
+      btn.disabled = false;
+    }
+  },
+
+  showStep3() {
+    setAuthView('forgot3');
+    document.getElementById('auth-forgot-new-password').value = '';
+    document.getElementById('auth-forgot-confirm-password').value = '';
+    setFieldStatus(document.getElementById('status-auth-forgot3'), '', '');
+  },
+
+  async submitStep3() {
+    const status = document.getElementById('status-auth-forgot3');
+    const pw = document.getElementById('auth-forgot-new-password').value;
+    const confirm = document.getElementById('auth-forgot-confirm-password').value;
+    if (pw.length < 8) { setFieldStatus(status, 'Password must be at least 8 characters.', 'error'); return; }
+    if (pw !== confirm) { setFieldStatus(status, "Passwords don't match.", 'error'); return; }
+    setFieldStatus(status, '', '');
+    const btn = document.getElementById('auth-forgot3-submit');
+    btn.disabled = true;
+    try {
+      const { token, user } = await Api.post('/api/auth/reset-password', { resetToken: this.resetToken, password: pw });
+      Auth._onAuthenticated(token, user);
+      document.getElementById('auth-modal').close();
+      this.reset();
+      showToast('Password updated');
+    } catch (err) {
+      setFieldStatus(status, err.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  },
+
+  backToLogin() {
+    this.reset();
+    setAuthView('login');
+  },
+
+  reset() {
+    this.identifier = '';
+    this.resetToken = null;
+    clearInterval(this.resendTimer);
+    this.resendTimer = null;
+  },
 };
 
 /* ============================== real-time listeners ==============================
@@ -3695,8 +4036,14 @@ const Theme = {
     root.setProperty('--mesh-4', mix(colors.primary, colors.bg, 0.3));
     document.documentElement.setAttribute('data-theme-preset', state.themeSettings.preset);
     // Liquid Glass tokens (see <style>) key their light/dark overrides off this attribute,
-    // derived the same way the dark-mode toggle itself decides light vs dark.
-    document.documentElement.setAttribute('data-theme', Theme.isDark() ? 'dark' : 'light');
+    // derived the same way the dark-mode toggle itself decides light vs dark. Only
+    // re-render Turnstile when this actually flips light<->dark, not on every call
+    // here (e.g. tweaking a single Appearance color also runs this function).
+    const nextTheme = Theme.isDark() ? 'dark' : 'light';
+    if (document.documentElement.getAttribute('data-theme') !== nextTheme) {
+      document.documentElement.setAttribute('data-theme', nextTheme);
+      Captcha.reRenderForTheme();
+    }
     // Every path that changes the visible theme (preset picker, reset button,
     // each custom color swatch, the dark-mode toggle itself) funnels through
     // this one function -- so the toggle's icon is refreshed right here,
@@ -3765,6 +4112,20 @@ function setFieldStatus(el, text, kind) {
   el.classList.remove('is-error', 'is-success');
   if (kind === 'error') el.classList.add('is-error');
   else if (kind === 'success') el.classList.add('is-success');
+}
+
+function showToast(message, kind = 'success') {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = 'toast' + (kind === 'error' ? ' toast--error' : '');
+  toast.textContent = message;
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('toast--show'));
+  setTimeout(() => {
+    toast.classList.remove('toast--show');
+    setTimeout(() => toast.remove(), 300);
+  }, 3200);
 }
 
 /* Wraps a native <select> of emoji options with a custom trigger + listbox so it can be
@@ -5478,18 +5839,11 @@ const UI = {
       document.getElementById('auth-signup-password').value = '';
       setFieldStatus(document.getElementById('status-auth-login'), '', '');
       setFieldStatus(document.getElementById('status-auth-signup'), '', '');
+      ForgotPassword.reset();
+      setAuthView('login');
     };
-    const selectAuthTab = (tab) => {
-      const isLogin = tab === 'login';
-      document.getElementById('auth-tab-login').classList.toggle('is-active', isLogin);
-      document.getElementById('auth-tab-login').setAttribute('aria-selected', String(isLogin));
-      document.getElementById('auth-tab-signup').classList.toggle('is-active', !isLogin);
-      document.getElementById('auth-tab-signup').setAttribute('aria-selected', String(!isLogin));
-      document.getElementById('auth-panel-login').hidden = !isLogin;
-      document.getElementById('auth-panel-signup').hidden = isLogin;
-    };
-    document.getElementById('auth-tab-login').addEventListener('click', () => selectAuthTab('login'));
-    document.getElementById('auth-tab-signup').addEventListener('click', () => selectAuthTab('signup'));
+    document.getElementById('auth-tab-login').addEventListener('click', () => setAuthView('login'));
+    document.getElementById('auth-tab-signup').addEventListener('click', () => setAuthView('signup'));
     document.getElementById('auth-login-submit').addEventListener('click', async () => {
       const status = document.getElementById('status-auth-login');
       const identifier = document.getElementById('auth-login-identifier').value.trim();
@@ -5524,6 +5878,76 @@ const UI = {
     document.getElementById('auth-guest-btn').addEventListener('click', () => {
       Auth.continueAsGuest();
       document.getElementById('auth-modal').close();
+    });
+    // Covers every way the dialog can close (Escape, backdrop click, the × equivalents
+    // above) -- not just the explicit success paths that already call this directly --
+    // so a half-finished forgot-password attempt never lingers into the next open.
+    document.getElementById('auth-modal').addEventListener('close', clearAuthModalInputs);
+
+    // ---- Forgot password / username ----
+    document.getElementById('auth-forgot-password-link').addEventListener('click', () => ForgotPassword.start('password'));
+    document.getElementById('auth-forgot-username-link').addEventListener('click', () => ForgotPassword.start('username'));
+    document.getElementById('auth-forgot1-back').addEventListener('click', () => ForgotPassword.backToLogin());
+    document.getElementById('auth-forgot2-back').addEventListener('click', () => ForgotPassword.backToLogin());
+    document.getElementById('auth-forgot3-back').addEventListener('click', () => ForgotPassword.backToLogin());
+    document.getElementById('auth-forgot1-submit').addEventListener('click', () => ForgotPassword.submitStep1());
+    document.getElementById('auth-forgot2-submit').addEventListener('click', () => ForgotPassword.submitStep2());
+    document.getElementById('auth-forgot2-resend').addEventListener('click', () => ForgotPassword.resend());
+    document.getElementById('auth-forgot3-submit').addEventListener('click', () => ForgotPassword.submitStep3());
+
+    // 6-digit code boxes: typing a digit auto-advances to the next box, Backspace on an
+    // empty box steps back to the previous one, arrow keys move between boxes, and
+    // pasting a full 6-digit code (e.g. from a phone's "copy code" suggestion) fills
+    // every box at once and focuses the last one.
+    const codeBoxes = Array.from(document.querySelectorAll('.auth-code-box'));
+    codeBoxes.forEach((box, i) => {
+      box.addEventListener('input', () => {
+        box.value = box.value.replace(/\D/g, '').slice(-1);
+        if (box.value && i < codeBoxes.length - 1) codeBoxes[i + 1].focus();
+      });
+      box.addEventListener('keydown', (e) => {
+        if (e.key === 'Backspace' && !box.value && i > 0) { codeBoxes[i - 1].focus(); codeBoxes[i - 1].value = ''; e.preventDefault(); }
+        else if (e.key === 'ArrowLeft' && i > 0) { codeBoxes[i - 1].focus(); e.preventDefault(); }
+        else if (e.key === 'ArrowRight' && i < codeBoxes.length - 1) { codeBoxes[i + 1].focus(); e.preventDefault(); }
+      });
+      box.addEventListener('paste', (e) => {
+        const digits = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 6);
+        if (!digits) return;
+        e.preventDefault();
+        digits.split('').forEach((d, j) => { if (codeBoxes[j]) codeBoxes[j].value = d; });
+        (codeBoxes[digits.length - 1] || codeBoxes[codeBoxes.length - 1]).focus();
+      });
+    });
+
+    // Show/hide toggles for the two new-password fields in Step 3.
+    [['auth-forgot-new-password', 'auth-forgot-new-password-toggle'], ['auth-forgot-confirm-password', 'auth-forgot-confirm-password-toggle']]
+      .forEach(([inputId, btnId]) => {
+        const input = document.getElementById(inputId);
+        const btn = document.getElementById(btnId);
+        btn.innerHTML = Icons.eye;
+        btn.addEventListener('click', () => {
+          const showing = input.type === 'text';
+          input.type = showing ? 'password' : 'text';
+          btn.innerHTML = showing ? Icons.eye : Icons.eyeOff;
+          btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+          btn.setAttribute('aria-pressed', String(!showing));
+          input.focus();
+        });
+      });
+
+    // Enter submits whichever of the five auth-modal views is currently visible --
+    // the form itself can't do this natively since every one of its buttons is
+    // type="button" (so a native implicit submit, which would just close the
+    // method="dialog" form without saving anything, never fires) and Escape
+    // already closes the dialog natively (see UI.initDialogCoordination).
+    document.querySelector('.auth-modal__form').addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.target.tagName !== 'INPUT') return;
+      e.preventDefault();
+      if (!document.getElementById('auth-panel-login').hidden) document.getElementById('auth-login-submit').click();
+      else if (!document.getElementById('auth-panel-signup').hidden) document.getElementById('auth-signup-submit').click();
+      else if (!document.getElementById('auth-panel-forgot1').hidden) document.getElementById('auth-forgot1-submit').click();
+      else if (!document.getElementById('auth-panel-forgot2').hidden) document.getElementById('auth-forgot2-submit').click();
+      else if (!document.getElementById('auth-panel-forgot3').hidden) document.getElementById('auth-forgot3-submit').click();
     });
 
     const emojiPickerEl = document.getElementById('profile-modal-emoji-picker');

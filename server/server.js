@@ -10,8 +10,9 @@ const helmet = require('helmet');
 const { WebSocketServer } = require('ws');
 
 const { db, id: newId, pairKey } = require('./db');
-const { hashPassword, verifyPassword, signToken, verifyToken, requireAuth } = require('./auth');
+const { hashPassword, verifyPassword, signToken, verifyToken, requireAuth, hashWithPepper, safeEqual } = require('./auth');
 const OAuth = require('./oauth');
+const Email = require('./email');
 
 const PORT = Number(process.env.PORT) || 3000;
 const allowedOrigins = (process.env.ALLOWED_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -58,26 +59,65 @@ function rateLimited(key, max = 10, windowMs = 60_000) {
   record.count += 1;
   return record.count > max;
 }
+/* Longest window any caller uses is the forgot-password limits below (1h); this
+   must stay >= that or a window's tracking record gets wiped mid-window, which
+   would silently reset its limit early. */
+const RATE_LIMIT_MAX_WINDOW_MS = 60 * 60_000;
 setInterval(() => {
-  const cutoff = Date.now() - 5 * 60_000; // well past the longest window any caller uses
+  const cutoff = Date.now() - RATE_LIMIT_MAX_WINDOW_MS;
   for (const [key, record] of attempts) {
     if (record.start < cutoff) attempts.delete(key);
   }
-}, 5 * 60_000).unref();
+}, 15 * 60_000).unref();
+
+/* Failed-login tracking, keyed by the identifier typed (not IP -- an attacker
+   spraying one account from many IPs should still trip this). Separate from
+   `attempts`/rateLimited above: this needs a live *count* to decide "does the
+   next attempt need a captcha", not just a boolean past-the-limit check, and
+   it resets to zero on a successful login rather than expiring on a timer. */
+const loginFailures = new Map();
+const LOGIN_FAILURE_WINDOW_MS = 15 * 60_000;
+const LOGIN_CAPTCHA_THRESHOLD = 2;
+function loginFailureCount(key) {
+  const record = loginFailures.get(key);
+  if (!record || Date.now() - record.start > LOGIN_FAILURE_WINDOW_MS) return 0;
+  return record.count;
+}
+function recordLoginFailure(key) {
+  const now = Date.now();
+  const record = loginFailures.get(key);
+  if (!record || now - record.start > LOGIN_FAILURE_WINDOW_MS) { loginFailures.set(key, { start: now, count: 1 }); return 1; }
+  record.count += 1;
+  return record.count;
+}
+function clearLoginFailures(key) { loginFailures.delete(key); }
+setInterval(() => {
+  const cutoff = Date.now() - LOGIN_FAILURE_WINDOW_MS;
+  for (const [key, record] of loginFailures) {
+    if (record.start < cutoff) loginFailures.delete(key);
+  }
+}, 15 * 60_000).unref();
 
 /* ============================== captcha (Cloudflare Turnstile) ============================== */
 
-/* No TURNSTILE_SECRET_KEY set: verification is skipped so local dev and CI
-   never need a Cloudflare account. This is a real, intentional gap -- see
-   SECURITY.md and the deploy checklist. Once the secret is set, a missing,
-   invalid, expired, or already-used token is always rejected, and a
+/* Cloudflare publishes these test keys specifically so a real Turnstile/
+   Cloudflare account is never required for development: the test site key
+   always renders a widget, and the test secret always verifies as a
+   success against Cloudflare's real siteverify endpoint. They provide NO
+   actual bot protection -- production must set real TURNSTILE_SITE_KEY /
+   TURNSTILE_SECRET_KEY values (from https://dash.cloudflare.com/?to=/:account/turnstile)
+   for the widget to mean anything there. See SECURITY.md and the deploy checklist. */
+const TURNSTILE_TEST_SITE_KEY = '1x00000000000000000000AA';
+const TURNSTILE_TEST_SECRET_KEY = '1x0000000000000000000000000000000AA';
+const TURNSTILE_SITE_KEY = process.env.TURNSTILE_SITE_KEY || TURNSTILE_TEST_SITE_KEY;
+const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || TURNSTILE_TEST_SECRET_KEY;
+
+/* A missing, invalid, expired, or already-used token is always rejected, and a
    network failure reaching Cloudflare fails closed (rejected), not open. */
 async function verifyCaptcha(token, ip) {
-  const secret = process.env.TURNSTILE_SECRET_KEY;
-  if (!secret) return true;
   if (typeof token !== 'string' || !token) return false;
   try {
-    const body = new URLSearchParams({ secret, response: token, remoteip: ip || '' });
+    const body = new URLSearchParams({ secret: TURNSTILE_SECRET_KEY, response: token, remoteip: ip || '' });
     const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body });
     const data = await res.json();
     return data.success === true;
@@ -194,7 +234,7 @@ function createNotification(userId, type, data) {
 /* ============================== auth routes ============================== */
 
 app.post('/api/auth/register', async (req, res) => {
-  if (rateLimited(`register:${req.ip}`, 10, 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again shortly.' });
+  if (rateLimited(`register:${req.ip}`, 10, 15 * 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
   const { username, password, email, displayName, avatar, captchaToken } = req.body || {};
   if (!(await verifyCaptcha(captchaToken, req.ip))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
   if (!isValidUsername(username)) return res.status(400).json({ error: 'Username must be 3-20 characters: letters, numbers, underscore.' });
@@ -218,24 +258,144 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  if (rateLimited(`login:${req.ip}`, 20, 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again shortly.' });
+  if (rateLimited(`login:${req.ip}`, 10, 15 * 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
   const { identifier, password, captchaToken } = req.body || {};
-  if (!(await verifyCaptcha(captchaToken, req.ip))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
   if (typeof identifier !== 'string' || typeof password !== 'string') return res.status(400).json({ error: 'Username/email and password are required.' });
+  // Captcha is only required once this identifier has racked up a couple of failures,
+  // so a normal user typing their password correctly the first time is never bothered
+  // by it -- but it's enforced here server-side regardless of what the client shows.
+  const failKey = identifier.trim().toLowerCase();
+  if (loginFailureCount(failKey) >= LOGIN_CAPTCHA_THRESHOLD) {
+    if (!(await verifyCaptcha(captchaToken, req.ip))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
+  }
   const user = identifier.includes('@') ? getUserByEmail(identifier) : getUserByUsername(identifier);
   if (!user) {
     console.warn(`[auth] failed login for "${identifier}" from ${req.ip}`);
-    return res.status(401).json({ error: 'Incorrect username/email or password.' });
+    const count = recordLoginFailure(failKey);
+    return res.status(401).json({ error: 'Incorrect username/email or password.', captchaRequired: count >= LOGIN_CAPTCHA_THRESHOLD });
   }
   try {
     const ok = await verifyPassword(password, user.password_hash);
     if (!ok) {
       console.warn(`[auth] failed login for "${identifier}" from ${req.ip}`);
-      return res.status(401).json({ error: 'Incorrect username/email or password.' });
+      const count = recordLoginFailure(failKey);
+      return res.status(401).json({ error: 'Incorrect username/email or password.', captchaRequired: count >= LOGIN_CAPTCHA_THRESHOLD });
     }
+    clearLoginFailures(failKey);
     res.json({ token: signToken(user.id, user.token_version), user: publicUser(user) });
   } catch {
     res.status(500).json({ error: 'Login failed. Try again.' });
+  }
+});
+
+/* ============================== password reset ============================== */
+
+const RESET_CODE_TTL_MS = 10 * 60_000;
+const RESET_TOKEN_TTL_MS = 15 * 60_000;
+const RESET_MAX_CODE_ATTEMPTS = 5;
+
+function generateResetCode() {
+  return String(crypto.randomInt(100000, 1000000)); // always exactly 6 digits
+}
+
+app.post('/api/auth/forgot', async (req, res) => {
+  const { identifier, captchaToken } = req.body || {};
+  if (!(await verifyCaptcha(captchaToken, req.ip))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
+  const GENERIC = { message: 'If an account exists, we sent a code to its email address.' };
+  if (typeof identifier !== 'string' || !identifier.trim()) return res.json(GENERIC);
+  const normalized = identifier.trim();
+  // Rate-limited before lookup, and identically regardless of outcome below, so
+  // neither the 429 nor the 200 ever reveals whether the account exists.
+  if (rateLimited(`forgot-id:${normalized.toLowerCase()}`, 3, 60 * 60_000) || rateLimited(`forgot-ip:${req.ip}`, 10, 60 * 60_000)) {
+    return res.status(429).json({ error: 'Too many requests. Try again later.' });
+  }
+  const user = normalized.includes('@') ? getUserByEmail(normalized) : getUserByUsername(normalized);
+  if (user && user.email) {
+    db.prepare('DELETE FROM password_resets WHERE user_id = ? AND used_at IS NULL').run(user.id);
+    const code = generateResetCode();
+    const now = Date.now();
+    db.prepare('INSERT INTO password_resets (id, user_id, code_hash, code_expires_at, attempts, created_at) VALUES (?, ?, ?, ?, 0, ?)')
+      .run(newId(), user.id, hashWithPepper(code), now + RESET_CODE_TTL_MS, now);
+    try {
+      const { subject, html, text } = Email.resetCodeEmail(BASE_URL, code);
+      await Email.sendEmail({ to: user.email, subject, html, text });
+    } catch (err) {
+      console.error('[email] failed to send reset code:', err.message);
+    }
+  }
+  res.json(GENERIC);
+});
+
+app.post('/api/auth/forgot-username', async (req, res) => {
+  const { email, captchaToken } = req.body || {};
+  if (!(await verifyCaptcha(captchaToken, req.ip))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
+  const GENERIC = { message: 'If an account exists with that email, we sent its username.' };
+  if (typeof email !== 'string' || !isValidEmail(email)) return res.json(GENERIC);
+  if (rateLimited(`forgot-uname-id:${email.toLowerCase()}`, 3, 60 * 60_000) || rateLimited(`forgot-uname-ip:${req.ip}`, 10, 60 * 60_000)) {
+    return res.status(429).json({ error: 'Too many requests. Try again later.' });
+  }
+  const user = getUserByEmail(email);
+  if (user) {
+    try {
+      const { subject, html, text } = Email.usernameEmail(BASE_URL, user.username);
+      await Email.sendEmail({ to: user.email, subject, html, text });
+    } catch (err) {
+      console.error('[email] failed to send username:', err.message);
+    }
+  }
+  res.json(GENERIC);
+});
+
+app.post('/api/auth/verify-code', async (req, res) => {
+  if (rateLimited(`verify-code:${req.ip}`, 20, 60 * 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
+  const { identifier, code } = req.body || {};
+  const BAD = { error: "That code isn't right or has expired." };
+  if (typeof identifier !== 'string' || typeof code !== 'string' || !identifier.trim() || !code.trim()) return res.status(400).json(BAD);
+  const user = identifier.includes('@') ? getUserByEmail(identifier.trim()) : getUserByUsername(identifier.trim());
+  if (!user) return res.status(400).json(BAD);
+  const row = db.prepare(
+    'SELECT * FROM password_resets WHERE user_id = ? AND code_hash IS NOT NULL AND verified_at IS NULL ORDER BY created_at DESC LIMIT 1'
+  ).get(user.id);
+  if (!row || !row.code_expires_at || row.code_expires_at < Date.now()) return res.status(400).json(BAD);
+  if (row.attempts >= RESET_MAX_CODE_ATTEMPTS) return res.status(400).json({ error: 'Too many attempts, try again in a few minutes.' });
+  if (!safeEqual(hashWithPepper(code.trim()), row.code_hash)) {
+    const nextAttempts = row.attempts + 1;
+    if (nextAttempts >= RESET_MAX_CODE_ATTEMPTS) {
+      db.prepare('UPDATE password_resets SET attempts = ?, code_hash = NULL WHERE id = ?').run(nextAttempts, row.id);
+      return res.status(400).json({ error: 'Too many attempts, try again in a few minutes.' });
+    }
+    db.prepare('UPDATE password_resets SET attempts = ? WHERE id = ?').run(nextAttempts, row.id);
+    return res.status(400).json({ error: `That code isn't right. ${RESET_MAX_CODE_ATTEMPTS - nextAttempts} tries left.` });
+  }
+  const resetToken = crypto.randomBytes(32).toString('hex');
+  const now = Date.now();
+  db.prepare('UPDATE password_resets SET verified_at = ?, reset_token_hash = ?, reset_token_expires_at = ?, code_hash = NULL WHERE id = ?')
+    .run(now, hashWithPepper(resetToken), now + RESET_TOKEN_TTL_MS, row.id);
+  res.json({ resetToken });
+});
+
+app.post('/api/auth/reset-password', async (req, res) => {
+  if (rateLimited(`reset-password:${req.ip}`, 20, 60 * 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
+  const { resetToken, password } = req.body || {};
+  const INVALID = { error: 'That reset link is invalid or expired. Start over.' };
+  if (typeof resetToken !== 'string' || !resetToken) return res.status(400).json(INVALID);
+  if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+  const row = db.prepare('SELECT * FROM password_resets WHERE reset_token_hash = ? AND used_at IS NULL')
+    .get(hashWithPepper(resetToken));
+  if (!row || !row.reset_token_expires_at || row.reset_token_expires_at < Date.now()) return res.status(400).json(INVALID);
+  try {
+    const hash = await hashPassword(password);
+    const now = Date.now();
+    // Bumping token_version invalidates every session token issued before this
+    // moment -- the same "log out everywhere" mechanism POST /api/auth/logout uses.
+    db.prepare('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?').run(hash, row.user_id);
+    db.prepare('UPDATE password_resets SET used_at = ? WHERE id = ?').run(now, row.id);
+    const user = getUserById(row.user_id);
+    clearLoginFailures(user.username.toLowerCase());
+    if (user.email) clearLoginFailures(user.email.toLowerCase());
+    res.json({ token: signToken(user.id, user.token_version), user: publicUser(user) });
+  } catch {
+    res.status(500).json({ error: 'Could not reset the password. Try again.' });
   }
 });
 
@@ -243,7 +403,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/config', (req, res) => {
   res.json({
-    captcha: { enabled: !!process.env.TURNSTILE_SECRET_KEY, siteKey: process.env.TURNSTILE_SITE_KEY || null },
+    captcha: { enabled: true, siteKey: TURNSTILE_SITE_KEY },
     oauth: { google: OAuth.isConfigured('google'), microsoft: OAuth.isConfigured('microsoft'), facebook: OAuth.isConfigured('facebook') },
   });
 });
