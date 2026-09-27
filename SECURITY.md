@@ -272,7 +272,7 @@ style-src 'self' 'unsafe-inline' https://fonts.googleapis.com
 font-src https://fonts.gstatic.com
 img-src 'self' data: blob: https:
 media-src 'self' data: blob: https:
-frame-src https://www.youtube.com https://challenges.cloudflare.com
+frame-src https://www.youtube.com https://www.youtube-nocookie.com https://challenges.cloudflare.com
 connect-src 'self' https://generativelanguage.googleapis.com
 frame-ancestors 'none'
 ```
@@ -295,7 +295,10 @@ oversights:
   `script-src`, the actual XSS vector, stays strict.
 
 `https://www.youtube.com` is allowlisted for `script-src`/`frame-src`
-because the background-video feature loads the YouTube IFrame API.
+because the background-video feature loads the YouTube IFrame API from
+there. `https://www.youtube-nocookie.com` is additionally allowlisted for
+`frame-src` because the actual embedded player iframe is created on that
+privacy-enhanced domain (the IFrame API's `host` option), not youtube.com.
 `https://challenges.cloudflare.com` is allowlisted the same way for the
 Turnstile CAPTCHA widget (see CAPTCHA below) — its script and the iframe
 it renders both need it, and neither is loaded at all unless CAPTCHA is

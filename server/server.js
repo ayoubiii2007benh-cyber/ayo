@@ -9,7 +9,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { WebSocketServer } = require('ws');
 
-const { db, id: newId, pairKey } = require('./db');
+const { db, initSchema, id: newId, pairKey } = require('./db');
 const { hashPassword, verifyPassword, signToken, verifyToken, requireAuth, hashWithPepper, safeEqual } = require('./auth');
 const OAuth = require('./oauth');
 const Email = require('./email');
@@ -141,10 +141,14 @@ setInterval(() => {
   for (const [key, v] of oauthExchangeCodes) if (v.expiresAt < now) oauthExchangeCodes.delete(key);
 }, 60_000).unref();
 
-function usernameFromEmail(email) {
+async function usernameFromEmail(email) {
   const base = (email.split('@')[0] || 'user').replace(/[^a-zA-Z0-9_]/g, '').slice(0, 16).padEnd(3, '0') || 'user';
   let candidate = base;
-  for (let i = 1; getUserByUsername(candidate); i += 1) candidate = `${base}${i}`.slice(0, 20);
+  let i = 1;
+  while (await getUserByUsername(candidate)) {
+    candidate = `${base}${i}`.slice(0, 20);
+    i += 1;
+  }
   return candidate;
 }
 
@@ -169,20 +173,24 @@ class OAuthEmailInUseError extends Error {}
    closes that off; self-service linking from a *logged-in* session is a
    documented known gap (see SECURITY.md), not implemented here. */
 async function findOrCreateOAuthUser(provider, profile) {
-  const link = db.prepare('SELECT user_id FROM oauth_accounts WHERE provider = ? AND provider_user_id = ?').get(provider, profile.sub);
+  const link = await db.get('SELECT user_id FROM oauth_accounts WHERE provider = ? AND provider_user_id = ?', [provider, profile.sub]);
   if (link) return getUserById(link.user_id);
 
-  if (getUserByEmail(profile.email)) throw new OAuthEmailInUseError();
+  if (await getUserByEmail(profile.email)) throw new OAuthEmailInUseError();
 
   const id = newId();
   const now = Date.now();
   const unusablePassword = await hashPassword(crypto.randomBytes(32).toString('hex'));
-  db.prepare(`INSERT INTO users (id, username, email, password_hash, display_name, avatar, bio, created_at, last_seen_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, usernameFromEmail(profile.email), profile.email, unusablePassword, (profile.name || profile.email.split('@')[0]).slice(0, 40), '', '', now, now);
-  const user = getUserById(id);
-  db.prepare('INSERT OR IGNORE INTO oauth_accounts (provider, provider_user_id, user_id, email, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(provider, profile.sub, user.id, profile.email, now);
+  await db.run(
+    `INSERT INTO users (id, username, email, password_hash, display_name, avatar, bio, created_at, last_seen_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, await usernameFromEmail(profile.email), profile.email, unusablePassword, (profile.name || profile.email.split('@')[0]).slice(0, 40), '', '', now, now]
+  );
+  const user = await getUserById(id);
+  await db.run(
+    'INSERT INTO oauth_accounts (provider, provider_user_id, user_id, email, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING',
+    [provider, profile.sub, user.id, profile.email, now]
+  );
   return user;
 }
 
@@ -203,29 +211,33 @@ function publicUser(row, extra) {
     ...extra,
   };
 }
-function getUserById(id) { return db.prepare('SELECT * FROM users WHERE id = ?').get(id); }
-function getUserByUsername(u) { return db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE').get(u); }
-function getUserByEmail(e) { return db.prepare('SELECT * FROM users WHERE email = ? COLLATE NOCASE').get(e); }
-function areFriends(a, b) { return !!db.prepare('SELECT 1 FROM friendships WHERE user_id = ? AND friend_id = ?').get(a, b); }
-function touchLastSeen(userId) { db.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').run(Date.now(), userId); }
+function getUserById(id) { return db.get('SELECT * FROM users WHERE id = ?', [id]); }
+// COLLATE NOCASE (SQLite) has no Postgres equivalent; case-insensitive lookup instead compares
+// LOWER() of both sides, backed by the LOWER(username)/LOWER(email) unique indexes in db.js.
+function getUserByUsername(u) { return db.get('SELECT * FROM users WHERE LOWER(username) = LOWER(?)', [u]); }
+function getUserByEmail(e) { return db.get('SELECT * FROM users WHERE LOWER(email) = LOWER(?)', [e]); }
+async function areFriends(a, b) { return !!(await db.get('SELECT 1 FROM friendships WHERE user_id = ? AND friend_id = ?', [a, b])); }
+function touchLastSeen(userId) { return db.run('UPDATE users SET last_seen_at = ? WHERE id = ?', [Date.now(), userId]); }
 
-function getOrCreateConversation(u1, u2) {
+async function getOrCreateConversation(u1, u2) {
   const [a, b] = pairKey(u1, u2);
-  let row = db.prepare('SELECT * FROM conversations WHERE user_a = ? AND user_b = ?').get(a, b);
+  let row = await db.get('SELECT * FROM conversations WHERE user_a = ? AND user_b = ?', [a, b]);
   if (!row) {
     const id = newId();
     const created_at = Date.now();
-    db.prepare('INSERT INTO conversations (id, user_a, user_b, created_at) VALUES (?, ?, ?, ?)').run(id, a, b, created_at);
+    await db.run('INSERT INTO conversations (id, user_a, user_b, created_at) VALUES (?, ?, ?, ?)', [id, a, b, created_at]);
     row = { id, user_a: a, user_b: b, created_at };
   }
   return row;
 }
 
-function createNotification(userId, type, data) {
+async function createNotification(userId, type, data) {
   const id = newId();
   const created_at = Date.now();
-  db.prepare('INSERT INTO notifications (id, user_id, type, data, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(id, userId, type, JSON.stringify(data), created_at);
+  await db.run(
+    'INSERT INTO notifications (id, user_id, type, data, created_at) VALUES (?, ?, ?, ?, ?)',
+    [id, userId, type, JSON.stringify(data), created_at]
+  );
   const notification = { id, type, data, createdAt: created_at, readAt: null };
   sendToUser(userId, { type: 'notification', notification });
   return notification;
@@ -240,17 +252,19 @@ app.post('/api/auth/register', async (req, res) => {
   if (!isValidUsername(username)) return res.status(400).json({ error: 'Username must be 3-20 characters: letters, numbers, underscore.' });
   if (!isValidPassword(password)) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   if (email !== undefined && email !== '' && !isValidEmail(email)) return res.status(400).json({ error: 'That email address looks invalid.' });
-  if (getUserByUsername(username)) return res.status(409).json({ error: 'That username is already taken.' });
-  if (email && getUserByEmail(email)) return res.status(409).json({ error: 'An account with that email already exists.' });
+  if (await getUserByUsername(username)) return res.status(409).json({ error: 'That username is already taken.' });
+  if (email && (await getUserByEmail(email))) return res.status(409).json({ error: 'An account with that email already exists.' });
 
   const id = newId();
   const now = Date.now();
   try {
     const hash = await hashPassword(password);
-    db.prepare(`INSERT INTO users (id, username, email, password_hash, display_name, avatar, bio, created_at, last_seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, username, email || null, hash, (displayName || username).slice(0, 40), (avatar || '').slice(0, 8), '', now, now);
-    const user = getUserById(id);
+    await db.run(
+      `INSERT INTO users (id, username, email, password_hash, display_name, avatar, bio, created_at, last_seen_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, username, email || null, hash, (displayName || username).slice(0, 40), (avatar || '').slice(0, 8), '', now, now]
+    );
+    const user = await getUserById(id);
     res.status(201).json({ token: signToken(id, 0), user: publicUser(user) });
   } catch {
     res.status(500).json({ error: 'Could not create the account. Try again.' });
@@ -268,7 +282,7 @@ app.post('/api/auth/login', async (req, res) => {
   if (loginFailureCount(failKey) >= LOGIN_CAPTCHA_THRESHOLD) {
     if (!(await verifyCaptcha(captchaToken, req.ip))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
   }
-  const user = identifier.includes('@') ? getUserByEmail(identifier) : getUserByUsername(identifier);
+  const user = identifier.includes('@') ? await getUserByEmail(identifier) : await getUserByUsername(identifier);
   if (!user) {
     console.warn(`[auth] failed login for "${identifier}" from ${req.ip}`);
     const count = recordLoginFailure(failKey);
@@ -309,13 +323,15 @@ app.post('/api/auth/forgot', async (req, res) => {
   if (rateLimited(`forgot-id:${normalized.toLowerCase()}`, 3, 60 * 60_000) || rateLimited(`forgot-ip:${req.ip}`, 10, 60 * 60_000)) {
     return res.status(429).json({ error: 'Too many requests. Try again later.' });
   }
-  const user = normalized.includes('@') ? getUserByEmail(normalized) : getUserByUsername(normalized);
+  const user = normalized.includes('@') ? await getUserByEmail(normalized) : await getUserByUsername(normalized);
   if (user && user.email) {
-    db.prepare('DELETE FROM password_resets WHERE user_id = ? AND used_at IS NULL').run(user.id);
+    await db.run('DELETE FROM password_resets WHERE user_id = ? AND used_at IS NULL', [user.id]);
     const code = generateResetCode();
     const now = Date.now();
-    db.prepare('INSERT INTO password_resets (id, user_id, code_hash, code_expires_at, attempts, created_at) VALUES (?, ?, ?, ?, 0, ?)')
-      .run(newId(), user.id, hashWithPepper(code), now + RESET_CODE_TTL_MS, now);
+    await db.run(
+      'INSERT INTO password_resets (id, user_id, code_hash, code_expires_at, attempts, created_at) VALUES (?, ?, ?, ?, 0, ?)',
+      [newId(), user.id, hashWithPepper(code), now + RESET_CODE_TTL_MS, now]
+    );
     try {
       const { subject, html, text } = Email.resetCodeEmail(BASE_URL, code);
       await Email.sendEmail({ to: user.email, subject, html, text });
@@ -334,7 +350,7 @@ app.post('/api/auth/forgot-username', async (req, res) => {
   if (rateLimited(`forgot-uname-id:${email.toLowerCase()}`, 3, 60 * 60_000) || rateLimited(`forgot-uname-ip:${req.ip}`, 10, 60 * 60_000)) {
     return res.status(429).json({ error: 'Too many requests. Try again later.' });
   }
-  const user = getUserByEmail(email);
+  const user = await getUserByEmail(email);
   if (user) {
     try {
       const { subject, html, text } = Email.usernameEmail(BASE_URL, user.username);
@@ -351,26 +367,29 @@ app.post('/api/auth/verify-code', async (req, res) => {
   const { identifier, code } = req.body || {};
   const BAD = { error: "That code isn't right or has expired." };
   if (typeof identifier !== 'string' || typeof code !== 'string' || !identifier.trim() || !code.trim()) return res.status(400).json(BAD);
-  const user = identifier.includes('@') ? getUserByEmail(identifier.trim()) : getUserByUsername(identifier.trim());
+  const user = identifier.includes('@') ? await getUserByEmail(identifier.trim()) : await getUserByUsername(identifier.trim());
   if (!user) return res.status(400).json(BAD);
-  const row = db.prepare(
-    'SELECT * FROM password_resets WHERE user_id = ? AND code_hash IS NOT NULL AND verified_at IS NULL ORDER BY created_at DESC LIMIT 1'
-  ).get(user.id);
+  const row = await db.get(
+    'SELECT * FROM password_resets WHERE user_id = ? AND code_hash IS NOT NULL AND verified_at IS NULL ORDER BY created_at DESC LIMIT 1',
+    [user.id]
+  );
   if (!row || !row.code_expires_at || row.code_expires_at < Date.now()) return res.status(400).json(BAD);
   if (row.attempts >= RESET_MAX_CODE_ATTEMPTS) return res.status(400).json({ error: 'Too many attempts, try again in a few minutes.' });
   if (!safeEqual(hashWithPepper(code.trim()), row.code_hash)) {
     const nextAttempts = row.attempts + 1;
     if (nextAttempts >= RESET_MAX_CODE_ATTEMPTS) {
-      db.prepare('UPDATE password_resets SET attempts = ?, code_hash = NULL WHERE id = ?').run(nextAttempts, row.id);
+      await db.run('UPDATE password_resets SET attempts = ?, code_hash = NULL WHERE id = ?', [nextAttempts, row.id]);
       return res.status(400).json({ error: 'Too many attempts, try again in a few minutes.' });
     }
-    db.prepare('UPDATE password_resets SET attempts = ? WHERE id = ?').run(nextAttempts, row.id);
+    await db.run('UPDATE password_resets SET attempts = ? WHERE id = ?', [nextAttempts, row.id]);
     return res.status(400).json({ error: `That code isn't right. ${RESET_MAX_CODE_ATTEMPTS - nextAttempts} tries left.` });
   }
   const resetToken = crypto.randomBytes(32).toString('hex');
   const now = Date.now();
-  db.prepare('UPDATE password_resets SET verified_at = ?, reset_token_hash = ?, reset_token_expires_at = ?, code_hash = NULL WHERE id = ?')
-    .run(now, hashWithPepper(resetToken), now + RESET_TOKEN_TTL_MS, row.id);
+  await db.run(
+    'UPDATE password_resets SET verified_at = ?, reset_token_hash = ?, reset_token_expires_at = ?, code_hash = NULL WHERE id = ?',
+    [now, hashWithPepper(resetToken), now + RESET_TOKEN_TTL_MS, row.id]
+  );
   res.json({ resetToken });
 });
 
@@ -380,17 +399,16 @@ app.post('/api/auth/reset-password', async (req, res) => {
   const INVALID = { error: 'That reset link is invalid or expired. Start over.' };
   if (typeof resetToken !== 'string' || !resetToken) return res.status(400).json(INVALID);
   if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
-  const row = db.prepare('SELECT * FROM password_resets WHERE reset_token_hash = ? AND used_at IS NULL')
-    .get(hashWithPepper(resetToken));
+  const row = await db.get('SELECT * FROM password_resets WHERE reset_token_hash = ? AND used_at IS NULL', [hashWithPepper(resetToken)]);
   if (!row || !row.reset_token_expires_at || row.reset_token_expires_at < Date.now()) return res.status(400).json(INVALID);
   try {
     const hash = await hashPassword(password);
     const now = Date.now();
     // Bumping token_version invalidates every session token issued before this
     // moment -- the same "log out everywhere" mechanism POST /api/auth/logout uses.
-    db.prepare('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?').run(hash, row.user_id);
-    db.prepare('UPDATE password_resets SET used_at = ? WHERE id = ?').run(now, row.id);
-    const user = getUserById(row.user_id);
+    await db.run('UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?', [hash, row.user_id]);
+    await db.run('UPDATE password_resets SET used_at = ? WHERE id = ?', [now, row.id]);
+    const user = await getUserById(row.user_id);
     clearLoginFailures(user.username.toLowerCase());
     if (user.email) clearLoginFailures(user.email.toLowerCase());
     res.json({ token: signToken(user.id, user.token_version), user: publicUser(user) });
@@ -459,14 +477,14 @@ app.post('/api/auth/oauth/exchange', (req, res) => {
   res.json({ token: entry.token, user: entry.user });
 });
 
-app.get('/api/auth/me', requireAuth, (req, res) => {
-  const user = getUserById(req.userId);
+app.get('/api/auth/me', requireAuth, async (req, res) => {
+  const user = await getUserById(req.userId);
   if (!user) return res.status(404).json({ error: 'Account no longer exists.' });
   res.json({ user: publicUser(user) });
 });
 
-app.patch('/api/auth/me', requireAuth, (req, res) => {
-  const user = getUserById(req.userId);
+app.patch('/api/auth/me', requireAuth, async (req, res) => {
+  const user = await getUserById(req.userId);
   if (!user) return res.status(404).json({ error: 'Account no longer exists.' });
   const displayName = typeof req.body.displayName === 'string' ? req.body.displayName.slice(0, 40).trim() : user.display_name;
   const bio = typeof req.body.bio === 'string' ? req.body.bio.slice(0, 160) : user.bio;
@@ -477,224 +495,236 @@ app.patch('/api/auth/me', requireAuth, (req, res) => {
     if (!isValidAvatarUrl(req.body.avatarUrl)) return res.status(400).json({ error: 'Avatar URL must be a valid https:// link, 500 characters or fewer.' });
     avatarUrl = req.body.avatarUrl;
   }
-  db.prepare('UPDATE users SET display_name = ?, bio = ?, avatar = ?, avatar_url = ? WHERE id = ?').run(displayName || user.username, bio, avatar, avatarUrl, req.userId);
-  res.json({ user: publicUser(getUserById(req.userId)) });
+  await db.run(
+    'UPDATE users SET display_name = ?, bio = ?, avatar = ?, avatar_url = ? WHERE id = ?',
+    [displayName || user.username, bio, avatar, avatarUrl, req.userId]
+  );
+  res.json({ user: publicUser(await getUserById(req.userId)) });
 });
 
-app.post('/api/auth/logout', requireAuth, (req, res) => {
-  db.prepare('UPDATE users SET token_version = token_version + 1 WHERE id = ?').run(req.userId);
+app.post('/api/auth/logout', requireAuth, async (req, res) => {
+  await db.run('UPDATE users SET token_version = token_version + 1 WHERE id = ?', [req.userId]);
   res.json({ ok: true });
 });
 
 /* ============================== users ============================== */
 
-app.get('/api/users/search', requireAuth, (req, res) => {
+app.get('/api/users/search', requireAuth, async (req, res) => {
   if (rateLimited(`search:${req.userId}`, 30, 60_000)) return res.status(429).json({ error: 'Too many searches. Try again shortly.' });
   const q = String(req.query.q || '').trim().slice(0, 40);
   if (q.length < 2) return res.json({ users: [] });
-  const rows = db.prepare(
-    `SELECT * FROM users WHERE id != ? AND (username LIKE ? OR display_name LIKE ?) ORDER BY username LIMIT 20`
-  ).all(req.userId, `%${q}%`, `%${q}%`);
-  const results = rows.map((row) => publicUser(row, { relationship: relationshipBetween(req.userId, row.id) }));
+  const rows = await db.all(
+    `SELECT * FROM users WHERE id != ? AND (username LIKE ? OR display_name LIKE ?) ORDER BY username LIMIT 20`,
+    [req.userId, `%${q}%`, `%${q}%`]
+  );
+  const results = await Promise.all(rows.map(async (row) => publicUser(row, { relationship: await relationshipBetween(req.userId, row.id) })));
   res.json({ users: results });
 });
 
-function relationshipBetween(me, other) {
-  if (areFriends(me, other)) return 'friends';
-  const out = db.prepare(`SELECT id FROM friend_requests WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'`).get(me, other);
+async function relationshipBetween(me, other) {
+  if (await areFriends(me, other)) return 'friends';
+  const out = await db.get(`SELECT id FROM friend_requests WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'`, [me, other]);
   if (out) return 'pending_out';
-  const inc = db.prepare(`SELECT id FROM friend_requests WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'`).get(other, me);
+  const inc = await db.get(`SELECT id FROM friend_requests WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'`, [other, me]);
   if (inc) return 'pending_in';
   return 'none';
 }
 
-app.get('/api/users/:id', requireAuth, (req, res) => {
-  const user = getUserById(req.params.id);
+app.get('/api/users/:id', requireAuth, async (req, res) => {
+  const user = await getUserById(req.params.id);
   if (!user) return res.status(404).json({ error: 'User not found.' });
-  res.json({ user: publicUser(user, { relationship: relationshipBetween(req.userId, user.id) }) });
+  res.json({ user: publicUser(user, { relationship: await relationshipBetween(req.userId, user.id) }) });
 });
 
 /* ============================== friends ============================== */
 
-app.get('/api/friends', requireAuth, (req, res) => {
-  const rows = db.prepare(
-    `SELECT u.* FROM friendships f JOIN users u ON u.id = f.friend_id WHERE f.user_id = ? ORDER BY u.display_name COLLATE NOCASE`
-  ).all(req.userId);
+app.get('/api/friends', requireAuth, async (req, res) => {
+  const rows = await db.all(
+    `SELECT u.* FROM friendships f JOIN users u ON u.id = f.friend_id WHERE f.user_id = ? ORDER BY LOWER(u.display_name)`,
+    [req.userId]
+  );
   res.json({ friends: rows.map((r) => publicUser(r)) });
 });
 
-app.get('/api/friends/requests', requireAuth, (req, res) => {
+app.get('/api/friends/requests', requireAuth, async (req, res) => {
   /* r.id is aliased because `u.*` also expands to a column named `id`
      (the joined user's id), which would otherwise silently overwrite the
      friend_requests row's own id in the result object. */
-  const incoming = db.prepare(
+  const incomingRows = await db.all(
     `SELECT r.id AS request_id, r.created_at, u.* FROM friend_requests r JOIN users u ON u.id = r.from_user_id
-     WHERE r.to_user_id = ? AND r.status = 'pending' ORDER BY r.created_at DESC`
-  ).all(req.userId).map((r) => ({ id: r.request_id, createdAt: r.created_at, user: publicUser(r) }));
-  const outgoing = db.prepare(
+     WHERE r.to_user_id = ? AND r.status = 'pending' ORDER BY r.created_at DESC`,
+    [req.userId]
+  );
+  const outgoingRows = await db.all(
     `SELECT r.id AS request_id, r.created_at, u.* FROM friend_requests r JOIN users u ON u.id = r.to_user_id
-     WHERE r.from_user_id = ? AND r.status = 'pending' ORDER BY r.created_at DESC`
-  ).all(req.userId).map((r) => ({ id: r.request_id, createdAt: r.created_at, user: publicUser(r) }));
+     WHERE r.from_user_id = ? AND r.status = 'pending' ORDER BY r.created_at DESC`,
+    [req.userId]
+  );
+  const incoming = incomingRows.map((r) => ({ id: r.request_id, createdAt: r.created_at, user: publicUser(r) }));
+  const outgoing = outgoingRows.map((r) => ({ id: r.request_id, createdAt: r.created_at, user: publicUser(r) }));
   res.json({ incoming, outgoing });
 });
 
-app.post('/api/friends/requests', requireAuth, (req, res) => {
+app.post('/api/friends/requests', requireAuth, async (req, res) => {
   if (rateLimited(`friend-req:${req.userId}`, 20, 60_000)) return res.status(429).json({ error: 'Too many friend requests. Try again shortly.' });
   const toUserId = req.body && req.body.toUserId;
   if (!toUserId || typeof toUserId !== 'string') return res.status(400).json({ error: 'toUserId is required.' });
   if (toUserId === req.userId) return res.status(400).json({ error: "You can't friend yourself." });
-  const target = getUserById(toUserId);
+  const target = await getUserById(toUserId);
   if (!target) return res.status(404).json({ error: 'User not found.' });
-  if (areFriends(req.userId, toUserId)) return res.status(409).json({ error: 'You are already friends.' });
+  if (await areFriends(req.userId, toUserId)) return res.status(409).json({ error: 'You are already friends.' });
 
-  const mine = db.prepare(`SELECT id FROM friend_requests WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'`).get(req.userId, toUserId);
+  const mine = await db.get(`SELECT id FROM friend_requests WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'`, [req.userId, toUserId]);
   if (mine) return res.status(409).json({ error: 'Friend request already sent.' });
 
   /* They already asked us -- accept theirs instead of creating a duplicate. */
-  const theirs = db.prepare(`SELECT id FROM friend_requests WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'`).get(toUserId, req.userId);
+  const theirs = await db.get(`SELECT id FROM friend_requests WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'`, [toUserId, req.userId]);
   if (theirs) {
-    acceptRequest(theirs.id, req.userId);
-    return res.status(200).json({ status: 'friends', user: publicUser(getUserById(toUserId)) });
+    await acceptRequest(theirs.id, req.userId);
+    return res.status(200).json({ status: 'friends', user: publicUser(await getUserById(toUserId)) });
   }
 
   const id = newId();
   const created_at = Date.now();
-  db.prepare(`INSERT INTO friend_requests (id, from_user_id, to_user_id, status, created_at) VALUES (?, ?, ?, 'pending', ?)`)
-    .run(id, req.userId, toUserId, created_at);
-  const me = getUserById(req.userId);
-  const notification = createNotification(toUserId, 'friend_request', { requestId: id, from: publicUser(me) });
+  await db.run(
+    `INSERT INTO friend_requests (id, from_user_id, to_user_id, status, created_at) VALUES (?, ?, ?, 'pending', ?)`,
+    [id, req.userId, toUserId, created_at]
+  );
+  const me = await getUserById(req.userId);
+  const notification = await createNotification(toUserId, 'friend_request', { requestId: id, from: publicUser(me) });
   sendToUser(toUserId, { type: 'friend-request', request: { id, createdAt: created_at, user: publicUser(me) } });
   res.status(201).json({ status: 'pending_out', requestId: id, notification });
 });
 
-function acceptRequest(requestId, byUserId) {
-  const request = db.prepare('SELECT * FROM friend_requests WHERE id = ?').get(requestId);
+async function acceptRequest(requestId, byUserId) {
+  const request = await db.get('SELECT * FROM friend_requests WHERE id = ?', [requestId]);
   if (!request || request.to_user_id !== byUserId || request.status !== 'pending') return null;
   const now = Date.now();
-  db.prepare(`UPDATE friend_requests SET status = 'accepted', responded_at = ? WHERE id = ?`).run(now, requestId);
-  db.prepare('INSERT OR IGNORE INTO friendships (user_id, friend_id, created_at) VALUES (?, ?, ?)').run(request.from_user_id, request.to_user_id, now);
-  db.prepare('INSERT OR IGNORE INTO friendships (user_id, friend_id, created_at) VALUES (?, ?, ?)').run(request.to_user_id, request.from_user_id, now);
+  await db.run(`UPDATE friend_requests SET status = 'accepted', responded_at = ? WHERE id = ?`, [now, requestId]);
+  await db.run('INSERT INTO friendships (user_id, friend_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [request.from_user_id, request.to_user_id, now]);
+  await db.run('INSERT INTO friendships (user_id, friend_id, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING', [request.to_user_id, request.from_user_id, now]);
 
-  const accepter = getUserById(byUserId);
-  const requester = getUserById(request.from_user_id);
-  createNotification(request.from_user_id, 'friend_accept', { by: publicUser(accepter) });
+  const accepter = await getUserById(byUserId);
+  const requester = await getUserById(request.from_user_id);
+  await createNotification(request.from_user_id, 'friend_accept', { by: publicUser(accepter) });
   sendToUser(request.from_user_id, { type: 'friend-accept', friend: publicUser(accepter) });
-  broadcastPresenceToFriends(byUserId);
-  broadcastPresenceToFriends(request.from_user_id);
+  await broadcastPresenceToFriends(byUserId);
+  await broadcastPresenceToFriends(request.from_user_id);
   return { requester: publicUser(requester), accepter: publicUser(accepter) };
 }
 
-app.post('/api/friends/requests/:id/accept', requireAuth, (req, res) => {
-  const result = acceptRequest(req.params.id, req.userId);
+app.post('/api/friends/requests/:id/accept', requireAuth, async (req, res) => {
+  const result = await acceptRequest(req.params.id, req.userId);
   if (!result) return res.status(404).json({ error: 'Request not found or already handled.' });
   res.json({ friend: result.requester });
 });
 
-app.post('/api/friends/requests/:id/reject', requireAuth, (req, res) => {
-  const request = db.prepare('SELECT * FROM friend_requests WHERE id = ?').get(req.params.id);
+app.post('/api/friends/requests/:id/reject', requireAuth, async (req, res) => {
+  const request = await db.get('SELECT * FROM friend_requests WHERE id = ?', [req.params.id]);
   if (!request || request.to_user_id !== req.userId || request.status !== 'pending') return res.status(404).json({ error: 'Request not found or already handled.' });
-  db.prepare(`UPDATE friend_requests SET status = 'rejected', responded_at = ? WHERE id = ?`).run(Date.now(), req.params.id);
+  await db.run(`UPDATE friend_requests SET status = 'rejected', responded_at = ? WHERE id = ?`, [Date.now(), req.params.id]);
   res.json({ ok: true });
 });
 
-app.delete('/api/friends/requests/:id', requireAuth, (req, res) => {
-  const request = db.prepare('SELECT * FROM friend_requests WHERE id = ?').get(req.params.id);
+app.delete('/api/friends/requests/:id', requireAuth, async (req, res) => {
+  const request = await db.get('SELECT * FROM friend_requests WHERE id = ?', [req.params.id]);
   if (!request || request.from_user_id !== req.userId || request.status !== 'pending') return res.status(404).json({ error: 'Request not found.' });
-  db.prepare(`UPDATE friend_requests SET status = 'cancelled', responded_at = ? WHERE id = ?`).run(Date.now(), req.params.id);
+  await db.run(`UPDATE friend_requests SET status = 'cancelled', responded_at = ? WHERE id = ?`, [Date.now(), req.params.id]);
   res.json({ ok: true });
 });
 
-app.delete('/api/friends/:friendId', requireAuth, (req, res) => {
-  db.prepare('DELETE FROM friendships WHERE user_id = ? AND friend_id = ?').run(req.userId, req.params.friendId);
-  db.prepare('DELETE FROM friendships WHERE user_id = ? AND friend_id = ?').run(req.params.friendId, req.userId);
+app.delete('/api/friends/:friendId', requireAuth, async (req, res) => {
+  await db.run('DELETE FROM friendships WHERE user_id = ? AND friend_id = ?', [req.userId, req.params.friendId]);
+  await db.run('DELETE FROM friendships WHERE user_id = ? AND friend_id = ?', [req.params.friendId, req.userId]);
   res.json({ ok: true });
 });
 
 /* ============================== conversations / messages ============================== */
 
-app.get('/api/conversations', requireAuth, (req, res) => {
-  const friends = db.prepare(
-    `SELECT u.* FROM friendships f JOIN users u ON u.id = f.friend_id WHERE f.user_id = ?`
-  ).all(req.userId);
-  const list = friends.map((friend) => {
+app.get('/api/conversations', requireAuth, async (req, res) => {
+  const friends = await db.all(
+    `SELECT u.* FROM friendships f JOIN users u ON u.id = f.friend_id WHERE f.user_id = ?`,
+    [req.userId]
+  );
+  const list = await Promise.all(friends.map(async (friend) => {
     const [a, b] = pairKey(req.userId, friend.id);
-    const conv = db.prepare('SELECT * FROM conversations WHERE user_a = ? AND user_b = ?').get(a, b);
+    const conv = await db.get('SELECT * FROM conversations WHERE user_a = ? AND user_b = ?', [a, b]);
     let lastMessage = null, unreadCount = 0;
     if (conv) {
-      lastMessage = db.prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1').get(conv.id);
-      unreadCount = db.prepare(`SELECT COUNT(*) AS c FROM messages WHERE conversation_id = ? AND sender_id = ? AND read_at IS NULL`).get(conv.id, friend.id).c;
+      lastMessage = await db.get('SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1', [conv.id]);
+      const unreadRow = await db.get(`SELECT COUNT(*) AS c FROM messages WHERE conversation_id = ? AND sender_id = ? AND read_at IS NULL`, [conv.id, friend.id]);
+      unreadCount = unreadRow.c;
     }
     return {
       friend: publicUser(friend),
       lastMessage: lastMessage ? { text: lastMessage.text, senderId: lastMessage.sender_id, createdAt: lastMessage.created_at } : null,
       unreadCount,
     };
-  });
+  }));
   list.sort((a, b) => (b.lastMessage?.createdAt || 0) - (a.lastMessage?.createdAt || 0));
   res.json({ conversations: list });
 });
 
-app.get('/api/conversations/:friendId/messages', requireAuth, (req, res) => {
+app.get('/api/conversations/:friendId/messages', requireAuth, async (req, res) => {
   const friendId = req.params.friendId;
-  if (!areFriends(req.userId, friendId)) return res.status(403).json({ error: 'You can only view conversations with friends.' });
-  const conv = getOrCreateConversation(req.userId, friendId);
+  if (!(await areFriends(req.userId, friendId))) return res.status(403).json({ error: 'You can only view conversations with friends.' });
+  const conv = await getOrCreateConversation(req.userId, friendId);
   const before = req.query.before ? Number(req.query.before) : Date.now() + 1;
   const limit = Math.min(Number(req.query.limit) || 50, 100);
-  const rows = db.prepare(
-    `SELECT * FROM messages WHERE conversation_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`
-  ).all(conv.id, before, limit);
+  const rows = await db.all(
+    `SELECT * FROM messages WHERE conversation_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`,
+    [conv.id, before, limit]
+  );
   rows.reverse();
   res.json({ messages: rows.map((m) => ({ id: m.id, text: m.text, senderId: m.sender_id, createdAt: m.created_at, readAt: m.read_at })) });
 });
 
-app.post('/api/conversations/:friendId/messages', requireAuth, (req, res) => {
+app.post('/api/conversations/:friendId/messages', requireAuth, async (req, res) => {
   if (rateLimited(`message:${req.userId}`, 60, 60_000)) return res.status(429).json({ error: 'Sending too fast. Try again shortly.' });
   const friendId = req.params.friendId;
-  if (!areFriends(req.userId, friendId)) return res.status(403).json({ error: 'You can only message friends.' });
+  if (!(await areFriends(req.userId, friendId))) return res.status(403).json({ error: 'You can only message friends.' });
   const text = typeof req.body.text === 'string' ? req.body.text.trim().slice(0, 2000) : '';
   if (!text) return res.status(400).json({ error: 'Message text is required.' });
-  const conv = getOrCreateConversation(req.userId, friendId);
+  const conv = await getOrCreateConversation(req.userId, friendId);
   const id = newId();
   const created_at = Date.now();
-  db.prepare('INSERT INTO messages (id, conversation_id, sender_id, text, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(id, conv.id, req.userId, text, created_at);
+  await db.run('INSERT INTO messages (id, conversation_id, sender_id, text, created_at) VALUES (?, ?, ?, ?, ?)', [id, conv.id, req.userId, text, created_at]);
   const message = { id, conversationId: conv.id, text, senderId: req.userId, createdAt: created_at, readAt: null };
   sendToUser(friendId, { type: 'message', message });
   sendToUser(req.userId, { type: 'message', message });
-  createNotification(friendId, 'message', { from: publicUser(getUserById(req.userId)), preview: text.slice(0, 120), conversationId: conv.id });
+  await createNotification(friendId, 'message', { from: publicUser(await getUserById(req.userId)), preview: text.slice(0, 120), conversationId: conv.id });
   res.status(201).json({ message });
 });
 
-app.post('/api/conversations/:friendId/read', requireAuth, (req, res) => {
+app.post('/api/conversations/:friendId/read', requireAuth, async (req, res) => {
   const friendId = req.params.friendId;
-  if (!areFriends(req.userId, friendId)) return res.status(403).json({ error: 'Not friends.' });
+  if (!(await areFriends(req.userId, friendId))) return res.status(403).json({ error: 'Not friends.' });
   const [a, b] = pairKey(req.userId, friendId);
-  const conv = db.prepare('SELECT * FROM conversations WHERE user_a = ? AND user_b = ?').get(a, b);
+  const conv = await db.get('SELECT * FROM conversations WHERE user_a = ? AND user_b = ?', [a, b]);
   if (conv) {
-    db.prepare(`UPDATE messages SET read_at = ? WHERE conversation_id = ? AND sender_id = ? AND read_at IS NULL`)
-      .run(Date.now(), conv.id, friendId);
+    await db.run(`UPDATE messages SET read_at = ? WHERE conversation_id = ? AND sender_id = ? AND read_at IS NULL`, [Date.now(), conv.id, friendId]);
   }
   res.json({ ok: true });
 });
 
 /* ============================== notifications ============================== */
 
-app.get('/api/notifications', requireAuth, (req, res) => {
-  const rows = db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50').all(req.userId);
-  const unreadCount = db.prepare('SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND read_at IS NULL').get(req.userId).c;
+app.get('/api/notifications', requireAuth, async (req, res) => {
+  const rows = await db.all('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50', [req.userId]);
+  const unreadRow = await db.get('SELECT COUNT(*) AS c FROM notifications WHERE user_id = ? AND read_at IS NULL', [req.userId]);
   res.json({
     notifications: rows.map((n) => ({ id: n.id, type: n.type, data: JSON.parse(n.data), createdAt: n.created_at, readAt: n.read_at })),
-    unreadCount,
+    unreadCount: unreadRow.c,
   });
 });
 
-app.post('/api/notifications/:id/read', requireAuth, (req, res) => {
-  db.prepare('UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ? AND read_at IS NULL').run(Date.now(), req.params.id, req.userId);
+app.post('/api/notifications/:id/read', requireAuth, async (req, res) => {
+  await db.run('UPDATE notifications SET read_at = ? WHERE id = ? AND user_id = ? AND read_at IS NULL', [Date.now(), req.params.id, req.userId]);
   res.json({ ok: true });
 });
 
-app.post('/api/notifications/read-all', requireAuth, (req, res) => {
-  db.prepare('UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL').run(Date.now(), req.userId);
+app.post('/api/notifications/read-all', requireAuth, async (req, res) => {
+  await db.run('UPDATE notifications SET read_at = ? WHERE user_id = ? AND read_at IS NULL', [Date.now(), req.userId]);
   res.json({ ok: true });
 });
 
@@ -716,20 +746,22 @@ function generateRoomCode() {
 }
 const ROOM_STATUSES = ['idle', 'focusing', 'resting'];
 
-function getRoomByCode(code) { return db.prepare('SELECT * FROM rooms WHERE code = ? COLLATE NOCASE').get(code); }
-function getRoomById(id) { return db.prepare('SELECT * FROM rooms WHERE id = ?').get(id); }
-function getMembership(roomId, userId) { return db.prepare('SELECT * FROM room_members WHERE room_id = ? AND user_id = ?').get(roomId, userId); }
+function getRoomByCode(code) { return db.get('SELECT * FROM rooms WHERE LOWER(code) = LOWER(?)', [code]); }
+function getRoomById(id) { return db.get('SELECT * FROM rooms WHERE id = ?', [id]); }
+function getMembership(roomId, userId) { return db.get('SELECT * FROM room_members WHERE room_id = ? AND user_id = ?', [roomId, userId]); }
 /** A user can only ever be seated in one room; this is how callers find "their" room. */
 function getCurrentRoomMembership(userId) {
-  return db.prepare(
-    `SELECT room_members.*, rooms.code AS room_code FROM room_members JOIN rooms ON rooms.id = room_members.room_id WHERE room_members.user_id = ?`
-  ).get(userId);
+  return db.get(
+    `SELECT room_members.*, rooms.code AS room_code FROM room_members JOIN rooms ON rooms.id = room_members.room_id WHERE room_members.user_id = ?`,
+    [userId]
+  );
 }
 
-function publicRoom(room) {
-  const memberRows = db.prepare(
-    `SELECT rm.*, u.display_name, u.username, u.avatar, u.avatar_url FROM room_members rm JOIN users u ON u.id = rm.user_id WHERE rm.room_id = ? ORDER BY rm.joined_at ASC`
-  ).all(room.id);
+async function publicRoom(room) {
+  const memberRows = await db.all(
+    `SELECT rm.*, u.display_name, u.username, u.avatar, u.avatar_url FROM room_members rm JOIN users u ON u.id = rm.user_id WHERE rm.room_id = ? ORDER BY rm.joined_at ASC`,
+    [room.id]
+  );
   return {
     code: room.code,
     goal: room.goal,
@@ -753,207 +785,222 @@ function publicRoom(room) {
   };
 }
 
-function broadcastRoom(roomId) {
-  const room = getRoomById(roomId);
+async function broadcastRoom(roomId) {
+  const room = await getRoomById(roomId);
   if (!room) return;
-  const payload = { type: 'lounge-room', room: publicRoom(room) };
-  const memberIds = db.prepare('SELECT user_id FROM room_members WHERE room_id = ?').all(roomId).map((r) => r.user_id);
-  for (const uid of memberIds) sendToUser(uid, payload);
+  const payload = { type: 'lounge-room', room: await publicRoom(room) };
+  const memberRows = await db.all('SELECT user_id FROM room_members WHERE room_id = ?', [roomId]);
+  for (const { user_id } of memberRows) sendToUser(user_id, payload);
 }
 
 /* Removes a user from whichever room they're currently in (a no-op if none),
    promoting the longest-seated remaining member to host, or deleting the room
    if it's now empty. Called both by an explicit leave and at the start of
    every join, since a user can only be in one room at a time. */
-function leaveCurrentRoom(userId) {
-  const membership = getCurrentRoomMembership(userId);
+async function leaveCurrentRoom(userId) {
+  const membership = await getCurrentRoomMembership(userId);
   if (!membership) return;
   const roomId = membership.room_id;
-  db.prepare('DELETE FROM room_members WHERE room_id = ? AND user_id = ?').run(roomId, userId);
-  const remaining = db.prepare('SELECT * FROM room_members WHERE room_id = ? ORDER BY joined_at ASC').all(roomId);
+  await db.run('DELETE FROM room_members WHERE room_id = ? AND user_id = ?', [roomId, userId]);
+  const remaining = await db.all('SELECT * FROM room_members WHERE room_id = ? ORDER BY joined_at ASC', [roomId]);
   if (remaining.length === 0) {
-    db.prepare('DELETE FROM rooms WHERE id = ?').run(roomId);
+    await db.run('DELETE FROM rooms WHERE id = ?', [roomId]);
     return;
   }
-  const room = getRoomById(roomId);
+  const room = await getRoomById(roomId);
   if (room.host_user_id === userId) {
-    db.prepare('UPDATE rooms SET host_user_id = ? WHERE id = ?').run(remaining[0].user_id, roomId);
+    await db.run('UPDATE rooms SET host_user_id = ? WHERE id = ?', [remaining[0].user_id, roomId]);
   }
-  broadcastRoom(roomId);
+  await broadcastRoom(roomId);
 }
 
-function joinRoomByCode(userId, code) {
-  const room = getRoomByCode(code);
+async function joinRoomByCode(userId, code) {
+  const room = await getRoomByCode(code);
   if (!room) return { error: 'not_found' };
-  if (getMembership(room.id, userId)) return { room }; // already seated here -- idempotent, not an error
-  leaveCurrentRoom(userId);
+  if (await getMembership(room.id, userId)) return { room }; // already seated here -- idempotent, not an error
+  await leaveCurrentRoom(userId);
   const now = Date.now();
-  db.prepare(`INSERT INTO room_members (room_id, user_id, joined_at, status, remaining_ms, status_updated_at, mission_progress, mission_state)
-              VALUES (?, ?, ?, 'idle', 0, ?, 0, 'pending')`).run(room.id, userId, now, now);
-  broadcastRoom(room.id);
+  await db.run(
+    `INSERT INTO room_members (room_id, user_id, joined_at, status, remaining_ms, status_updated_at, mission_progress, mission_state)
+     VALUES (?, ?, ?, 'idle', 0, ?, 0, 'pending')`,
+    [room.id, userId, now, now]
+  );
+  await broadcastRoom(room.id);
   return { room };
 }
 
 /** Returns true if a sprint just completed (every seated member checked in). Resets it either way once done. */
-function checkMissionCompletion(roomId) {
-  const room = getRoomById(roomId);
+async function checkMissionCompletion(roomId) {
+  const room = await getRoomById(roomId);
   if (!room || room.mission_state !== 'active') return false;
-  const members = db.prepare('SELECT mission_state FROM room_members WHERE room_id = ?').all(roomId);
+  const members = await db.all('SELECT mission_state FROM room_members WHERE room_id = ?', [roomId]);
   if (members.length === 0 || !members.every((m) => m.mission_state === 'checked-in')) return false;
-  db.prepare('UPDATE rooms SET mission_target = NULL, mission_state = NULL WHERE id = ?').run(roomId);
-  db.prepare(`UPDATE room_members SET mission_progress = 0, mission_state = 'pending' WHERE room_id = ?`).run(roomId);
+  await db.run('UPDATE rooms SET mission_target = NULL, mission_state = NULL WHERE id = ?', [roomId]);
+  await db.run(`UPDATE room_members SET mission_progress = 0, mission_state = 'pending' WHERE room_id = ?`, [roomId]);
   return true;
 }
 
-app.post('/api/lounge/rooms', requireAuth, (req, res) => {
+app.post('/api/lounge/rooms', requireAuth, async (req, res) => {
   if (rateLimited(`room-create:${req.userId}`, 10, 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again shortly.' });
   const goal = typeof req.body.goal === 'string' ? req.body.goal.trim().slice(0, 80) : '';
-  leaveCurrentRoom(req.userId);
+  await leaveCurrentRoom(req.userId);
   const id = newId();
   const now = Date.now();
   let code = generateRoomCode();
-  for (let i = 0; i < 10 && getRoomByCode(code); i += 1) code = generateRoomCode();
-  db.prepare('INSERT INTO rooms (id, code, host_user_id, goal, created_at) VALUES (?, ?, ?, ?, ?)').run(id, code, req.userId, goal, now);
-  db.prepare(`INSERT INTO room_members (room_id, user_id, joined_at, status, remaining_ms, status_updated_at, mission_progress, mission_state)
-              VALUES (?, ?, ?, 'idle', 0, ?, 0, 'pending')`).run(id, req.userId, now, now);
-  res.status(201).json({ room: publicRoom(getRoomById(id)) });
+  for (let i = 0; i < 10 && (await getRoomByCode(code)); i += 1) code = generateRoomCode();
+  await db.run('INSERT INTO rooms (id, code, host_user_id, goal, created_at) VALUES (?, ?, ?, ?, ?)', [id, code, req.userId, goal, now]);
+  await db.run(
+    `INSERT INTO room_members (room_id, user_id, joined_at, status, remaining_ms, status_updated_at, mission_progress, mission_state)
+     VALUES (?, ?, ?, 'idle', 0, ?, 0, 'pending')`,
+    [id, req.userId, now, now]
+  );
+  res.status(201).json({ room: await publicRoom(await getRoomById(id)) });
 });
 
 // Registered before /:code so the literal path "mine" can never be swallowed as a room code param.
-app.get('/api/lounge/rooms/mine', requireAuth, (req, res) => {
-  const membership = getCurrentRoomMembership(req.userId);
-  res.json({ room: membership ? publicRoom(getRoomById(membership.room_id)) : null });
+app.get('/api/lounge/rooms/mine', requireAuth, async (req, res) => {
+  const membership = await getCurrentRoomMembership(req.userId);
+  res.json({ room: membership ? await publicRoom(await getRoomById(membership.room_id)) : null });
 });
 
-app.get('/api/lounge/rooms/:code', requireAuth, (req, res) => {
-  const room = getRoomByCode(req.params.code);
-  if (!room || !getMembership(room.id, req.userId)) return res.status(404).json({ error: 'Room not found.' });
-  res.json({ room: publicRoom(room) });
+app.get('/api/lounge/rooms/:code', requireAuth, async (req, res) => {
+  const room = await getRoomByCode(req.params.code);
+  if (!room || !(await getMembership(room.id, req.userId))) return res.status(404).json({ error: 'Room not found.' });
+  res.json({ room: await publicRoom(room) });
 });
 
-app.post('/api/lounge/rooms/:code/join', requireAuth, (req, res) => {
+app.post('/api/lounge/rooms/:code/join', requireAuth, async (req, res) => {
   if (rateLimited(`room-join:${req.userId}`, 20, 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again shortly.' });
-  const result = joinRoomByCode(req.userId, req.params.code);
+  const result = await joinRoomByCode(req.userId, req.params.code);
   if (result.error) return res.status(404).json({ error: 'No room with that code.' });
-  res.json({ room: publicRoom(getRoomById(result.room.id)) });
+  res.json({ room: await publicRoom(await getRoomById(result.room.id)) });
 });
 
-app.post('/api/lounge/rooms/:code/leave', requireAuth, (req, res) => {
-  const room = getRoomByCode(req.params.code);
-  if (!room || !getMembership(room.id, req.userId)) return res.status(404).json({ error: 'You are not in that room.' });
-  leaveCurrentRoom(req.userId);
+app.post('/api/lounge/rooms/:code/leave', requireAuth, async (req, res) => {
+  const room = await getRoomByCode(req.params.code);
+  if (!room || !(await getMembership(room.id, req.userId))) return res.status(404).json({ error: 'You are not in that room.' });
+  await leaveCurrentRoom(req.userId);
   res.json({ ok: true });
 });
 
-app.post('/api/lounge/rooms/:code/status', requireAuth, (req, res) => {
+app.post('/api/lounge/rooms/:code/status', requireAuth, async (req, res) => {
   if (rateLimited(`room-status:${req.userId}`, 60, 60_000)) return res.status(429).json({ error: 'Too many updates. Try again shortly.' });
-  const room = getRoomByCode(req.params.code);
-  if (!room || !getMembership(room.id, req.userId)) return res.status(404).json({ error: 'You are not in that room.' });
+  const room = await getRoomByCode(req.params.code);
+  if (!room || !(await getMembership(room.id, req.userId))) return res.status(404).json({ error: 'You are not in that room.' });
   const status = ROOM_STATUSES.includes(req.body.status) ? req.body.status : 'idle';
   const remainingMs = Number.isFinite(req.body.remainingMs) ? Math.max(0, Math.min(req.body.remainingMs, 4 * 60 * 60_000)) : 0;
-  db.prepare('UPDATE room_members SET status = ?, remaining_ms = ?, status_updated_at = ? WHERE room_id = ? AND user_id = ?')
-    .run(status, remainingMs, Date.now(), room.id, req.userId);
-  broadcastRoom(room.id);
+  await db.run(
+    'UPDATE room_members SET status = ?, remaining_ms = ?, status_updated_at = ? WHERE room_id = ? AND user_id = ?',
+    [status, remainingMs, Date.now(), room.id, req.userId]
+  );
+  await broadcastRoom(room.id);
   res.json({ ok: true });
 });
 
-app.post('/api/lounge/rooms/:code/mission/start', requireAuth, (req, res) => {
-  const room = getRoomByCode(req.params.code);
-  if (!room || !getMembership(room.id, req.userId)) return res.status(404).json({ error: 'You are not in that room.' });
+app.post('/api/lounge/rooms/:code/mission/start', requireAuth, async (req, res) => {
+  const room = await getRoomByCode(req.params.code);
+  if (!room || !(await getMembership(room.id, req.userId))) return res.status(404).json({ error: 'You are not in that room.' });
   if (room.host_user_id !== req.userId) return res.status(403).json({ error: 'Only the host can start a sprint.' });
-  const memberCount = db.prepare('SELECT COUNT(*) AS c FROM room_members WHERE room_id = ?').get(room.id).c;
-  if (memberCount < 2) return res.status(400).json({ error: 'Need at least 2 members to start a sprint.' });
+  const memberCountRow = await db.get('SELECT COUNT(*) AS c FROM room_members WHERE room_id = ?', [room.id]);
+  if (memberCountRow.c < 2) return res.status(400).json({ error: 'Need at least 2 members to start a sprint.' });
   if (room.mission_state === 'active') return res.status(409).json({ error: 'A sprint is already active.' });
   const target = Math.min(4, Math.max(1, Math.trunc(Number(req.body.targetPomodoros)) || 1));
-  db.prepare('UPDATE rooms SET mission_target = ?, mission_state = ? WHERE id = ?').run(target, 'active', room.id);
-  db.prepare(`UPDATE room_members SET mission_progress = 0, mission_state = 'pending' WHERE room_id = ?`).run(room.id);
-  broadcastRoom(room.id);
+  await db.run('UPDATE rooms SET mission_target = ?, mission_state = ? WHERE id = ?', [target, 'active', room.id]);
+  await db.run(`UPDATE room_members SET mission_progress = 0, mission_state = 'pending' WHERE room_id = ?`, [room.id]);
+  await broadcastRoom(room.id);
   res.json({ ok: true });
 });
 
-app.post('/api/lounge/rooms/:code/mission/cancel', requireAuth, (req, res) => {
-  const room = getRoomByCode(req.params.code);
-  if (!room || !getMembership(room.id, req.userId)) return res.status(404).json({ error: 'You are not in that room.' });
+app.post('/api/lounge/rooms/:code/mission/cancel', requireAuth, async (req, res) => {
+  const room = await getRoomByCode(req.params.code);
+  if (!room || !(await getMembership(room.id, req.userId))) return res.status(404).json({ error: 'You are not in that room.' });
   if (room.host_user_id !== req.userId) return res.status(403).json({ error: 'Only the host can cancel a sprint.' });
-  db.prepare('UPDATE rooms SET mission_target = NULL, mission_state = NULL WHERE id = ?').run(room.id);
-  db.prepare(`UPDATE room_members SET mission_progress = 0, mission_state = 'pending' WHERE room_id = ?`).run(room.id);
-  broadcastRoom(room.id);
+  await db.run('UPDATE rooms SET mission_target = NULL, mission_state = NULL WHERE id = ?', [room.id]);
+  await db.run(`UPDATE room_members SET mission_progress = 0, mission_state = 'pending' WHERE room_id = ?`, [room.id]);
+  await broadcastRoom(room.id);
   res.json({ ok: true });
 });
 
-app.post('/api/lounge/rooms/:code/mission/checkin', requireAuth, (req, res) => {
-  const room = getRoomByCode(req.params.code);
-  const membership = room && getMembership(room.id, req.userId);
+app.post('/api/lounge/rooms/:code/mission/checkin', requireAuth, async (req, res) => {
+  const room = await getRoomByCode(req.params.code);
+  const membership = room && (await getMembership(room.id, req.userId));
   if (!membership) return res.status(404).json({ error: 'You are not in that room.' });
   if (room.mission_state !== 'active' || membership.mission_state !== 'pending') return res.status(400).json({ error: 'No active sprint to check in to.' });
   const progress = membership.mission_progress + 1;
   const done = progress >= room.mission_target;
-  db.prepare('UPDATE room_members SET mission_progress = ?, mission_state = ? WHERE room_id = ? AND user_id = ?')
-    .run(progress, done ? 'checked-in' : 'pending', room.id, req.userId);
-  if (done && checkMissionCompletion(room.id)) {
-    const memberIds = db.prepare('SELECT user_id FROM room_members WHERE room_id = ?').all(room.id).map((r) => r.user_id);
-    for (const uid of memberIds) sendToUser(uid, { type: 'lounge-mission-complete', roomCode: room.code });
+  await db.run(
+    'UPDATE room_members SET mission_progress = ?, mission_state = ? WHERE room_id = ? AND user_id = ?',
+    [progress, done ? 'checked-in' : 'pending', room.id, req.userId]
+  );
+  if (done && (await checkMissionCompletion(room.id))) {
+    const memberRows = await db.all('SELECT user_id FROM room_members WHERE room_id = ?', [room.id]);
+    for (const { user_id } of memberRows) sendToUser(user_id, { type: 'lounge-mission-complete', roomCode: room.code });
   }
-  broadcastRoom(room.id);
+  await broadcastRoom(room.id);
   res.json({ ok: true });
 });
 
-app.post('/api/lounge/rooms/:code/mission/giveup', requireAuth, (req, res) => {
-  const room = getRoomByCode(req.params.code);
-  const membership = room && getMembership(room.id, req.userId);
+app.post('/api/lounge/rooms/:code/mission/giveup', requireAuth, async (req, res) => {
+  const room = await getRoomByCode(req.params.code);
+  const membership = room && (await getMembership(room.id, req.userId));
   if (!membership) return res.status(404).json({ error: 'You are not in that room.' });
   if (room.mission_state !== 'active' || membership.mission_state !== 'pending') return res.status(400).json({ error: 'No active sprint to give up on.' });
-  db.prepare(`UPDATE room_members SET mission_state = 'abandoned' WHERE room_id = ? AND user_id = ?`).run(room.id, req.userId);
-  broadcastRoom(room.id);
+  await db.run(`UPDATE room_members SET mission_state = 'abandoned' WHERE room_id = ? AND user_id = ?`, [room.id, req.userId]);
+  await broadcastRoom(room.id);
   res.json({ ok: true });
 });
 
 /* -------- room invites: friends only, direct one-click join -------- */
 
-app.post('/api/lounge/invites', requireAuth, (req, res) => {
+app.post('/api/lounge/invites', requireAuth, async (req, res) => {
   if (rateLimited(`room-invite:${req.userId}`, 20, 60_000)) return res.status(429).json({ error: 'Too many invites. Try again shortly.' });
   const toUserId = req.body && req.body.toUserId;
   if (!toUserId || typeof toUserId !== 'string') return res.status(400).json({ error: 'toUserId is required.' });
-  if (!areFriends(req.userId, toUserId)) return res.status(403).json({ error: 'You can only invite friends to your room.' });
-  const membership = getCurrentRoomMembership(req.userId);
+  if (!(await areFriends(req.userId, toUserId))) return res.status(403).json({ error: 'You can only invite friends to your room.' });
+  const membership = await getCurrentRoomMembership(req.userId);
   if (!membership) return res.status(400).json({ error: 'Join or create a room before inviting someone.' });
-  if (!getUserById(toUserId)) return res.status(404).json({ error: 'User not found.' });
+  if (!(await getUserById(toUserId))) return res.status(404).json({ error: 'User not found.' });
 
   const id = newId();
   const created_at = Date.now();
-  db.prepare('INSERT INTO room_invites (id, room_id, from_user_id, to_user_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(id, membership.room_id, req.userId, toUserId, 'pending', created_at);
-  const room = getRoomById(membership.room_id);
-  const inviter = getUserById(req.userId);
+  await db.run(
+    'INSERT INTO room_invites (id, room_id, from_user_id, to_user_id, status, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [id, membership.room_id, req.userId, toUserId, 'pending', created_at]
+  );
+  const room = await getRoomById(membership.room_id);
+  const inviter = await getUserById(req.userId);
   const invite = { id, roomCode: room.code, goal: room.goal, createdAt: created_at, from: publicUser(inviter) };
-  const notification = createNotification(toUserId, 'lounge_invite', { requestId: id, roomCode: room.code, from: publicUser(inviter) });
+  const notification = await createNotification(toUserId, 'lounge_invite', { requestId: id, roomCode: room.code, from: publicUser(inviter) });
   sendToUser(toUserId, { type: 'lounge-invite', invite });
   res.status(201).json({ invite, notification });
 });
 
-app.get('/api/lounge/invites', requireAuth, (req, res) => {
-  const rows = db.prepare(
+app.get('/api/lounge/invites', requireAuth, async (req, res) => {
+  const rows = await db.all(
     `SELECT ri.*, r.code AS room_code, r.goal AS room_goal FROM room_invites ri JOIN rooms r ON r.id = ri.room_id
-     WHERE ri.to_user_id = ? AND ri.status = 'pending' ORDER BY ri.created_at DESC`
-  ).all(req.userId);
-  const invites = rows.map((r) => ({ id: r.id, roomCode: r.room_code, goal: r.room_goal, createdAt: r.created_at, from: publicUser(getUserById(r.from_user_id)) }));
+     WHERE ri.to_user_id = ? AND ri.status = 'pending' ORDER BY ri.created_at DESC`,
+    [req.userId]
+  );
+  const invites = await Promise.all(rows.map(async (r) => ({
+    id: r.id, roomCode: r.room_code, goal: r.room_goal, createdAt: r.created_at, from: publicUser(await getUserById(r.from_user_id)),
+  })));
   res.json({ invites });
 });
 
-app.post('/api/lounge/invites/:id/accept', requireAuth, (req, res) => {
-  const invite = db.prepare('SELECT * FROM room_invites WHERE id = ?').get(req.params.id);
+app.post('/api/lounge/invites/:id/accept', requireAuth, async (req, res) => {
+  const invite = await db.get('SELECT * FROM room_invites WHERE id = ?', [req.params.id]);
   if (!invite || invite.to_user_id !== req.userId || invite.status !== 'pending') return res.status(404).json({ error: 'Invite not found or already handled.' });
-  db.prepare(`UPDATE room_invites SET status = 'accepted', responded_at = ? WHERE id = ?`).run(Date.now(), req.params.id);
-  const room = getRoomById(invite.room_id);
+  await db.run(`UPDATE room_invites SET status = 'accepted', responded_at = ? WHERE id = ?`, [Date.now(), req.params.id]);
+  const room = await getRoomById(invite.room_id);
   if (!room) return res.status(410).json({ error: 'That room no longer exists.' });
-  joinRoomByCode(req.userId, room.code);
-  res.json({ room: publicRoom(getRoomById(room.id)) });
+  await joinRoomByCode(req.userId, room.code);
+  res.json({ room: await publicRoom(await getRoomById(room.id)) });
 });
 
-app.post('/api/lounge/invites/:id/decline', requireAuth, (req, res) => {
-  const invite = db.prepare('SELECT * FROM room_invites WHERE id = ?').get(req.params.id);
+app.post('/api/lounge/invites/:id/decline', requireAuth, async (req, res) => {
+  const invite = await db.get('SELECT * FROM room_invites WHERE id = ?', [req.params.id]);
   if (!invite || invite.to_user_id !== req.userId || invite.status !== 'pending') return res.status(404).json({ error: 'Invite not found or already handled.' });
-  db.prepare(`UPDATE room_invites SET status = 'declined', responded_at = ? WHERE id = ?`).run(Date.now(), req.params.id);
+  await db.run(`UPDATE room_invites SET status = 'declined', responded_at = ? WHERE id = ?`, [Date.now(), req.params.id]);
   res.json({ ok: true });
 });
 
@@ -969,37 +1016,37 @@ app.post('/api/lounge/invites/:id/decline', requireAuth, (req, res) => {
 // total too, so the leaderboard can't be inflated past what's physically plausible.
 const MAX_DAILY_FOCUS_MINUTES = 960; // 16h -- generous headroom over any real day of focus
 
-app.post('/api/stats/sessions', requireAuth, (req, res) => {
+app.post('/api/stats/sessions', requireAuth, async (req, res) => {
   if (rateLimited(`session-log:${req.userId}`, 30, 60_000)) return res.status(429).json({ error: 'Too many session logs. Try again shortly.' });
   const minutes = Math.trunc(Number(req.body && req.body.minutes));
   if (!Number.isFinite(minutes) || minutes < 1 || minutes > 180) return res.status(400).json({ error: 'minutes must be between 1 and 180.' });
   const since = Date.now() - 24 * 60 * 60_000;
-  const { total } = db.prepare('SELECT COALESCE(SUM(minutes), 0) AS total FROM focus_sessions WHERE user_id = ? AND completed_at >= ?').get(req.userId, since);
+  const { total } = await db.get('SELECT COALESCE(SUM(minutes), 0) AS total FROM focus_sessions WHERE user_id = ? AND completed_at >= ?', [req.userId, since]);
   if (total + minutes > MAX_DAILY_FOCUS_MINUTES) return res.status(429).json({ error: 'Daily focus limit reached.' });
-  db.prepare('INSERT INTO focus_sessions (id, user_id, minutes, completed_at) VALUES (?, ?, ?, ?)').run(newId(), req.userId, minutes, Date.now());
+  await db.run('INSERT INTO focus_sessions (id, user_id, minutes, completed_at) VALUES (?, ?, ?, ?)', [newId(), req.userId, minutes, Date.now()]);
   res.status(201).json({ ok: true });
 });
 
 const LEADERBOARD_RANGES = { daily: 24 * 60 * 60_000, weekly: 7 * 24 * 60 * 60_000, alltime: null };
 
-app.get('/api/leaderboard', requireAuth, (req, res) => {
+app.get('/api/leaderboard', requireAuth, async (req, res) => {
   const range = Object.prototype.hasOwnProperty.call(LEADERBOARD_RANGES, req.query.range) ? req.query.range : 'weekly';
   const since = LEADERBOARD_RANGES[range] === null ? 0 : Date.now() - LEADERBOARD_RANGES[range];
-  const friendIds = db.prepare('SELECT friend_id FROM friendships WHERE user_id = ?').all(req.userId).map((r) => r.friend_id);
-  const ids = [req.userId, ...friendIds];
+  const friendRows = await db.all('SELECT friend_id FROM friendships WHERE user_id = ?', [req.userId]);
+  const ids = [req.userId, ...friendRows.map((r) => r.friend_id)];
   const placeholders = ids.map(() => '?').join(',');
-  const rows = db.prepare(
-    `SELECT user_id, COALESCE(SUM(minutes), 0) AS totalMinutes, COUNT(*) AS pomodoros
+  const rows = await db.all(
+    `SELECT user_id, COALESCE(SUM(minutes), 0) AS "totalMinutes", COUNT(*) AS pomodoros
      FROM focus_sessions WHERE user_id IN (${placeholders}) AND completed_at >= ?
-     GROUP BY user_id`
-  ).all(...ids, since);
+     GROUP BY user_id`,
+    [...ids, since]
+  );
   const rowByUser = new Map(rows.map((r) => [r.user_id, r]));
-  const entries = ids
-    .map((uid) => {
-      const row = rowByUser.get(uid);
-      return { user: publicUser(getUserById(uid)), totalMinutes: row ? row.totalMinutes : 0, pomodoros: row ? row.pomodoros : 0 };
-    })
-    .sort((a, b) => b.totalMinutes - a.totalMinutes || b.pomodoros - a.pomodoros);
+  const entries = await Promise.all(ids.map(async (uid) => {
+    const row = rowByUser.get(uid);
+    return { user: publicUser(await getUserById(uid)), totalMinutes: row ? row.totalMinutes : 0, pomodoros: row ? row.pomodoros : 0 };
+  }));
+  entries.sort((a, b) => b.totalMinutes - a.totalMinutes || b.pomodoros - a.pomodoros);
   res.json({ range, entries });
 });
 
@@ -1027,7 +1074,7 @@ app.get('/', (req, res) => {
     "font-src https://fonts.gstatic.com",
     "img-src 'self' data: blob: https:",
     "media-src 'self' data: blob: https:",
-    "frame-src https://www.youtube.com https://challenges.cloudflare.com",
+    "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://challenges.cloudflare.com",
     "connect-src 'self' https://generativelanguage.googleapis.com",
     "frame-ancestors 'none'",
   ].join('; '));
@@ -1075,9 +1122,10 @@ function broadcastAll(payload) {
   const json = JSON.stringify(payload);
   for (const ws of allSockets) if (ws.readyState === ws.OPEN) ws.send(json);
 }
-function broadcastPresenceToFriends(userId) {
-  const friends = db.prepare('SELECT friend_id FROM friendships WHERE user_id = ?').all(userId);
-  const payload = { type: 'presence', userId, online: isOnline(userId), lastSeenAt: getUserById(userId)?.last_seen_at };
+async function broadcastPresenceToFriends(userId) {
+  const friends = await db.all('SELECT friend_id FROM friendships WHERE user_id = ?', [userId]);
+  const user = await getUserById(userId);
+  const payload = { type: 'presence', userId, online: isOnline(userId), lastSeenAt: user?.last_seen_at };
   for (const { friend_id } of friends) sendToUser(friend_id, payload);
 }
 function broadcastOnlineCount() { broadcastAll({ type: 'online-count', count: onlineUserCount() }); }
@@ -1092,11 +1140,11 @@ server.on('upgrade', (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
 
-wss.on('connection', (ws, req) => {
+wss.on('connection', async (ws, req) => {
   const url = new URL(req.url, 'http://internal');
   const token = url.searchParams.get('token');
   const payload = token ? verifyToken(token) : null;
-  const user = payload ? getUserById(payload.userId) : null;
+  const user = payload ? await getUserById(payload.userId) : null;
   const validSession = !!user && user.token_version === payload.tokenVersion;
 
   ws.isAlive = true;
@@ -1107,14 +1155,14 @@ wss.on('connection', (ws, req) => {
     if (!connections.has(ws.userId)) connections.set(ws.userId, new Set());
     const firstConnection = connections.get(ws.userId).size === 0;
     connections.get(ws.userId).add(ws);
-    touchLastSeen(ws.userId);
-    if (firstConnection) { broadcastPresenceToFriends(ws.userId); broadcastOnlineCount(); }
+    await touchLastSeen(ws.userId);
+    if (firstConnection) { await broadcastPresenceToFriends(ws.userId); broadcastOnlineCount(); }
   }
 
   ws.send(JSON.stringify({ type: 'online-count', count: onlineUserCount() }));
   ws.on('pong', () => { ws.isAlive = true; });
 
-  ws.on('close', () => {
+  ws.on('close', async () => {
     allSockets.delete(ws);
     if (!ws.userId) return;
     const set = connections.get(ws.userId);
@@ -1122,8 +1170,8 @@ wss.on('connection', (ws, req) => {
     set.delete(ws);
     if (set.size === 0) {
       connections.delete(ws.userId);
-      touchLastSeen(ws.userId);
-      broadcastPresenceToFriends(ws.userId);
+      await touchLastSeen(ws.userId);
+      await broadcastPresenceToFriends(ws.userId);
       broadcastOnlineCount();
     }
   });
@@ -1139,8 +1187,15 @@ const heartbeat = setInterval(() => {
   }
 }, 30_000);
 
-server.listen(PORT, () => {
-  console.log(`Pomodoro server listening on http://localhost:${PORT}`);
-});
+initSchema()
+  .then(() => {
+    server.listen(PORT, () => {
+      console.log(`Pomodoro server listening on http://localhost:${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('[db] failed to initialize schema -- refusing to start:', err);
+    process.exit(1);
+  });
 
 process.on('SIGTERM', () => { clearInterval(heartbeat); server.close(() => process.exit(0)); });

@@ -214,13 +214,22 @@
   #background-layer img,
   #background-layer video { display: block; }
   .yt-wrapper { position: absolute; inset: 0; overflow: hidden; }
-  .yt-wrapper--hidden { width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .yt-wrapper--hidden { width: 1px; height: 1px; opacity: 0; pointer-events: none; overflow: hidden; }
+  /* Shown behind the iframe while the player loads, so the user sees the video's own thumbnail
+     instead of a blank layer or YouTube's red play button. Covered once the iframe fades in. */
+  .yt-thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
   #youtube-player-target {
     position: absolute; top: 50%; left: 50%; border: 0; display: block;
     width: 100vw; height: 56.25vw;
     min-height: 100vh; min-width: 177.78vh;
-    transform: translate(-50%, -50%);
+    /* scale(1.2) pushes YouTube's title bar / channel name / logo (which live right at the
+       iframe's edges) outside the visible, overflow:hidden viewport -- cropped off entirely. */
+    transform: translate(-50%, -50%) scale(1.2);
+    pointer-events: none; /* never let hovering surface YouTube's own controls/title */
+    opacity: 0;
+    transition: opacity 0.6s ease;
   }
+  #youtube-player-target.yt-playing { opacity: 1; }
   #background-overlay {
     position: fixed;
     inset: 0;
@@ -3439,6 +3448,20 @@ const Media = {
     layer.setAttribute('data-empty', '');
     document.documentElement.style.setProperty('--overlay-color', 'rgba(0,0,0,0)');
     UI.hideMediaPanel();
+    Media._appliedMediaSettings = { ...DEFAULT_MEDIA };
+  },
+
+  /* The last media settings that actually rendered successfully (any type). Used only to recover
+     from a YouTube video that turns out to be broken -- see _revertToPrevious. */
+  _appliedMediaSettings: null,
+  /* A video failed after the user already saved it as their background (embedding disabled,
+     invalid id, etc): restore whatever was showing before that attempt instead of leaving a
+     broken player on screen, and tell the user why. */
+  _revertToPrevious(message) {
+    state.mediaSettings = Media._appliedMediaSettings ? { ...Media._appliedMediaSettings } : { ...DEFAULT_MEDIA };
+    Storage.saveMediaSettings(state.mediaSettings);
+    showToast(message, 'error');
+    Media.applyBackground();
   },
 
   _requestSeq: 0,
@@ -3476,6 +3499,7 @@ const Media = {
       layer.appendChild(img);
       document.documentElement.style.setProperty('--overlay-color', 'rgba(0,0,0,0.35)');
       UI.hideMediaPanel();
+      Media._appliedMediaSettings = { ...m };
       return;
     }
 
@@ -3495,6 +3519,7 @@ const Media = {
       document.documentElement.style.setProperty('--overlay-color', 'rgba(0,0,0,0.35)');
       UI.showMediaPanel();
       UI.syncMediaControls();
+      Media._appliedMediaSettings = { ...m };
       return;
     }
 
@@ -3503,6 +3528,9 @@ const Media = {
       if (typeof YouTube !== 'undefined' && YouTube.applyBackground) {
         document.documentElement.style.setProperty('--overlay-color', 'rgba(0,0,0,0.35)');
         YouTube.applyBackground();
+        // _appliedMediaSettings is recorded once the player actually reaches PLAYING (see
+        // YouTube.applyBackground's onStateChange) -- not here, since we don't yet know the
+        // video will actually play.
       } else {
         Media.applyDefaultBackground();
       }
@@ -3521,6 +3549,7 @@ const Media = {
       layer.appendChild(img);
       document.documentElement.style.setProperty('--overlay-color', 'rgba(0,0,0,0.35)');
       UI.hideMediaPanel();
+      Media._appliedMediaSettings = { ...m };
       return;
     }
 
@@ -3539,6 +3568,7 @@ const Media = {
       document.documentElement.style.setProperty('--overlay-color', 'rgba(0,0,0,0.35)');
       UI.showMediaPanel();
       UI.syncMediaControls();
+      Media._appliedMediaSettings = { ...m };
       return;
     }
 
@@ -3582,15 +3612,19 @@ const YouTube = {
       const u = new URL(trimmed);
       const host = u.hostname.replace(/^www\./, '').replace(/^m\./, '');
       if (host === 'youtu.be') {
-        const id = u.pathname.slice(1);
+        const id = u.pathname.slice(1).split('/')[0];
         return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
       }
-      if (host === 'youtube.com') {
+      if (host === 'youtube.com' || host === 'youtube-nocookie.com') {
         if (u.pathname === '/watch') {
           const id = u.searchParams.get('v');
           return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
         }
         if (u.pathname.startsWith('/embed/')) {
+          const id = u.pathname.split('/')[2];
+          return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
+        }
+        if (u.pathname.startsWith('/shorts/')) {
           const id = u.pathname.split('/')[2];
           return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
         }
@@ -3656,45 +3690,119 @@ const YouTube = {
       try { YouTube._player.destroy(); } catch { /* already gone */ }
       YouTube._player = null;
     }
+    YouTube._wasPlayingBeforeHidden = false;
   },
+
+  _CANT_EMBED_MESSAGE: "This video can't be used as a background. Try another one.",
 
   async applyBackground() {
     const id = YouTube.extractId(state.mediaSettings.youtubeId);
     YouTube._destroyPlayer();
-    if (!id) { Media.applyDefaultBackground(); return; }
-
-    await YouTube.ensureApiLoaded();
-    if (!window.YT || !window.YT.Player) { Media.applyDefaultBackground(); return; }
-    if (state.mediaSettings.type !== 'youtube' || YouTube.extractId(state.mediaSettings.youtubeId) !== id) return;
+    if (!id) { Media._revertToPrevious(YouTube._CANT_EMBED_MESSAGE); return; }
 
     const layer = document.getElementById('background-layer');
+    const isBackgroundMode = state.mediaSettings.playbackMode === 'background';
     const wrapper = document.createElement('div');
-    wrapper.className = state.mediaSettings.playbackMode === 'background' ? 'yt-wrapper' : 'yt-wrapper yt-wrapper--hidden';
+    wrapper.className = isBackgroundMode ? 'yt-wrapper' : 'yt-wrapper yt-wrapper--hidden';
+
+    if (isBackgroundMode) {
+      // Shown until the player reports PLAYING, so the user never sees a blank layer, a
+      // loading spinner, or YouTube's red play button while the iframe spins up.
+      const thumb = document.createElement('img');
+      thumb.alt = '';
+      thumb.className = 'yt-thumb';
+      thumb.src = `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`;
+      // Not every video has a maxres thumbnail -- and when it doesn't, i.ytimg.com serves a tiny
+      // 120x90 gray placeholder JPEG with a 404 status rather than actually failing to load, so
+      // `onerror` alone never fires. Check the decoded size on `load` too and swap to hqdefault.jpg
+      // (which always exists) in either case.
+      const fallToHqThumb = () => { thumb.onerror = null; thumb.onload = null; thumb.src = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`; };
+      thumb.onerror = fallToHqThumb;
+      thumb.onload = () => { if (thumb.naturalWidth <= 120) fallToHqThumb(); };
+      wrapper.appendChild(thumb);
+    }
     const target = document.createElement('div');
     target.id = 'youtube-player-target';
     wrapper.appendChild(target);
     layer.appendChild(wrapper);
 
+    await YouTube.ensureApiLoaded();
+    if (!window.YT || !window.YT.Player) { Media._revertToPrevious(YouTube._CANT_EMBED_MESSAGE); return; }
+    // Settings may have changed again while the API script was loading.
+    if (state.mediaSettings.type !== 'youtube' || YouTube.extractId(state.mediaSettings.youtubeId) !== id) return;
+
     try {
       YouTube._player = new YT.Player('youtube-player-target', {
         videoId: id,
-        playerVars: { autoplay: 1, mute: 1, controls: 0, disablekb: 1, modestbranding: 1, rel: 0 },
+        // Privacy-enhanced domain -- doesn't set YouTube cookies until/unless the user
+        // actually interacts with the video.
+        host: 'https://www.youtube-nocookie.com',
+        playerVars: {
+          autoplay: 1,
+          mute: 1, // always start muted: browsers block autoplay-with-sound outright, which is
+                   // exactly what used to leave the red play button showing instead of playing.
+          controls: 0,
+          disablekb: 1,
+          fs: 0,
+          iv_load_policy: 3, // no video annotations
+          rel: 0, // no related-video end screen
+          playsinline: 1,
+          loop: 1,
+          playlist: id, // required by YouTube for `loop` to work on a single video
+          enablejsapi: 1,
+          origin: window.location.origin,
+        },
         events: {
           onReady: (e) => {
             try {
+              e.target.mute();
+              state.mediaSettings.muted = true; // reflect reality in the mute button; user unmutes via our own control
               e.target.setVolume(Math.round(state.mediaSettings.volume * 100));
-              state.mediaSettings.muted ? e.target.mute() : e.target.unMute();
               e.target.playVideo();
             } catch { /* player may already be gone if media type changed */ }
             UI.showMediaPanel();
             UI.syncMediaControls();
           },
-          onError: () => { Media.applyDefaultBackground(); },
+          onStateChange: (e) => {
+            if (e.data === YT.PlayerState.PLAYING) {
+              const iframe = document.getElementById('youtube-player-target');
+              if (iframe) iframe.classList.add('yt-playing');
+              Media._appliedMediaSettings = { ...state.mediaSettings };
+            } else if (e.data === YT.PlayerState.ENDED) {
+              // `loop`+`playlist` above should already loop natively; this is a defensive
+              // backstop so YouTube's "suggested videos" end screen can never flash on screen.
+              try { e.target.seekTo(0); e.target.playVideo(); } catch { /* player may be gone */ }
+            }
+          },
+          onError: () => {
+            // Error codes: 2 = invalid video id, 100 = video not found/removed,
+            // 101/150 = the owner has disabled embedding. All are unrecoverable here --
+            // whichever it is, there is no broken-player state to show, just fall back.
+            YouTube._destroyPlayer();
+            Media._revertToPrevious(YouTube._CANT_EMBED_MESSAGE);
+          },
         },
       });
-    } catch { Media.applyDefaultBackground(); }
+    } catch { Media._revertToPrevious(YouTube._CANT_EMBED_MESSAGE); }
   },
+
+  _wasPlayingBeforeHidden: false,
 };
+
+// Pause the background video when the tab isn't visible (saves battery/data) and resume it
+// when it becomes visible again -- but only if it was actually playing before, so this never
+// un-pauses a video the user paused themselves via the media panel.
+document.addEventListener('visibilitychange', () => {
+  if (state.mediaSettings.type !== 'youtube' || !YouTube._player) return;
+  try {
+    if (document.hidden) {
+      YouTube._wasPlayingBeforeHidden = YouTube._player.getPlayerState() === 1;
+      if (YouTube._wasPlayingBeforeHidden) YouTube._player.pauseVideo();
+    } else if (YouTube._wasPlayingBeforeHidden) {
+      YouTube._player.playVideo();
+    }
+  } catch { /* player may be mid-teardown */ }
+});
 
 /* ============================== Built-in music library (procedural) ============================== */
 
@@ -5478,7 +5586,7 @@ const UI = {
     if (!result.ok) { setFieldStatus(status, result.reason, 'error'); return; }
     setFieldStatus(status, 'Looks good', 'success');
     const iframe = document.createElement('iframe');
-    iframe.src = `https://www.youtube.com/embed/${id}?controls=1`;
+    iframe.src = `https://www.youtube-nocookie.com/embed/${id}?controls=1`;
     iframe.style.cssText = 'width:213px;max-width:100%;height:120px;border:0;border-radius:8px;';
     iframe.allow = 'autoplay; encrypted-media';
     box.appendChild(iframe);

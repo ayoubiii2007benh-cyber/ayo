@@ -51,7 +51,7 @@ function verifyToken(token) {
    every token signed before it). Attaches req.userId. Every route that
    touches user-specific data uses this -- nothing trusts a client-supplied
    user id from the request body. */
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   const payload = token && verifyToken(token);
@@ -59,13 +59,18 @@ function requireAuth(req, res, next) {
     console.warn(`[auth] rejected request to ${req.method} ${req.path} from ${req.ip}: no valid token`);
     return res.status(401).json({ error: 'Not authenticated.' });
   }
-  const row = db.prepare('SELECT token_version FROM users WHERE id = ?').get(payload.userId);
-  if (!row || row.token_version !== payload.tokenVersion) {
-    console.warn(`[auth] rejected request to ${req.method} ${req.path} from ${req.ip}: stale/revoked token for user ${payload.userId}`);
-    return res.status(401).json({ error: 'Session expired. Please log in again.' });
+  try {
+    const row = await db.get('SELECT token_version FROM users WHERE id = ?', [payload.userId]);
+    if (!row || row.token_version !== payload.tokenVersion) {
+      console.warn(`[auth] rejected request to ${req.method} ${req.path} from ${req.ip}: stale/revoked token for user ${payload.userId}`);
+      return res.status(401).json({ error: 'Session expired. Please log in again.' });
+    }
+    req.userId = payload.userId;
+    next();
+  } catch (err) {
+    console.error('[auth] database error while checking session:', err.message);
+    res.status(500).json({ error: 'Something went wrong.' });
   }
-  req.userId = payload.userId;
-  next();
 }
 
 module.exports = { hashPassword, verifyPassword, signToken, verifyToken, requireAuth, hashWithPepper, safeEqual };
