@@ -804,10 +804,18 @@ app.post('/api/lounge/invites/:id/decline', requireAuth, (req, res) => {
    good enough for a small social app; not a substitute for a trusted timer
    if this ever needs to resist a determined cheater. */
 
+// 30 req/min already throttles a single burst, but a script left running could still post
+// a fresh 1-180 min session every couple of seconds indefinitely -- cap the rolling 24h
+// total too, so the leaderboard can't be inflated past what's physically plausible.
+const MAX_DAILY_FOCUS_MINUTES = 960; // 16h -- generous headroom over any real day of focus
+
 app.post('/api/stats/sessions', requireAuth, (req, res) => {
   if (rateLimited(`session-log:${req.userId}`, 30, 60_000)) return res.status(429).json({ error: 'Too many session logs. Try again shortly.' });
   const minutes = Math.trunc(Number(req.body && req.body.minutes));
   if (!Number.isFinite(minutes) || minutes < 1 || minutes > 180) return res.status(400).json({ error: 'minutes must be between 1 and 180.' });
+  const since = Date.now() - 24 * 60 * 60_000;
+  const { total } = db.prepare('SELECT COALESCE(SUM(minutes), 0) AS total FROM focus_sessions WHERE user_id = ? AND completed_at >= ?').get(req.userId, since);
+  if (total + minutes > MAX_DAILY_FOCUS_MINUTES) return res.status(429).json({ error: 'Daily focus limit reached.' });
   db.prepare('INSERT INTO focus_sessions (id, user_id, minutes, completed_at) VALUES (?, ?, ?, ?)').run(newId(), req.userId, minutes, Date.now());
   res.status(201).json({ ok: true });
 });
@@ -842,6 +850,11 @@ app.get('/api/presence/online-count', (req, res) => res.json({ count: onlineUser
 /* ============================== static frontend ============================== */
 
 const INDEX_HTML_PATH = path.join(__dirname, '..', 'index.html');
+
+app.use('/favicon', express.static(path.join(__dirname, '..', 'favicon')));
+app.get('/site.webmanifest', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'site.webmanifest'));
+});
 
 app.get('/', (req, res) => {
   const nonce = crypto.randomBytes(16).toString('base64');

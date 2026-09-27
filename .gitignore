@@ -4,3 +4,9 @@ server/node_modules/
 server/data.db
 server/data.db-*
 server/.env
+
+# Redesign working docs -- not part of the shipped app
+LIQUID_GLASS_REDESIGN.md
+REDESIGN_CHECKLIST.md
+liquid-glass-reference.html
+index.backup.html
