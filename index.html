@@ -95,6 +95,31 @@
   input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   input[type="number"] { -moz-appearance: textfield; }
 
+  /* Thin glass-matched scrollbar for every real scroll container in the app (dialogs'
+     inner forms, the friends drawer, chat/notif/activity/track lists) -- only shown
+     when that container actually needs to scroll (short screens / phones). */
+  .auth-modal__form, .profile-modal__form, #settings-form, .friends-drawer,
+  .chat-dialog__messages, .ai-chat__messages, .notif-picker__menu,
+  .lounge-activity-log, .track-list {
+    scrollbar-width: thin;
+    scrollbar-color: var(--track) transparent;
+  }
+  .auth-modal__form::-webkit-scrollbar, .profile-modal__form::-webkit-scrollbar,
+  #settings-form::-webkit-scrollbar, .friends-drawer::-webkit-scrollbar,
+  .chat-dialog__messages::-webkit-scrollbar, .ai-chat__messages::-webkit-scrollbar,
+  .notif-picker__menu::-webkit-scrollbar, .lounge-activity-log::-webkit-scrollbar,
+  .track-list::-webkit-scrollbar { width: 6px; }
+  .auth-modal__form::-webkit-scrollbar-thumb, .profile-modal__form::-webkit-scrollbar-thumb,
+  #settings-form::-webkit-scrollbar-thumb, .friends-drawer::-webkit-scrollbar-thumb,
+  .chat-dialog__messages::-webkit-scrollbar-thumb, .ai-chat__messages::-webkit-scrollbar-thumb,
+  .notif-picker__menu::-webkit-scrollbar-thumb, .lounge-activity-log::-webkit-scrollbar-thumb,
+  .track-list::-webkit-scrollbar-thumb { background: var(--track); border-radius: 3px; }
+  .auth-modal__form::-webkit-scrollbar-track, .profile-modal__form::-webkit-scrollbar-track,
+  #settings-form::-webkit-scrollbar-track, .friends-drawer::-webkit-scrollbar-track,
+  .chat-dialog__messages::-webkit-scrollbar-track, .ai-chat__messages::-webkit-scrollbar-track,
+  .notif-picker__menu::-webkit-scrollbar-track, .lounge-activity-log::-webkit-scrollbar-track,
+  .track-list::-webkit-scrollbar-track { background: transparent; }
+
   a:focus-visible,
   button:focus-visible,
   input:focus-visible,
@@ -796,11 +821,17 @@
     font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
   }
   .notif-picker__menu {
-    position: absolute; top: calc(100% + 8px); left: 0; z-index: 30;
+    position: absolute; top: calc(100% + 8px); left: 0; z-index: 1000;
     width: 320px; max-width: calc(100vw - 32px); max-height: 360px; overflow-y: auto;
     border-radius: var(--r-md); padding: 10px;
+    /* .glass-pop's translucent background is meant to float over the blurred page
+       behind a scrim (dialogs, the friends drawer). This popover has no scrim of its
+       own, so it needs a much more solid fill or live page content shows through. */
+    background: rgba(255, 255, 255, 0.97);
   }
+  [data-theme="dark"] .notif-picker__menu { background: rgba(28, 26, 36, 0.97); }
   .notif-picker__header { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 14px; padding: 4px 6px 10px; }
+  .notif-picker__close { flex-shrink: 0; width: 28px; height: 28px; }
   .notif-picker__mark-read { border: none; background: none; color: var(--acc); font-size: 13px; font-weight: 600; cursor: pointer; padding: 0; }
   .notif-picker__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
   .notif-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 6px; border-radius: var(--r-sm); font-size: 13px; cursor: default; }
@@ -862,7 +893,7 @@
   .friends-drawer__header h2 { font-size: 19px; font-weight: 700; }
 
   dialog#chat-dialog {
-    border: none; border-radius: var(--r-lg); padding: 0;
+    border: none; border-radius: var(--r-lg); padding: 0; overflow: hidden;
     width: min(420px, calc(100vw - 32px)); max-height: min(560px, calc(100vh - 48px));
     background: var(--glass-pop); backdrop-filter: var(--blur-pop); -webkit-backdrop-filter: var(--blur-pop);
     border: 1px solid var(--edge); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
@@ -882,7 +913,7 @@
 
   /* ==================== 16. Profile modal ==================== */
   dialog#profile-modal {
-    border: none; border-radius: var(--r-lg); padding: 0;
+    border: none; border-radius: var(--r-lg); padding: 0; overflow: hidden;
     width: min(400px, calc(100vw - 32px)); max-height: min(640px, calc(100vh - 48px));
     background: var(--glass-pop); backdrop-filter: var(--blur-pop); -webkit-backdrop-filter: var(--blur-pop);
     border: 1px solid var(--edge); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
@@ -918,7 +949,7 @@
 
   /* ==================== 17. Auth modal ==================== */
   dialog#auth-modal {
-    border: none; border-radius: var(--r-lg); padding: 0;
+    border: none; border-radius: var(--r-lg); padding: 0; overflow: hidden;
     width: min(380px, calc(100vw - 32px)); max-height: min(600px, calc(100vh - 48px));
     background: var(--glass-pop); backdrop-filter: var(--blur-pop); -webkit-backdrop-filter: var(--blur-pop);
     border: 1px solid var(--edge); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
@@ -944,7 +975,7 @@
 
   /* ==================== 18. Settings dialog ==================== */
   dialog#settings {
-    border: none; border-radius: var(--r-lg); padding: 0;
+    border: none; border-radius: var(--r-lg); padding: 0; overflow: hidden;
     width: min(480px, calc(100vw - 32px)); max-height: min(720px, calc(100vh - 48px));
     background: var(--glass-pop); backdrop-filter: var(--blur-pop); -webkit-backdrop-filter: var(--blur-pop);
     border: 1px solid var(--edge); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
@@ -1155,7 +1186,12 @@
         <div class="notif-picker__menu glass-pop" id="notif-menu" role="menu" hidden>
           <div class="notif-picker__header">
             <span>Notifications</span>
-            <button type="button" id="notif-mark-all-read" class="notif-picker__mark-read">Mark all read</button>
+            <div style="display:flex;align-items:center;gap:4px">
+              <button type="button" id="notif-mark-all-read" class="notif-picker__mark-read">Mark all read</button>
+              <button type="button" id="notif-close" class="icon-btn notif-picker__close" aria-label="Close notifications">
+                <svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M5 5l10 10M15 5L5 15"/></svg>
+              </button>
+            </div>
           </div>
           <ul class="notif-picker__list" id="notif-list"></ul>
           <p class="field-hint" id="notif-empty" hidden>You're all caught up.</p>
@@ -4058,6 +4094,38 @@ const UI = {
   showMediaPanel() { const el = document.getElementById('media-panel'); if (el) el.hidden = false; },
   hideMediaPanel() { const el = document.getElementById('media-panel'); if (el) el.hidden = true; },
 
+  // Native <dialog>.showModal() doesn't stop the page behind it from scrolling in every
+  // browser, so lock body scroll for as long as any dialog is open, and close the two
+  // lightweight header popovers (Notifications, Friends) so a dialog never opens on top
+  // of a stale one underneath. Watching the `open` attribute (which showModal()/close()/
+  // Escape all keep in sync) means this needs no changes at any of the many existing
+  // showModal()/close() call sites. Also wires click-on-backdrop to close, for every
+  // dialog uniformly.
+  initDialogCoordination() {
+    const dialogs = document.querySelectorAll('dialog');
+    const sync = () => {
+      const anyOpen = Array.from(dialogs).some((d) => d.open);
+      // In standards mode the page actually scrolls via <html> (document.documentElement),
+      // not <body> -- body-only overflow:hidden looks right but doesn't stop the page
+      // scrolling behind the modal. Lock both to be safe across browsers.
+      document.documentElement.style.overflow = anyOpen ? 'hidden' : '';
+      document.body.style.overflow = anyOpen ? 'hidden' : '';
+      if (anyOpen) {
+        const notifMenu = document.getElementById('notif-menu');
+        const notifTrigger = document.getElementById('notif-trigger');
+        if (notifMenu && !notifMenu.hidden) { notifMenu.hidden = true; notifTrigger.setAttribute('aria-expanded', 'false'); }
+        const drawer = document.getElementById('friends-drawer');
+        const drawerBackdrop = document.getElementById('friends-drawer-backdrop');
+        if (drawer && !drawer.hidden) { drawer.hidden = true; drawerBackdrop.hidden = true; }
+      }
+    };
+    dialogs.forEach((d) => {
+      new MutationObserver(sync).observe(d, { attributes: true, attributeFilter: ['open'] });
+      d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
+    });
+    sync();
+  },
+
   renderTimerControls() {
     const btn = document.getElementById('timer-toggle');
     if (btn) {
@@ -5315,6 +5383,7 @@ const UI = {
 
   init() {
     State.init();
+    UI.initDialogCoordination();
     // Deliberately not awaited: the timer/tasks/settings below are fully local
     // and must render and become interactive immediately, even if the backend
     // is slow, cold-starting, or briefly unreachable. Auth-dependent UI
@@ -5358,14 +5427,26 @@ const UI = {
     });
 
     // ---- Notifications ----
-    document.getElementById('notif-trigger').addEventListener('click', () => {
-      const menu = document.getElementById('notif-menu');
-      const trigger = document.getElementById('notif-trigger');
-      const opening = menu.hidden;
-      menu.hidden = !opening;
-      trigger.setAttribute('aria-expanded', String(opening));
-    });
+    const notifMenu = document.getElementById('notif-menu');
+    const notifTrigger = document.getElementById('notif-trigger');
+    const openNotifMenu = () => {
+      closeFriendsDrawer();
+      notifMenu.hidden = false;
+      notifTrigger.setAttribute('aria-expanded', 'true');
+    };
+    const closeNotifMenu = () => {
+      notifMenu.hidden = true;
+      notifTrigger.setAttribute('aria-expanded', 'false');
+    };
+    notifTrigger.addEventListener('click', () => (notifMenu.hidden ? openNotifMenu() : closeNotifMenu()));
+    document.getElementById('notif-close').addEventListener('click', closeNotifMenu);
     document.getElementById('notif-mark-all-read').addEventListener('click', () => Notifications.markAllRead());
+    document.addEventListener('click', (e) => {
+      if (!notifMenu.hidden && !document.getElementById('notif-picker').contains(e.target)) closeNotifMenu();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !notifMenu.hidden) closeNotifMenu();
+    });
 
     // ---- Profile modal ----
     document.getElementById('user-avatar').addEventListener('click', () => UI.openProfileModal());
@@ -5823,6 +5904,7 @@ const UI = {
 
     // ---- Friends drawer ----
     const openFriendsDrawer = () => {
+      closeNotifMenu();
       document.getElementById('friends-drawer').hidden = false;
       document.getElementById('friends-drawer-backdrop').hidden = false;
     };
@@ -5834,6 +5916,9 @@ const UI = {
     document.getElementById('lounge-manage-friends-btn').addEventListener('click', openFriendsDrawer);
     document.getElementById('friends-drawer-close').addEventListener('click', closeFriendsDrawer);
     document.getElementById('friends-drawer-backdrop').addEventListener('click', closeFriendsDrawer);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !document.getElementById('friends-drawer').hidden) closeFriendsDrawer();
+    });
     document.getElementById('friends-drawer-login-btn').addEventListener('click', () => {
       closeFriendsDrawer();
       document.getElementById('auth-modal').showModal();
