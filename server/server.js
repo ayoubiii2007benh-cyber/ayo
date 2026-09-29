@@ -33,7 +33,16 @@ app.use(helmet({
   frameguard: { action: 'deny' }, // matches that pass's frame-ancestors 'none'
 }));
 app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : false }));
-app.use(express.json({ limit: '100kb' }));
+const jsonSmall = express.json({ limit: '100kb' });
+const jsonWithImage = express.json({ limit: '8mb' });
+// Only the room-chat send route may carry an image (base64 of up to 5 MB); everything else
+// keeps the 100kb cap. The larger parser is only used for requests that at least present a
+// bearer token, so anonymous callers can never make the server buffer megabytes.
+const ROOM_MESSAGES_PATH_RE = /^\/api\/lounge\/rooms\/[^/]+\/messages$/;
+app.use((req, res, next) => {
+  if (req.method === 'POST' && req.headers.authorization && ROOM_MESSAGES_PATH_RE.test(req.path)) return jsonWithImage(req, res, next);
+  return jsonSmall(req, res, next);
+});
 
 /* ============================== validation ============================== */
 
@@ -745,6 +754,10 @@ function generateRoomCode() {
   return `${word}-${suffix}`;
 }
 const ROOM_STATUSES = ['idle', 'focusing', 'resting'];
+const MIN_SPRINT_POMODOROS = 1;
+const MAX_SPRINT_POMODOROS = 12;
+const SPRINT_FOCUS_RANGE = [5, 120];
+const SPRINT_BREAK_RANGE = [1, 60];
 
 function getRoomByCode(code) { return db.get('SELECT * FROM rooms WHERE LOWER(code) = LOWER(?)', [code]); }
 function getRoomById(id) { return db.get('SELECT * FROM rooms WHERE id = ?', [id]); }
@@ -767,7 +780,9 @@ async function publicRoom(room) {
     goal: room.goal,
     hostId: room.host_user_id,
     createdAt: room.created_at,
-    mission: room.mission_state ? { targetPomodoros: room.mission_target, state: room.mission_state } : null,
+    mission: room.mission_state
+      ? { targetPomodoros: room.mission_target, state: room.mission_state, focusMinutes: room.mission_focus_min || 25, breakMinutes: room.mission_break_min || 5 }
+      : null,
     members: memberRows.map((m) => ({
       id: m.user_id,
       displayName: m.display_name,
@@ -801,6 +816,7 @@ async function leaveCurrentRoom(userId) {
   const membership = await getCurrentRoomMembership(userId);
   if (!membership) return;
   const roomId = membership.room_id;
+  removeFromVoice(userId, roomId);
   await db.run('DELETE FROM room_members WHERE room_id = ? AND user_id = ?', [roomId, userId]);
   const remaining = await db.all('SELECT * FROM room_members WHERE room_id = ? ORDER BY joined_at ASC', [roomId]);
   if (remaining.length === 0) {
@@ -904,8 +920,20 @@ app.post('/api/lounge/rooms/:code/mission/start', requireAuth, async (req, res) 
   const memberCountRow = await db.get('SELECT COUNT(*) AS c FROM room_members WHERE room_id = ?', [room.id]);
   if (memberCountRow.c < 2) return res.status(400).json({ error: 'Need at least 2 members to start a sprint.' });
   if (room.mission_state === 'active') return res.status(409).json({ error: 'A sprint is already active.' });
-  const target = Math.min(4, Math.max(1, Math.trunc(Number(req.body.targetPomodoros)) || 1));
-  await db.run('UPDATE rooms SET mission_target = ?, mission_state = ? WHERE id = ?', [target, 'active', room.id]);
+  const target = Number(req.body.targetPomodoros);
+  if (!Number.isInteger(target) || target < MIN_SPRINT_POMODOROS || target > MAX_SPRINT_POMODOROS) {
+    return res.status(400).json({ error: `Sprint length must be a whole number from ${MIN_SPRINT_POMODOROS} to ${MAX_SPRINT_POMODOROS} pomodoros.` });
+  }
+  // Older clients send no durations; fall back to the classic 25/5.
+  const focus = req.body.focusMinutes === undefined ? 25 : Number(req.body.focusMinutes);
+  const brk = req.body.breakMinutes === undefined ? 5 : Number(req.body.breakMinutes);
+  if (!Number.isInteger(focus) || focus < SPRINT_FOCUS_RANGE[0] || focus > SPRINT_FOCUS_RANGE[1]) {
+    return res.status(400).json({ error: `Focus length must be a whole number from ${SPRINT_FOCUS_RANGE[0]} to ${SPRINT_FOCUS_RANGE[1]} minutes.` });
+  }
+  if (!Number.isInteger(brk) || brk < SPRINT_BREAK_RANGE[0] || brk > SPRINT_BREAK_RANGE[1]) {
+    return res.status(400).json({ error: `Break length must be a whole number from ${SPRINT_BREAK_RANGE[0]} to ${SPRINT_BREAK_RANGE[1]} minutes.` });
+  }
+  await db.run('UPDATE rooms SET mission_target = ?, mission_state = ?, mission_focus_min = ?, mission_break_min = ? WHERE id = ?', [target, 'active', focus, brk, room.id]);
   await db.run(`UPDATE room_members SET mission_progress = 0, mission_state = 'pending' WHERE room_id = ?`, [room.id]);
   await broadcastRoom(room.id);
   res.json({ ok: true });
@@ -949,6 +977,187 @@ app.post('/api/lounge/rooms/:code/mission/giveup', requireAuth, async (req, res)
   await broadcastRoom(room.id);
   res.json({ ok: true });
 });
+
+/* -------- shared room chat --------
+   Text + optional image, readable by every current member. History is served on join;
+   new messages are pushed over the WebSocket like every other room event. Everything is
+   in Postgres and cascades away with the room (see room_messages in db.js). */
+
+const CHAT_MAX_TEXT = 1000;
+const CHAT_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const CHAT_HISTORY_LIMIT = 200;
+
+/** Identifies an image by its file signature (never trusting the client-declared type). SVG is
+    deliberately unsupported: it can carry script. Returns the canonical mime or null. */
+function sniffImageMime(buf) {
+  if (buf.length < 12) return null;
+  if (buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  const head = buf.subarray(0, 6).toString('latin1');
+  if (head === 'GIF87a' || head === 'GIF89a') return 'image/gif';
+  if (buf.subarray(0, 4).toString('latin1') === 'RIFF' && buf.subarray(8, 12).toString('latin1') === 'WEBP') return 'image/webp';
+  return null;
+}
+
+const CHAT_SELECT = `SELECT rm.id, rm.sender_id, rm.text, rm.image_mime, rm.created_at, (rm.image IS NOT NULL) AS has_image,
+  u.display_name, u.username, u.avatar, u.avatar_url
+  FROM room_messages rm JOIN users u ON u.id = rm.sender_id`;
+function publicChatMessage(row) {
+  return {
+    id: row.id,
+    text: row.text,
+    hasImage: !!row.has_image,
+    imageMime: row.has_image ? row.image_mime : null,
+    createdAt: row.created_at,
+    sender: { id: row.sender_id, displayName: row.display_name, username: row.username, avatar: row.avatar, avatarUrl: row.avatar_url || null },
+  };
+}
+
+async function requireRoomMember(req, res) {
+  const room = await getRoomByCode(req.params.code);
+  if (!room || !(await getMembership(room.id, req.userId))) { res.status(404).json({ error: 'You are not in that room.' }); return null; }
+  return room;
+}
+
+app.get('/api/lounge/rooms/:code/messages', requireAuth, async (req, res) => {
+  const room = await requireRoomMember(req, res);
+  if (!room) return;
+  const rows = await db.all(`${CHAT_SELECT} WHERE rm.room_id = ? ORDER BY rm.created_at DESC LIMIT ${CHAT_HISTORY_LIMIT}`, [room.id]);
+  res.json({ messages: rows.reverse().map(publicChatMessage) });
+});
+
+app.post('/api/lounge/rooms/:code/messages', requireAuth, async (req, res) => {
+  if (rateLimited(`room-chat:${req.userId}`, 30, 60_000)) return res.status(429).json({ error: 'You are sending messages too fast. Try again shortly.' });
+  const room = await requireRoomMember(req, res);
+  if (!room) return;
+  const body = req.body || {};
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  if (text.length > CHAT_MAX_TEXT) return res.status(400).json({ error: `Messages can be at most ${CHAT_MAX_TEXT} characters.` });
+
+  let imageBuf = null;
+  let imageMime = null;
+  if (body.image !== undefined && body.image !== null) {
+    const dataUrl = body.image;
+    const comma = typeof dataUrl === 'string' && dataUrl.startsWith('data:') ? dataUrl.indexOf(',') : -1;
+    if (comma < 0 || !/^data:image\/(png|jpeg|webp|gif);base64$/.test(dataUrl.slice(0, comma))) {
+      return res.status(400).json({ error: 'Only png, jpg, webp or gif images can be sent.' });
+    }
+    // Buffer.from(…, 'base64') silently skips invalid characters, so check the length bound first.
+    if (dataUrl.length - comma > Math.ceil(CHAT_MAX_IMAGE_BYTES * 4 / 3) + 8) return res.status(413).json({ error: 'That image is too large (max 5 MB).' });
+    imageBuf = Buffer.from(dataUrl.slice(comma + 1), 'base64');
+    if (imageBuf.length > CHAT_MAX_IMAGE_BYTES) return res.status(413).json({ error: 'That image is too large (max 5 MB).' });
+    imageMime = sniffImageMime(imageBuf);
+    if (!imageMime) return res.status(400).json({ error: 'Only png, jpg, webp or gif images can be sent.' });
+  }
+  if (!text && !imageBuf) return res.status(400).json({ error: 'Write a message or attach an image.' });
+
+  const id = newId();
+  const created_at = Date.now();
+  await db.run(
+    'INSERT INTO room_messages (id, room_id, sender_id, text, image, image_mime, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [id, room.id, req.userId, text, imageBuf, imageMime, created_at]
+  );
+  const row = await db.get(`${CHAT_SELECT} WHERE rm.id = ?`, [id]);
+  const message = publicChatMessage(row);
+  const memberRows = await db.all('SELECT user_id FROM room_members WHERE room_id = ?', [room.id]);
+  for (const { user_id } of memberRows) sendToUser(user_id, { type: 'room-message', roomCode: room.code, message });
+  res.status(201).json({ message });
+});
+
+app.get('/api/lounge/rooms/:code/messages/:messageId/image', requireAuth, async (req, res) => {
+  const room = await requireRoomMember(req, res);
+  if (!room) return;
+  const row = await db.get('SELECT image, image_mime FROM room_messages WHERE id = ? AND room_id = ? AND image IS NOT NULL', [req.params.messageId, room.id]);
+  if (!row) return res.status(404).json({ error: 'Image not found.' });
+  res.set('Content-Type', row.image_mime);
+  res.set('Cache-Control', 'private, max-age=86400');
+  res.send(row.image);
+});
+
+/* -------- voice chat signaling --------
+   Audio itself is peer-to-peer WebRTC; the server only relays the SDP/ICE handshake between
+   members of the SAME room and tracks who is in voice and their mute/deafen flags. All of
+   it is in-memory on purpose: it describes live sockets, so it must vanish with them. */
+
+/** roomId -> Map<userId, { ws, muted, deafened }> */
+const voiceRooms = new Map();
+
+function iceServers() {
+  const servers = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+  const turnUrls = (process.env.TURN_URLS || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (turnUrls.length) {
+    servers.push({ urls: turnUrls, username: process.env.TURN_USERNAME || '', credential: process.env.TURN_CREDENTIAL || '' });
+  }
+  return servers;
+}
+app.get('/api/lounge/voice/ice', requireAuth, (req, res) => res.json({ iceServers: iceServers() }));
+
+function sendVoice(entry, payload) {
+  if (entry && entry.ws.readyState === entry.ws.OPEN) entry.ws.send(JSON.stringify(payload));
+}
+function broadcastVoice(roomId, payload, exceptUserId) {
+  const peers = voiceRooms.get(roomId);
+  if (!peers) return;
+  for (const [uid, entry] of peers) if (uid !== exceptUserId) sendVoice(entry, payload);
+}
+function removeFromVoice(userId, roomId, onlyWs) {
+  const peers = voiceRooms.get(roomId);
+  const entry = peers && peers.get(userId);
+  if (!entry || (onlyWs && entry.ws !== onlyWs)) return;
+  peers.delete(userId);
+  if (peers.size === 0) voiceRooms.delete(roomId);
+  broadcastVoice(roomId, { type: 'voice-peer-left', userId }, userId);
+}
+function findVoiceRoomId(userId, onlyWs) {
+  for (const [roomId, peers] of voiceRooms) {
+    const entry = peers.get(userId);
+    if (entry && (!onlyWs || entry.ws === onlyWs)) return roomId;
+  }
+  return null;
+}
+
+async function handleVoiceMessage(ws, msg) {
+  const userId = ws.userId;
+  if (msg.type === 'voice-leave') {
+    const roomId = findVoiceRoomId(userId, ws);
+    if (roomId) removeFromVoice(userId, roomId, ws);
+    return;
+  }
+  const membership = await getCurrentRoomMembership(userId);
+  if (!membership) return;
+  const roomId = membership.room_id;
+
+  if (msg.type === 'voice-join') {
+    const peers = voiceRooms.get(roomId) || new Map();
+    voiceRooms.set(roomId, peers);
+    const previous = peers.get(userId);
+    if (previous && previous.ws !== ws) sendVoice(previous, { type: 'voice-replaced' }); // same user, second tab
+    const muted = !!msg.muted;
+    const deafened = !!msg.deafened;
+    // Tell everyone else first, so a peer that saw the old session drops it before the fresh offer arrives.
+    if (previous) broadcastVoice(roomId, { type: 'voice-peer-left', userId }, userId);
+    peers.set(userId, { ws, muted, deafened });
+    const others = [...peers.entries()].filter(([uid]) => uid !== userId).map(([uid, e]) => ({ userId: uid, muted: e.muted, deafened: e.deafened }));
+    ws.send(JSON.stringify({ type: 'voice-peers', peers: others }));
+    broadcastVoice(roomId, { type: 'voice-peer-joined', userId, muted, deafened }, userId);
+    return;
+  }
+
+  const peers = voiceRooms.get(roomId);
+  const self = peers && peers.get(userId);
+  if (!self || self.ws !== ws) return; // not in voice from this socket
+
+  if (msg.type === 'voice-state') {
+    self.muted = !!msg.muted;
+    self.deafened = !!msg.deafened;
+    broadcastVoice(roomId, { type: 'voice-state', userId, muted: self.muted, deafened: self.deafened }, userId);
+  } else if (msg.type === 'voice-signal') {
+    const target = typeof msg.to === 'string' ? peers.get(msg.to) : null;
+    if (!target || msg.to === userId) return; // target must be in voice in this same room
+    if (msg.data === null || typeof msg.data !== 'object') return;
+    sendVoice(target, { type: 'voice-signal', from: userId, data: msg.data });
+  }
+}
 
 /* -------- room invites: friends only, direct one-click join -------- */
 
@@ -1099,7 +1308,8 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
 /* ============================== realtime: presence + push ============================== */
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ noServer: true });
+// Clients only ever send small voice-signaling JSON; cap frames so a socket can't push megabytes at us.
+const wss = new WebSocketServer({ noServer: true, maxPayload: 32 * 1024 });
 
 /** userId -> Set<ws> (a user can have several tabs/devices open at once) */
 const connections = new Map();
@@ -1141,6 +1351,29 @@ server.on('upgrade', (req, socket, head) => {
 });
 
 wss.on('connection', async (ws, req) => {
+  // The only client->server messages are voice signaling (see handleVoiceMessage); everything else
+  // the app does still goes REST -> WS broadcast. Registered before any await below: a client may send
+  // its first voice message the instant its socket opens, and ws drops messages that arrive while no
+  // listener is attached. Handling is serialized per socket (and waits for auth to resolve) so a
+  // join / state / signal sequence is always processed in the order it was sent.
+  let authResolved;
+  const authReady = new Promise((resolve) => { authResolved = resolve; });
+  let queue = Promise.resolve();
+  let windowStart = Date.now();
+  let windowCount = 0;
+  ws.on('message', (data) => {
+    const now = Date.now();
+    if (now - windowStart > 10_000) { windowStart = now; windowCount = 0; }
+    if (++windowCount > 400) return; // flood guard; a full mesh handshake needs far fewer
+    let msg;
+    try { msg = JSON.parse(data.toString()); } catch { return; }
+    if (!msg || typeof msg.type !== 'string' || !msg.type.startsWith('voice-')) return;
+    queue = queue
+      .then(() => authReady)
+      .then(() => (ws.userId ? handleVoiceMessage(ws, msg) : undefined))
+      .catch((err) => console.error('[voice] signaling error:', err.message));
+  });
+
   const url = new URL(req.url, 'http://internal');
   const token = url.searchParams.get('token');
   const payload = token ? verifyToken(token) : null;
@@ -1159,12 +1392,15 @@ wss.on('connection', async (ws, req) => {
     if (firstConnection) { await broadcastPresenceToFriends(ws.userId); broadcastOnlineCount(); }
   }
 
+  authResolved();
   ws.send(JSON.stringify({ type: 'online-count', count: onlineUserCount() }));
   ws.on('pong', () => { ws.isAlive = true; });
 
   ws.on('close', async () => {
     allSockets.delete(ws);
     if (!ws.userId) return;
+    const voiceRoomId = findVoiceRoomId(ws.userId, ws);
+    if (voiceRoomId) removeFromVoice(ws.userId, voiceRoomId, ws);
     const set = connections.get(ws.userId);
     if (!set) return;
     set.delete(ws);

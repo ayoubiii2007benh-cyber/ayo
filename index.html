@@ -403,6 +403,18 @@
   }
   .lounge-chip { border: none; cursor: pointer; font-weight: 700; color: var(--text); background: var(--glass-hi); border-radius: var(--r-pill); padding: 6px 12px; }
   .lounge-chip:hover { background: var(--glass-active); }
+  .lounge-chip { min-width: 0; }
+  .lounge-chip__sep { color: var(--dim); }
+  .lounge-chip__text { min-width: 0; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .live-users__label { color: var(--dim); }
+
+  /* Sound / theme / settings: inline on wide screens (the wrappers vanish), a popover when narrow. */
+  .header-more, .header-more__menu { display: contents; }
+  .header-more__trigger { display: none; }
+  #mute-toggle { order: 1; } #darkmode-toggle { order: 2; } #friends-drawer-toggle { order: 3; } #settings-btn { order: 4; }
+  .header-actions .icon-btn { flex-shrink: 0; }
+  .header-actions, .status-cluster { min-width: 0; }
+  .header-actions { flex-shrink: 1; }
 
   .icon-toolbar { display: flex; align-items: center; gap: 2px; }
 
@@ -425,18 +437,43 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
 
+  /* Header stays inside the viewport at every width: first the username text goes (the avatar keeps
+     its name as a tooltip), sound/theme/settings fold into a ... menu and the brand word goes;
+     under 900px the tabs move to the bottom bar. Notifications and friends always stay visible. */
+  /* The header row is capped at 1280px, so with the status pill showing there's no room for the name text. */
+  .site-header--room .user-profile__name { display: none; }
+  @media (max-width: 1240px) {
+    .user-profile__name { display: none; }
+  }
+  @media (max-width: 1240px) {
+    .brand__word { display: none; }
+    .brand { padding: 0 12px; }
+    .header-more { display: block; position: relative; order: 5; }
+    .header-more__trigger { display: inline-flex; }
+    .header-more__menu {
+      display: none; position: absolute; right: 0; top: calc(100% + 8px); z-index: 1000;
+      flex-direction: row; gap: 2px; padding: 6px; border-radius: var(--r-pill);
+      border: 1px solid var(--edge); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
+      /* no scrim behind this popover, so a mostly solid fill (same reason as .notif-picker__menu) */
+      background: color-mix(in srgb, var(--surface) 94%, transparent);
+      backdrop-filter: var(--blur-pop); -webkit-backdrop-filter: var(--blur-pop);
+    }
+    .header-more.is-open .header-more__menu { display: flex; }
+    .header-more__trigger[aria-expanded="true"] { background: var(--track); }
+  }
   @media (max-width: 900px) {
     .primary-nav { display: none; }
     .site-header__row { padding: 16px 16px 8px; gap: 8px; }
-    .brand__word { display: none; }
-    .brand { padding: 0 12px; }
-    .live-users { display: none; }
-    .user-profile__name { display: none; }
     .header-actions { padding: 0 4px 0 4px; gap: 0; }
+    .live-users { margin-right: 0; }
+  }
+  @media (max-width: 560px), (min-width: 901px) and (max-width: 1060px) {
+    .lounge-chip__sep, .lounge-chip__text { display: none; }
   }
   @media (max-width: 400px) {
     .header-actions { padding: 0 2px; }
     .brand { padding: 0 10px; }
+    .live-users__label { display: none; }
   }
 
   /* ==================== 7. Mobile bottom tab bar ==================== */
@@ -889,6 +926,144 @@
   .lounge-activity-log { list-style: none; margin: 12px 0 0; padding: 0; max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
   .lounge-activity-item { font-size: 13px; color: var(--dim); padding: 10px 12px; border-radius: var(--r-sm); background: var(--glass-hi); }
 
+  /* Dashboard placement: the left panel spans both rows so the chat card can sit under
+     Members + Activity (cols 2-3) without leaving a hole beneath the shorter left column. */
+  .lounge-panel--left { grid-row: 1 / span 2; }
+  .lounge-panel--chat { grid-column: 2 / -1; grid-row: 2; }
+  @media (max-width: 1100px) {
+    .lounge-panel--left, .lounge-panel--chat { grid-column: auto; grid-row: auto; }
+  }
+
+  /* ---- voice: my controls, per-member controls, speaking glow ---- */
+  .lounge-voice-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .lounge-voice-bar .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; font-size: 14px; flex: 1 1 auto; justify-content: center; }
+  .lounge-voice-bar .btn[aria-pressed="true"] { background: color-mix(in srgb, var(--acc) 18%, transparent); color: var(--acc); border-color: var(--acc); }
+  .lounge-voice-bar .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .lounge-voice-hint { width: 100%; margin: 4px 0 0; }
+  /* The cyan glow sits OUTSIDE the ring's box, so it never touches the pink/teal progress arc. */
+  .lounge-ring { border-radius: 50%; transition: box-shadow 0.18s ease; }
+  .lounge-ring--speaking {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--short) 90%, transparent), 0 0 18px 6px color-mix(in srgb, var(--short) 55%, transparent);
+  }
+  .lounge-ring__badges { position: absolute; right: -4px; bottom: -2px; display: flex; gap: 2px; }
+  .lounge-ring__badge {
+    width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+    background: var(--glass-active); border: 1px solid var(--edge); color: var(--focus);
+  }
+  .lounge-ring__badge .icon { width: 13px; height: 13px; }
+  .lounge-voice-ctl { display: flex; align-items: center; gap: 6px; width: 100%; margin-top: 8px; }
+  .lounge-voice-ctl .icon-btn { width: 32px; height: 32px; flex-shrink: 0; }
+  .lounge-voice-ctl .icon-btn .icon { width: 17px; height: 17px; }
+  .lounge-voice-ctl .icon-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--acc) 18%, transparent); color: var(--acc); }
+  .lounge-voice-ctl input[type="range"] { flex: 1 1 40px; min-width: 40px; }
+  .lounge-voice-ctl input[type="range"]::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -5px; }
+  .lounge-voice-ctl input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; }
+  .lounge-voice-ctl__pct { font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+
+  /* ---- sprint length dropdown (replaces the native white <select>) ---- */
+  .lounge-select { position: relative; flex: 1 1 150px; min-width: 0; }
+  .lounge-select__trigger {
+    width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 12px 18px; min-height: 44px; border-radius: var(--r-pill); border: 1px solid var(--edge);
+    background: var(--glass-hi); color: var(--text); font-size: 15px; font-weight: 600; cursor: pointer;
+    transition: background-color 0.16s ease;
+  }
+  .lounge-select__trigger:hover, .lounge-select__trigger[aria-expanded="true"] { background: var(--glass-active); }
+  .lounge-select__trigger .icon { width: 16px; height: 16px; transition: transform 0.16s ease; }
+  .lounge-select__trigger[aria-expanded="true"] .icon { transform: rotate(180deg); }
+  /* In the layout flow (a full-width row under the Start Sprint row), never floating over it. */
+  .lounge-select__menu {
+    flex: 1 1 100%; margin: 0; padding: 6px; list-style: none;
+    border-radius: var(--r-md); border: 1px solid var(--edge); background: var(--glass-hi);
+  }
+  .lounge-select__option {
+    padding: 10px 14px; border-radius: var(--r-sm); font-size: 14px; font-weight: 600; cursor: pointer; color: var(--text);
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .lounge-select__option:hover, .lounge-select__option[data-active="true"] { background: var(--track); }
+  .lounge-select__option[aria-selected="true"] { color: var(--acc); }
+  .lounge-sprint-summary { flex: 1 1 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; color: var(--dim); font-weight: 600; }
+  .lounge-sprint-summary .icon-btn { width: 32px; height: 32px; }
+  .lounge-sprint-summary .icon-btn .icon { width: 16px; height: 16px; }
+  .lounge-sprint-summary .icon-btn[aria-expanded="true"] { background: color-mix(in srgb, var(--acc) 18%, transparent); color: var(--acc); }
+  .lounge-sprint-panel { flex: 1 1 100%; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border-radius: var(--r-md); background: var(--glass-hi); }
+  .lounge-stepper-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 14px; font-weight: 600; }
+  .lounge-stepper-row small { color: var(--dim); font-weight: 500; font-size: 11px; }
+  .lounge-stepper { display: flex; align-items: center; gap: 4px; }
+  .lounge-stepper .icon-btn { width: 32px; height: 32px; border-color: var(--edge); background: var(--glass-active); font-size: 18px; font-weight: 600; line-height: 1; }
+  .lounge-stepper .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .lounge-stepper input {
+    width: 52px; padding: 6px 4px; min-height: 32px; text-align: center; border: 1px solid var(--edge);
+    border-radius: var(--r-pill); background: transparent; color: var(--text); font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .lounge-stepper input[aria-invalid="true"] { border-color: var(--focus); }
+  .lounge-sprint-panel .field-hint { margin: 0; }
+  .field-hint.is-error { color: var(--focus); }
+
+  /* ---- shared room chat ---- */
+  .lounge-chat__header { display: flex; align-items: center; gap: 10px; }
+  .lounge-chat__header h3 { margin: 0 !important; }
+  .lounge-chat__badge {
+    min-width: 20px; height: 20px; padding: 0 6px; border: none; border-radius: var(--r-pill); background: var(--focus); color: #fff;
+    font-size: 11px; font-weight: 700; line-height: 20px; text-align: center; cursor: pointer;
+  }
+  .lounge-panel--chat.is-dragover { outline: 2px dashed var(--acc); outline-offset: -8px; }
+  .lounge-chat__messages {
+    list-style: none; margin: 12px 0; padding: 0 4px 0 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
+    min-height: 220px; max-height: 380px; scrollbar-width: thin; scrollbar-color: var(--track) transparent;
+  }
+  .lounge-chat__messages::-webkit-scrollbar { width: 6px; }
+  .lounge-chat__messages::-webkit-scrollbar-thumb { background: var(--track); border-radius: 3px; }
+  .lounge-chat__empty { color: var(--dim); font-size: 13px; text-align: center; margin: auto; }
+  .lounge-chat__msg { display: flex; gap: 10px; align-items: flex-start; }
+  .lounge-chat__msg .lounge-friend-item__avatar { width: 34px; height: 34px; font-size: 13px; }
+  .lounge-chat__body { min-width: 0; flex: 1; }
+  .lounge-chat__meta { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+  .lounge-chat__meta strong { font-weight: 700; }
+  .lounge-chat__meta time { color: var(--dim); font-size: 12px; }
+  .lounge-chat__text { font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; white-space: pre-wrap; margin-top: 2px; }
+  .lounge-chat__img {
+    display: block; margin-top: 6px; max-width: min(240px, 100%); max-height: 200px; border-radius: var(--r-sm);
+    border: 1px solid var(--edge); background: var(--glass-hi); cursor: zoom-in; object-fit: cover; min-height: 60px; min-width: 60px;
+  }
+  .lounge-chat__preview {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 8px; padding: 8px 10px;
+    border-radius: var(--r-md); background: var(--glass-hi); font-size: 13px; color: var(--dim);
+  }
+  .lounge-chat__preview img { width: 52px; height: 52px; object-fit: cover; border-radius: var(--r-sm); }
+  .lounge-chat__preview span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lounge-chat__composer {
+    display: flex; align-items: flex-end; gap: 6px; padding: 4px 4px 4px 6px;
+    border-radius: var(--r-lg); background: var(--glass-hi); border: 1px solid var(--edge);
+  }
+  .lounge-chat__composer .icon-btn { width: 40px; height: 40px; flex-shrink: 0; }
+  .lounge-chat__composer textarea {
+    flex: 1 1 auto; min-width: 0; resize: none; border: none; outline: none; background: transparent; color: var(--text);
+    font-size: 14px; line-height: 1.4; padding: 11px 4px; max-height: 110px; scrollbar-width: none;
+  }
+  .lounge-chat__composer textarea::placeholder { color: var(--dim); }
+  .lounge-chat__send {
+    flex: 0 0 auto; width: 40px; height: 40px; border: none; border-radius: 20px; background: var(--acc); color: var(--on-acc);
+    cursor: pointer; font-size: 0; position: relative;
+  }
+  .lounge-chat__send::before {
+    content: ''; position: absolute; left: 50%; top: 50%; width: 0; height: 0;
+    border-top: 6px solid transparent; border-bottom: 6px solid transparent;
+    border-left: 9px solid currentColor; transform: translate(-42%, -50%);
+  }
+  .lounge-chat__send:disabled { opacity: 0.5; cursor: not-allowed; }
+  .lounge-chat__error { margin: 8px 0 0; }
+
+  dialog#image-lightbox {
+    border: 1px solid var(--edge); border-radius: var(--r-lg); padding: 0; overflow: hidden; max-width: calc(100vw - 32px);
+    background: var(--glass-pop); backdrop-filter: var(--blur-pop); -webkit-backdrop-filter: var(--blur-pop);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); color: var(--text);
+  }
+  dialog#image-lightbox::backdrop { background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(8px); }
+  .image-lightbox__bar { display: flex; justify-content: flex-end; align-items: center; gap: 8px; padding: 12px 14px 0; }
+  .image-lightbox__bar .btn { padding: 8px 18px; min-height: 40px; text-decoration: none; display: inline-flex; align-items: center; }
+  #image-lightbox-img { display: block; max-width: min(92vw, 1100px); max-height: 78vh; margin: 12px 14px 14px; border-radius: var(--r-sm); }
+
   /* ==================== 15. Friends drawer & chat dialog ==================== */
   .friends-drawer-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); backdrop-filter: blur(4px); z-index: 44; }
   .friends-drawer {
@@ -1235,12 +1410,13 @@
 
     <div class="header-actions glass">
       <div class="status-cluster">
-        <div id="live-users" class="live-users" aria-hidden="true">
+        <button type="button" id="lounge-chip" class="live-users lounge-chip" hidden>
           <span class="live-users__dot"></span>
           <span id="live-users-count" class="live-users__count">—</span>
           <span class="live-users__label">online</span>
-        </div>
-        <button type="button" id="lounge-chip" class="live-users lounge-chip" hidden></button>
+          <span class="lounge-chip__sep" aria-hidden="true">·</span>
+          <span id="lounge-chip-text" class="lounge-chip__text"></span>
+        </button>
       </div>
 
       <div class="notif-picker" id="notif-picker" hidden>
@@ -1264,10 +1440,15 @@
       </div>
 
       <div class="icon-toolbar">
+        <div class="header-more" id="header-more">
+          <button id="header-more-toggle" type="button" class="icon-btn header-more__trigger" aria-haspopup="true" aria-expanded="false" aria-label="More options"><svg class="icon icon--fill" viewBox="0 0 20 20"><circle cx="4.5" cy="10" r="1.4"/><circle cx="10" cy="10" r="1.4"/><circle cx="15.5" cy="10" r="1.4"/></svg></button>
+          <div class="header-more__menu" id="header-more-menu">
         <button id="mute-toggle" type="button" class="icon-btn" aria-label="Mute background music" aria-pressed="false"><svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M3 7.4h2.7L10 4v12l-4.3-3.4H3z"/><path d="M13.1 7.3a3.9 3.9 0 0 1 0 5.4M15.2 5.1a6.9 6.9 0 0 1 0 9.8"/></svg></button>
         <button id="darkmode-toggle" type="button" class="icon-btn" aria-label="Switch to dark mode"><svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M15.5 12.3A6.5 6.5 0 1 1 8.2 4.5a5.2 5.2 0 0 0 7.3 7.8Z"/></svg></button>
-        <button id="friends-drawer-toggle" type="button" class="icon-btn" aria-label="Open friends" aria-haspopup="dialog"><svg class="icon icon--stroke" viewBox="0 0 20 20"><circle cx="7.3" cy="6.6" r="2.5"/><path d="M2.4 16c0-2.9 2.1-4.7 4.9-4.7s4.9 1.8 4.9 4.7"/><circle cx="14.2" cy="7.1" r="1.9"/><path d="M13.4 11.5c2.1.1 3.9 1.8 3.9 4.5"/></svg></button>
         <button id="settings-btn" type="button" class="icon-btn" aria-label="Open settings" aria-haspopup="dialog"><svg class="icon icon--stroke" viewBox="0 0 20 20"><path d="M3 6h6.2M13.8 6H17M3 10h2.2M9.8 10H17M3 14h7.2M14.8 14H17"/><circle cx="11.5" cy="6" r="1.6"/><circle cx="6.5" cy="10" r="1.6"/><circle cx="13" cy="14" r="1.6"/></svg></button>
+          </div>
+        </div>
+        <button id="friends-drawer-toggle" type="button" class="icon-btn" aria-label="Open friends" aria-haspopup="dialog"><svg class="icon icon--stroke" viewBox="0 0 20 20"><circle cx="7.3" cy="6.6" r="2.5"/><path d="M2.4 16c0-2.9 2.1-4.7 4.9-4.7s4.9 1.8 4.9 4.7"/><circle cx="14.2" cy="7.1" r="1.9"/><path d="M13.4 11.5c2.1.1 3.9 1.8 3.9 4.5"/></svg></button>
       </div>
 
       <div class="user-profile" id="user-profile">
@@ -1486,6 +1667,11 @@
           </div>
           <button type="button" class="btn btn-secondary" id="lounge-leave-room">Leave Room</button>
         </div>
+        <div class="lounge-voice-bar" id="lounge-voice-bar" role="group" aria-label="Voice chat">
+          <button type="button" class="btn btn-secondary" id="voice-mute-btn" aria-pressed="false"></button>
+          <button type="button" class="btn btn-secondary" id="voice-deafen-btn" aria-pressed="false"></button>
+          <p class="field-hint lounge-voice-hint" id="voice-hint" hidden></p>
+        </div>
         <h3>Friends</h3>
         <ul class="lounge-friends-list" id="lounge-friends-list-active"></ul>
         <div id="lounge-mission" aria-label="Group mission"></div>
@@ -1497,6 +1683,25 @@
       <section class="glass lounge-panel lounge-panel--right" aria-label="Activity">
         <h3>Activity</h3>
         <ul class="lounge-activity-log" id="lounge-activity-log"></ul>
+      </section>
+      <section class="glass lounge-panel lounge-panel--chat" id="lounge-chat" aria-label="Room chat">
+        <div class="lounge-chat__header">
+          <h3>Chat</h3>
+          <button type="button" class="lounge-chat__badge" id="lounge-chat-badge" hidden aria-label="Unread messages, jump to newest"></button>
+        </div>
+        <ul class="lounge-chat__messages" id="lounge-chat-messages" aria-live="polite"></ul>
+        <div class="lounge-chat__preview" id="lounge-chat-preview" hidden>
+          <img alt="Image to send" id="lounge-chat-preview-img">
+          <span id="lounge-chat-preview-name"></span>
+          <button type="button" class="icon-btn" id="lounge-chat-preview-remove" aria-label="Remove image"></button>
+        </div>
+        <div class="lounge-chat__composer">
+          <button type="button" class="icon-btn" id="lounge-chat-attach" aria-label="Attach an image"></button>
+          <input type="file" id="lounge-chat-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+          <textarea id="lounge-chat-input" rows="1" maxlength="1000" placeholder="Message the room…" aria-label="Message the room"></textarea>
+          <button type="button" class="lounge-chat__send" id="lounge-chat-send" aria-label="Send message">Send</button>
+        </div>
+        <p class="field-hint lounge-chat__error" id="lounge-chat-error" hidden></p>
       </section>
     </div>
   </div>
@@ -1757,6 +1962,14 @@
     <p class="field-hint" id="friends-drawer-empty" hidden>No friends yet — search for a username above to send a request.</p>
   </div>
 </div>
+
+<dialog id="image-lightbox" aria-label="Image">
+  <div class="image-lightbox__bar">
+    <a class="btn btn-secondary" id="image-lightbox-download" download>Download</a>
+    <button type="button" class="icon-btn" id="image-lightbox-close" aria-label="Close image"></button>
+  </div>
+  <img id="image-lightbox-img" alt="Shared image">
+</dialog>
 
 <dialog id="chat-dialog" aria-labelledby="chat-dialog-title">
   <form method="dialog" class="chat-dialog__form">
@@ -2279,7 +2492,13 @@ const Timer = {
     const s = totalSec % 60;
     return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   },
-  durationMs(mode) { return state.settings[mode] * 60000; },
+  durationMs(mode) {
+    // While I'm inside an active group sprint, the host's focus/break lengths replace my own.
+    const sprint = Lounge.mySprint();
+    if (sprint && mode === 'pomodoro') return sprint.focusMinutes * 60000;
+    if (sprint && mode === 'shortBreak') return sprint.breakMinutes * 60000;
+    return state.settings[mode] * 60000;
+  },
 
   start() {
     if (state.timer.running) return;
@@ -2352,9 +2571,10 @@ const Timer = {
     Timer.updateTimerDisplay();
     SoundFX.playCompletionSound();
     if (state.timer.mode === 'pomodoro') {
+      state.timer._sprintDone = Lounge.isLastSprintPomodoro(); // read before check-in changes the room
       Planner.onPomodoroCompleted();
       Lounge.onOwnPomodoroCompleted();
-      if (Auth.isLoggedIn()) Api.post('/api/stats/sessions', { minutes: state.settings.pomodoro }).catch(() => {});
+      if (Auth.isLoggedIn()) Api.post('/api/stats/sessions', { minutes: Math.round(Timer.durationMs('pomodoro') / 60000) }).catch(() => {});
     } else {
       Lounge.onOwnBreakCompleted(state.settings[state.timer.mode]);
     }
@@ -2364,9 +2584,15 @@ const Timer = {
 
   _advanceMode(wasCompleted) {
     let next;
+    // In a group sprint the phases run back to back (focus -> break -> focus ...) and there is no
+    // break after the last pomodoro.
+    const sprint = Lounge.mySprint();
+    const sprintLast = wasCompleted && state.timer.mode === 'pomodoro' && state.timer._sprintDone;
+    state.timer._sprintDone = false;
     if (state.timer.mode === 'pomodoro') {
       if (wasCompleted) state.timer.cyclesCompleted++;
-      next = (state.timer.cyclesCompleted > 0 && state.timer.cyclesCompleted % 4 === 0) ? 'longBreak' : 'shortBreak';
+      next = sprint ? (sprintLast ? 'pomodoro' : 'shortBreak')
+        : (state.timer.cyclesCompleted > 0 && state.timer.cyclesCompleted % 4 === 0) ? 'longBreak' : 'shortBreak';
     } else {
       next = 'pomodoro';
     }
@@ -2376,7 +2602,7 @@ const Timer = {
     state.timer.endAt = null;
     state.timer.running = false;
     Timer.pulseDisplay();
-    const shouldAutoStart = next === 'pomodoro' ? state.settings.autoStartPomodoros : state.settings.autoStartBreaks;
+    const shouldAutoStart = sprint && wasCompleted ? !sprintLast : next === 'pomodoro' ? state.settings.autoStartPomodoros : state.settings.autoStartBreaks;
     Timer.updateTimerDisplay();
     UI.renderTimerControls();
     if (shouldAutoStart) Timer.start(); else Lounge.reportStatus();
@@ -2637,7 +2863,7 @@ const Socket = {
     const query = Api.token ? `?token=${encodeURIComponent(Api.token)}` : '';
     const ws = new WebSocket(`${proto}://${location.host}/ws${query}`);
     this.ws = ws;
-    ws.addEventListener('open', () => { this.reconnectDelay = 1000; });
+    ws.addEventListener('open', () => { this.reconnectDelay = 1000; this.emit('socket-open', {}); });
     ws.addEventListener('message', (e) => {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
@@ -2648,6 +2874,12 @@ const Socket = {
       setTimeout(() => { if (this.ws === ws) this.connect(); }, this.reconnectDelay);
       this.reconnectDelay = Math.min(this.reconnectDelay * 1.6, 20000);
     });
+  },
+  /** Client -> server messages exist only for voice signaling; returns false if the socket isn't open. */
+  send(obj) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+    this.ws.send(JSON.stringify(obj));
+    return true;
   },
   on(type, fn) {
     if (!this.listeners[type]) this.listeners[type] = [];
@@ -4262,6 +4494,7 @@ const Lounge = {
   pendingInvites: [],
 
   init() {
+    Chat.init();
     // A single 1s tick just re-renders (interpolating other members' live countdowns
     // between server snapshots -- see displayRemainingMs); it never mutates state.
     setInterval(() => {
@@ -4295,16 +4528,32 @@ const Lounge = {
     if (m.status === 'idle') return 0;
     return Math.max(0, m.remainingMs - (Date.now() - m.statusUpdatedAt));
   },
+  /** The active sprint's settings while *I* am still in it (not yet checked in / given up), else null. */
+  mySprint() {
+    const room = state.lounge.room;
+    if (!room || !room.mission || room.mission.state !== 'active') return null;
+    const self = room.members.find(Lounge.isSelf);
+    return self && self.missionState === 'pending' ? room.mission : null;
+  },
+  isLastSprintPomodoro() {
+    const sprint = Lounge.mySprint();
+    const self = sprint && state.lounge.room.members.find(Lounge.isSelf);
+    return !!sprint && self.missionProgress + 1 >= sprint.targetPomodoros;
+  },
   statusLabel(m) {
     if (m.status === 'focusing') return { status: 'focusing', text: `Focusing (${Timer.formatTime(Lounge.displayRemainingMs(m))})` };
-    if (m.status === 'resting') return { status: 'resting', text: 'Resting (Break)' };
+    if (m.status === 'resting') return { status: 'resting', text: `On break (${Timer.formatTime(Lounge.displayRemainingMs(m))})` };
     return { status: 'idle', text: 'Idle / Ready' };
   },
   phaseFraction(m) {
     if (m.status === 'idle') return 0;
+    const mission = state.lounge.room && state.lounge.room.mission;
+    const sprint = mission && mission.state === 'active' && m.missionState === 'pending' ? mission : null;
+    const focusMin = sprint ? sprint.focusMinutes : state.settings.pomodoro;
+    const breakMin = sprint ? sprint.breakMinutes : state.settings.shortBreak;
     const totalMs = Lounge.isSelf(m)
-      ? state.settings[state.timer.mode] * 60000
-      : (m.status === 'focusing' ? state.settings.pomodoro : state.settings.shortBreak) * 60000;
+      ? Timer.durationMs(state.timer.mode)
+      : (m.status === 'focusing' ? focusMin : breakMin) * 60000;
     return totalMs > 0 ? Math.min(1, Math.max(0, 1 - Lounge.displayRemainingMs(m) / totalMs)) : 0;
   },
 
@@ -4320,6 +4569,7 @@ const Lounge = {
       Lounge._setRoom(room);
       Lounge.pendingInvites = invites;
     }
+    Lounge._syncRealtime();
     if (typeof UI !== 'undefined') { UI.renderLoungeView(); UI.renderLoungeChip(); UI.renderRoomInvites(); }
   },
 
@@ -4338,6 +4588,7 @@ const Lounge = {
   async leaveRoom() {
     const room = state.lounge.room;
     state.lounge.room = null;
+    Lounge._syncRealtime();
     if (typeof UI !== 'undefined') { UI.renderLoungeView(); UI.renderLoungeChip(); }
     if (room) { try { await Api.post(`/api/lounge/rooms/${encodeURIComponent(room.code)}/leave`); } catch { /* best effort */ } }
   },
@@ -4350,9 +4601,9 @@ const Lounge = {
     }).catch(() => {});
   },
 
-  startMission(targetPomodoros) {
+  startMission(targetPomodoros, focusMinutes, breakMinutes) {
     if (!state.lounge.room) return Promise.resolve();
-    return Api.post(`/api/lounge/rooms/${encodeURIComponent(state.lounge.room.code)}/mission/start`, { targetPomodoros: Number(targetPomodoros) });
+    return Api.post(`/api/lounge/rooms/${encodeURIComponent(state.lounge.room.code)}/mission/start`, { targetPomodoros: Number(targetPomodoros), focusMinutes, breakMinutes });
   },
   cancelMission() {
     if (!state.lounge.room) return Promise.resolve();
@@ -4394,13 +4645,24 @@ const Lounge = {
   /* -------- applying a fresh room snapshot (initial fetch or WS push) -------- */
 
   _setRoom(room, freshLogLines) {
-    if (!room) { state.lounge.room = null; return; }
+    if (!room) { state.lounge.room = null; Lounge._syncRealtime(); return; }
     const prev = state.lounge.room && state.lounge.room.code === room.code ? state.lounge.room : null;
     room.activityLog = prev ? prev.activityLog : [];
     if (prev) Lounge._diffActivity(prev, room);
     else for (const line of (freshLogLines || [])) Lounge._logActivity(room, line);
+    const sprintKey = (r) => { const sp = r && r.mission && r.mission.state === 'active' ? r.mission : null; return sp ? `${sp.focusMinutes}/${sp.breakMinutes}` : ''; };
+    const sprintChanged = sprintKey(state.lounge.room) !== sprintKey(room);
     state.lounge.room = room;
+    // A sprint starting/ending changes my phase lengths: refresh an idle timer so it shows them.
+    if (sprintChanged && !state.timer.running && typeof Timer !== 'undefined') { state.timer.remainingMs = Timer.durationMs(state.timer.mode); Timer.updateTimerDisplay(); }
+    Lounge._syncRealtime();
     if (typeof UI !== 'undefined') { UI.renderLoungeView(); UI.renderLoungeChip(); }
+  },
+  /** Voice and chat follow whichever room I'm seated in: start on entering, tear down on leaving. */
+  _syncRealtime() {
+    const code = state.lounge.room ? state.lounge.room.code : null;
+    if (code !== Voice.roomCode) { if (code) Voice.start(code); else Voice.stop(); }
+    if (code !== Chat.roomCode) { if (code) Chat.open(code); else Chat.reset(); }
   },
   _logActivity(room, text) {
     room.activityLog.push({ id: makeId(), ts: Date.now(), text });
@@ -4413,7 +4675,7 @@ const Lounge = {
     const nextIds = new Set(next.members.map((m) => m.id));
     for (const m of next.members) if (!prevIds.has(m.id)) Lounge._logActivity(next, `${m.displayName} joined.`);
     for (const m of prev.members) if (!nextIds.has(m.id)) Lounge._logActivity(next, `${m.displayName} left.`);
-    if (!prev.mission && next.mission) Lounge._logActivity(next, `Sprint started: ${next.mission.targetPomodoros} pomodoro${next.mission.targetPomodoros > 1 ? 's' : ''}.`);
+    if (!prev.mission && next.mission) Lounge._logActivity(next, `Sprint started: ${next.mission.targetPomodoros} pomodoro${next.mission.targetPomodoros > 1 ? 's' : ''} · ${next.mission.focusMinutes} min focus / ${next.mission.breakMinutes} min break`);
     if (prev.mission && !next.mission) Lounge._logActivity(next, 'Sprint ended.');
     if (prev.mission && next.mission) {
       const prevById = new Map(prev.members.map((m) => [m.id, m]));
@@ -4445,6 +4707,692 @@ const Lounge = {
 Socket.on('lounge-room', (msg) => Lounge._setRoom(msg.room));
 Socket.on('lounge-invite', (msg) => Lounge._onInvite(msg.invite));
 Socket.on('lounge-mission-complete', () => Lounge._onMissionComplete());
+
+/* ============================== Icons (line style, same as the music player's) ============================== */
+const LineIcons = {
+  PATHS: {
+    mic: '<rect x="7.5" y="2.5" width="5" height="9" rx="2.5"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5"/>',
+    'mic-off': '<rect x="7.5" y="2.5" width="5" height="9" rx="2.5"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5M3 3l14 14"/>',
+    headphones: '<path d="M3.5 12V10a6.5 6.5 0 0 1 13 0v2"/><rect x="3" y="11.5" width="3.4" height="5.5" rx="1.4"/><rect x="13.6" y="11.5" width="3.4" height="5.5" rx="1.4"/>',
+    'headphones-off': '<path d="M3.5 12V10a6.5 6.5 0 0 1 13 0v2"/><rect x="3" y="11.5" width="3.4" height="5.5" rx="1.4"/><rect x="13.6" y="11.5" width="3.4" height="5.5" rx="1.4"/><path d="M3 3l14 14"/>',
+    speaker: '<path d="M3 7.4h2.7L10 4v12l-4.3-3.4H3z"/><path d="M13.1 7.3a3.9 3.9 0 0 1 0 5.4M15.2 5.1a6.9 6.9 0 0 1 0 9.8"/>',
+    'speaker-off': '<path d="M3 7.4h2.7L10 4v12l-4.3-3.4H3z"/><path d="M13.5 8l4 4M17.5 8l-4 4"/>',
+    chevron: '<path d="M5 8l5 5 5-5"/>',
+    image: '<rect x="2.5" y="3.5" width="15" height="13" rx="3"/><circle cx="7" cy="8" r="1.4"/><path d="M3 15l4.5-4.5 3 3L13 11l4 4"/>',
+    close: '<path d="M5 5l10 10M15 5L5 15"/>',
+    edit: '<path d="M3.5 16.5l.9-3.6L13.6 3.7a1.6 1.6 0 0 1 2.3 0l.4.4a1.6 1.6 0 0 1 0 2.3L7.1 15.6z"/><path d="M12 5.3l2.7 2.7"/>',
+    more: '<circle cx="4.5" cy="10" r="1.3"/><circle cx="10" cy="10" r="1.3"/><circle cx="15.5" cy="10" r="1.3"/>',
+  },
+  /** A fresh <svg class="icon icon--stroke"> element (built via the parser, from the static strings above). */
+  el(name) {
+    const doc = new DOMParser().parseFromString(
+      `<svg xmlns="http://www.w3.org/2000/svg" class="icon icon--stroke" viewBox="0 0 20 20" aria-hidden="true">${LineIcons.PATHS[name]}</svg>`, 'image/svg+xml');
+    return document.importNode(doc.documentElement, true);
+  },
+  set(button, name, label) {
+    button.replaceChildren(LineIcons.el(name));
+    if (label !== undefined) { const span = document.createElement('span'); span.textContent = label; button.appendChild(span); }
+  },
+};
+
+/* ============================== Voice (WebRTC mesh over the existing WebSocket) ==============================
+   Audio is peer-to-peer; the server only relays SDP/ICE between members of the same room
+   (server/server.js, "voice chat signaling"). Whoever joins voice offers to everyone already in
+   it, so two people never offer to each other at once. Incoming audio goes through Web Audio
+   (source -> GainNode -> speakers) so a per-person volume can exceed 100%; the same source also
+   feeds an AnalyserNode that drives the speaking glow. Per-person mute/volume only change what
+   *I* hear and persist per person in localStorage. */
+const Voice = {
+  roomCode: null,
+  replaced: false,
+  localStream: null,
+  micDenied: false,
+  micMuted: false,
+  deafened: false,
+  _mutedBeforeDeafen: false,
+  /** userId -> { pc, audioEl, source, gain, analyser, pending: RTCIceCandidateInit[], sender } */
+  peers: new Map(),
+  /** userId -> { muted, deafened } for every OTHER member currently in voice */
+  states: {},
+  speaking: new Set(),
+  _speakUntil: {},
+  ctx: null,
+  _iceServers: null,
+  _meter: null,
+  _localAnalyser: null,
+  _prefs: null,
+
+  /* ---- persisted per-person settings ---- */
+  prefs() {
+    if (!Voice._prefs) { const raw = safeParseGlobal('pomodoroVoicePrefs'); Voice._prefs = raw && typeof raw === 'object' ? raw : {}; }
+    return Voice._prefs;
+  },
+  pref(uid) {
+    const p = Voice.prefs()[uid] || {};
+    return { muted: !!p.muted, volume: Number.isFinite(p.volume) ? Math.min(200, Math.max(0, p.volume)) : 100 };
+  },
+  _savePref(uid, patch) {
+    Voice.prefs()[uid] = { ...Voice.pref(uid), ...patch };
+    safeSetGlobal('pomodoroVoicePrefs', Voice.prefs());
+    Voice._updateGain(uid);
+    Voice._refreshUI();
+  },
+  setPersonMuted(uid, muted) { Voice._savePref(uid, { muted: !!muted }); },
+  setPersonVolume(uid, volume) { Voice._savePref(uid, { volume: Math.round(Math.min(200, Math.max(0, Number(volume) || 0))) }); },
+
+  /* ---- lifecycle ---- */
+  async start(code) {
+    Voice.stop();
+    Voice.roomCode = code;
+    Voice.replaced = false;
+    Voice.micMuted = false;
+    Voice.deafened = false;
+    Voice._ensureCtx();
+    Voice._refreshUI();
+    await Voice._acquireMic(); // permission prompt; declining still lets the user join and listen
+    if (Voice.roomCode !== code) return; // left while the prompt was open
+    Voice._sendJoin();
+    Voice._startMeter();
+    Voice._refreshUI();
+  },
+  stop() {
+    if (Voice.roomCode) Socket.send({ type: 'voice-leave' });
+    Voice.roomCode = null;
+    for (const uid of [...Voice.peers.keys()]) Voice._closePeer(uid);
+    Voice.states = {};
+    Voice.speaking.clear();
+    if (Voice.localStream) { Voice.localStream.getTracks().forEach((t) => t.stop()); Voice.localStream = null; }
+    Voice._localAnalyser = null;
+    clearInterval(Voice._meter);
+    Voice._meter = null;
+    Voice.micDenied = false;
+    Voice._refreshUI();
+  },
+  _sendJoin() {
+    if (!Voice.roomCode || Voice.replaced) return;
+    Socket.send({ type: 'voice-join', muted: Voice.micMuted, deafened: Voice.deafened });
+  },
+  _ensureCtx() {
+    if (!Voice.ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      Voice.ctx = new AC();
+    }
+    if (Voice.ctx.state === 'suspended') Voice.ctx.resume().catch(() => {});
+    return Voice.ctx;
+  },
+  async _iceConfig() {
+    if (!Voice._iceServers) {
+      try { Voice._iceServers = (await Api.get('/api/lounge/voice/ice')).iceServers; }
+      catch { Voice._iceServers = [{ urls: 'stun:stun.l.google.com:19302' }]; }
+    }
+    return Voice._iceServers;
+  },
+  async _acquireMic() {
+    if (Voice.localStream) return true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { Voice.micDenied = true; Voice.micMuted = true; return false; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      if (!Voice.roomCode) { stream.getTracks().forEach((t) => t.stop()); return false; }
+      Voice.localStream = stream;
+      Voice.micDenied = false;
+      const ctx = Voice._ensureCtx();
+      if (ctx) { const analyser = ctx.createAnalyser(); analyser.fftSize = 512; ctx.createMediaStreamSource(stream).connect(analyser); Voice._localAnalyser = analyser; }
+      const track = stream.getAudioTracks()[0];
+      if (track) {
+        track.enabled = !Voice.micMuted && !Voice.deafened;
+        for (const peer of Voice.peers.values()) if (peer.sender) peer.sender.replaceTrack(track).catch(() => {});
+      }
+      return true;
+    } catch {
+      Voice.micDenied = true;
+      Voice.micMuted = true; // nothing to send, so show as muted to everyone
+      return false;
+    }
+  },
+
+  /* ---- my controls ---- */
+  async toggleMute() {
+    if (Voice.deafened) { Voice.deafened = false; Voice.micMuted = false; } // unmuting while deafened undeafens too, like Discord
+    else Voice.micMuted = !Voice.micMuted;
+    if (!Voice.micMuted && !Voice.localStream) {
+      if (!(await Voice._acquireMic())) Voice.micMuted = true; // still blocked: stay listen-only
+    }
+    Voice._applyLocal();
+  },
+  toggleDeafen() {
+    Voice.deafened = !Voice.deafened;
+    if (Voice.deafened) { Voice._mutedBeforeDeafen = Voice.micMuted; Voice.micMuted = true; }
+    else Voice.micMuted = Voice._mutedBeforeDeafen;
+    Voice._applyLocal();
+  },
+  _applyLocal() {
+    const track = Voice.localStream && Voice.localStream.getAudioTracks()[0];
+    if (track) track.enabled = !Voice.micMuted && !Voice.deafened;
+    for (const uid of Voice.peers.keys()) Voice._updateGain(uid);
+    Socket.send({ type: 'voice-state', muted: Voice.micMuted, deafened: Voice.deafened });
+    Voice._refreshUI();
+  },
+  _updateGain(uid) {
+    const peer = Voice.peers.get(uid);
+    if (!peer || !peer.gain) return;
+    const p = Voice.pref(uid);
+    const value = Voice.deafened || p.muted ? 0 : p.volume / 100;
+    peer.gain.gain.setTargetAtTime(value, Voice.ctx.currentTime, 0.015);
+  },
+
+  /* ---- peer connections ---- */
+  async _connectTo(uid) {
+    Voice._closePeer(uid);
+    const pc = await Voice._newPeer(uid);
+    const t = pc.addTransceiver('audio', { direction: 'sendrecv' });
+    const peer = Voice.peers.get(uid);
+    peer.sender = t.sender;
+    const track = Voice.localStream && Voice.localStream.getAudioTracks()[0];
+    if (track) await t.sender.replaceTrack(track);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    Voice._signal(uid, { description: pc.localDescription });
+  },
+  async _newPeer(uid) {
+    const pc = new RTCPeerConnection({ iceServers: await Voice._iceConfig() });
+    const peer = { pc, audioEl: null, source: null, gain: null, analyser: null, pending: [], sender: null };
+    Voice.peers.set(uid, peer);
+    pc.onicecandidate = (e) => { if (e.candidate) Voice._signal(uid, { candidate: e.candidate }); };
+    pc.ontrack = (e) => Voice._attachRemote(uid, e.streams[0] || new MediaStream([e.track]));
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState !== 'failed' || Voice.peers.get(uid)?.pc !== pc) return;
+      Voice._closePeer(uid);
+      // Only the lower id retries, so both ends never offer at once.
+      if (Voice.states[uid] && Auth.isLoggedIn() && Auth.currentUser.id < uid) setTimeout(() => { if (Voice.states[uid] && !Voice.peers.has(uid)) Voice._connectTo(uid).catch(() => {}); }, 1000);
+    };
+    return pc;
+  },
+  _attachRemote(uid, stream) {
+    const peer = Voice.peers.get(uid);
+    const ctx = Voice._ensureCtx();
+    if (!peer || !ctx) return;
+    // Chrome only pumps a remote WebRTC stream into Web Audio if it is also attached to a media
+    // element; it is muted because the sound comes out through the GainNode instead.
+    peer.audioEl = new Audio();
+    peer.audioEl.srcObject = stream;
+    peer.audioEl.muted = true;
+    peer.audioEl.play().catch(() => {});
+    peer.source = ctx.createMediaStreamSource(stream);
+    peer.gain = ctx.createGain();
+    peer.analyser = ctx.createAnalyser();
+    peer.analyser.fftSize = 512;
+    peer.source.connect(peer.gain);
+    peer.gain.connect(ctx.destination);
+    peer.source.connect(peer.analyser);
+    Voice._updateGain(uid);
+  },
+  _closePeer(uid) {
+    const peer = Voice.peers.get(uid);
+    if (!peer) return;
+    Voice.peers.delete(uid);
+    peer.pc.onicecandidate = peer.pc.ontrack = peer.pc.onconnectionstatechange = null;
+    try { peer.pc.close(); } catch { /* already closed */ }
+    try { if (peer.source) peer.source.disconnect(); if (peer.gain) peer.gain.disconnect(); } catch { /* already disconnected */ }
+    if (peer.audioEl) { peer.audioEl.srcObject = null; peer.audioEl = null; }
+    Voice.speaking.delete(uid);
+  },
+  _signal(to, data) { Socket.send({ type: 'voice-signal', to, data }); },
+
+  async _onSignal(from, data) {
+    if (!Voice.roomCode || !data) return;
+    try {
+      if (data.description) {
+        const desc = data.description;
+        if (desc.type === 'offer') {
+          Voice._closePeer(from); // an offer always starts a fresh connection
+          const pc = await Voice._newPeer(from);
+          await pc.setRemoteDescription(desc);
+          const t = pc.getTransceivers().find((x) => x.receiver.track && x.receiver.track.kind === 'audio');
+          const peer = Voice.peers.get(from);
+          if (t) {
+            t.direction = 'sendrecv';
+            peer.sender = t.sender;
+            const track = Voice.localStream && Voice.localStream.getAudioTracks()[0];
+            if (track) await t.sender.replaceTrack(track);
+          }
+          await Voice._flushPending(from);
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          Voice._signal(from, { description: pc.localDescription });
+        } else if (desc.type === 'answer') {
+          const peer = Voice.peers.get(from);
+          if (!peer) return;
+          await peer.pc.setRemoteDescription(desc);
+          await Voice._flushPending(from);
+        }
+      } else if (data.candidate) {
+        const peer = Voice.peers.get(from);
+        if (!peer) return;
+        if (peer.pc.remoteDescription) await peer.pc.addIceCandidate(data.candidate).catch(() => {});
+        else peer.pending.push(data.candidate);
+      }
+    } catch (err) {
+      console.warn('[voice] signaling failed for', from, err);
+    }
+  },
+  async _flushPending(uid) {
+    const peer = Voice.peers.get(uid);
+    if (!peer) return;
+    const queued = peer.pending.splice(0);
+    for (const c of queued) await peer.pc.addIceCandidate(c).catch(() => {});
+  },
+
+  /* ---- server events ---- */
+  _onPeers(peers) {
+    if (!Voice.roomCode) return;
+    Voice.states = {};
+    for (const p of peers) Voice.states[p.userId] = { muted: p.muted, deafened: p.deafened };
+    for (const p of peers) Voice._connectTo(p.userId).catch((err) => console.warn('[voice] offer failed', err));
+    Voice._refreshUI();
+  },
+  _onPeerJoined(msg) {
+    Voice.states[msg.userId] = { muted: msg.muted, deafened: msg.deafened };
+    Voice._closePeer(msg.userId); // a stale connection from that user's previous session; their offer is coming
+    Voice._refreshUI();
+  },
+  _onPeerLeft(userId) {
+    delete Voice.states[userId];
+    Voice._closePeer(userId);
+    Voice._refreshUI();
+  },
+  _onState(msg) {
+    if (Voice.states[msg.userId]) Voice.states[msg.userId] = { muted: msg.muted, deafened: msg.deafened };
+    Voice._refreshUI();
+  },
+  _onReplaced() {
+    // The same account joined voice from another tab; hand voice over instead of fighting for it.
+    Voice.replaced = true;
+    const code = Voice.roomCode;
+    Voice.stop();
+    Voice.roomCode = code;
+    Voice._refreshUI();
+  },
+  _onSocketOpen() {
+    if (!Voice.roomCode || Voice.replaced) return;
+    // The server forgets voice membership when a socket drops, so rebuild everything from scratch.
+    for (const uid of [...Voice.peers.keys()]) Voice._closePeer(uid);
+    Voice.states = {};
+    if (Voice.localStream || Voice.micDenied) Voice._sendJoin(); // otherwise start() is still waiting on the mic prompt
+    Voice._refreshUI();
+  },
+
+  /* ---- speaking detection ---- */
+  _startMeter() {
+    clearInterval(Voice._meter);
+    const buf = new Uint8Array(512);
+    const level = (analyser) => {
+      analyser.getByteTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
+      return Math.sqrt(sum / buf.length);
+    };
+    Voice._meter = setInterval(() => {
+      const now = Date.now();
+      const active = new Set();
+      const consider = (uid, analyser, allowed) => {
+        if (analyser && allowed && level(analyser) > 0.025) Voice._speakUntil[uid] = now + 300;
+        if ((Voice._speakUntil[uid] || 0) > now) active.add(uid);
+      };
+      for (const [uid, peer] of Voice.peers) consider(uid, peer.analyser, !(Voice.states[uid] && Voice.states[uid].muted));
+      if (Auth.isLoggedIn()) consider(Auth.currentUser.id, Voice._localAnalyser, !Voice.micMuted && !Voice.deafened);
+      const changed = active.size !== Voice.speaking.size || [...active].some((u) => !Voice.speaking.has(u));
+      Voice.speaking = active;
+      if (changed) Voice.paintSpeaking();
+    }, 100);
+  },
+  paintSpeaking() {
+    document.querySelectorAll('.lounge-ring[data-uid]').forEach((ring) => {
+      ring.classList.toggle('lounge-ring--speaking', Voice.speaking.has(ring.dataset.uid));
+    });
+  },
+
+  /* ---- UI ---- */
+  _refreshUI() {
+    Voice.renderBar();
+    if (typeof UI !== 'undefined' && state.lounge.room) UI.renderLoungeRoom();
+  },
+  renderBar() {
+    const muteBtn = document.getElementById('voice-mute-btn');
+    const deafenBtn = document.getElementById('voice-deafen-btn');
+    if (!muteBtn || !deafenBtn) return;
+    if (!muteBtn.dataset.built) {
+      muteBtn.dataset.built = '1';
+      muteBtn.addEventListener('click', () => Voice.toggleMute());
+      deafenBtn.addEventListener('click', () => Voice.toggleDeafen());
+    }
+    const key = `${Voice.micMuted}|${Voice.deafened}|${Voice.micDenied}`;
+    if (muteBtn.dataset.key !== key) {
+      muteBtn.dataset.key = key;
+      LineIcons.set(muteBtn, Voice.micMuted ? 'mic-off' : 'mic', Voice.micMuted ? 'Unmute' : 'Mute');
+      muteBtn.setAttribute('aria-pressed', String(Voice.micMuted));
+      muteBtn.setAttribute('aria-label', Voice.micMuted ? 'Unmute microphone' : 'Mute microphone');
+      LineIcons.set(deafenBtn, Voice.deafened ? 'headphones-off' : 'headphones', Voice.deafened ? 'Undeafen' : 'Deafen');
+      deafenBtn.setAttribute('aria-pressed', String(Voice.deafened));
+      deafenBtn.setAttribute('aria-label', Voice.deafened ? 'Undeafen (hear everyone again)' : 'Deafen (stop hearing everyone)');
+    }
+    const hint = document.getElementById('voice-hint');
+    const text = Voice.replaced ? 'Voice is active in another tab of yours.'
+      : Voice.micDenied ? 'Microphone unavailable — you can still listen. Click Unmute to try again.' : '';
+    hint.textContent = text;
+    hint.hidden = !text;
+    muteBtn.disabled = deafenBtn.disabled = Voice.replaced;
+  },
+  /** Called by UI.renderLoungeRoom once per member card (built once, then updated in place). */
+  buildCardControls(card, m) {
+    const ctl = document.createElement('div');
+    ctl.className = 'lounge-voice-ctl';
+    const muteBtn = document.createElement('button');
+    muteBtn.type = 'button';
+    muteBtn.className = 'icon-btn';
+    muteBtn.addEventListener('click', () => Voice.setPersonMuted(m.id, !Voice.pref(m.id).muted));
+    const slider = document.createElement('input');
+    slider.type = 'range'; slider.min = '0'; slider.max = '200'; slider.step = '5';
+    slider.setAttribute('aria-label', `Volume for ${m.displayName}`);
+    slider.addEventListener('input', () => Voice.setPersonVolume(m.id, slider.value));
+    slider.addEventListener('dblclick', () => Voice.setPersonVolume(m.id, 100));
+    const pct = document.createElement('span');
+    pct.className = 'lounge-voice-ctl__pct';
+    ctl.append(muteBtn, slider, pct);
+    card.appendChild(ctl);
+    return { ctl, muteBtn, slider, pct };
+  },
+  updateCard(refs, m) {
+    const isSelf = Lounge.isSelf(m);
+    const st = isSelf ? { muted: Voice.micMuted, deafened: Voice.deafened } : Voice.states[m.id];
+    const inVoice = !!Voice.roomCode && (isSelf ? !Voice.replaced : !!st);
+    const badges = refs.badges;
+    const wantKey = inVoice && st ? `${st.muted}|${st.deafened}` : '';
+    if (badges.dataset.key !== wantKey) {
+      badges.dataset.key = wantKey;
+      badges.replaceChildren();
+      const add = (name, label) => { const b = document.createElement('span'); b.className = 'lounge-ring__badge'; b.title = label; b.appendChild(LineIcons.el(name)); badges.appendChild(b); };
+      if (wantKey && st.muted) add('mic-off', 'Mic muted');
+      if (wantKey && st.deafened) add('headphones-off', 'Deafened');
+    }
+    // per-person controls change only what *I* hear: shown for other people who are in voice
+    const ctl = refs.voice;
+    ctl.ctl.hidden = isSelf || !inVoice;
+    if (!ctl.ctl.hidden) {
+      const p = Voice.pref(m.id);
+      ctl.muteBtn.setAttribute('aria-pressed', String(p.muted));
+      ctl.muteBtn.setAttribute('aria-label', `${p.muted ? 'Unmute' : 'Mute'} ${m.displayName} (only for me)`);
+      ctl.muteBtn.title = p.muted ? 'Unmute for me' : 'Mute for me';
+      if (ctl.muteBtn.dataset.k !== String(p.muted)) { ctl.muteBtn.dataset.k = String(p.muted); ctl.muteBtn.replaceChildren(LineIcons.el(p.muted ? 'speaker-off' : 'speaker')); }
+      if (document.activeElement !== ctl.slider && ctl.slider.value !== String(p.volume)) ctl.slider.value = String(p.volume);
+      ctl.pct.textContent = `${p.volume}%`;
+    }
+  },
+};
+// Browsers keep an AudioContext suspended until the user interacts with the page; resume on first touch.
+['pointerdown', 'keydown'].forEach((evt) => document.addEventListener(evt, () => { if (Voice.ctx && Voice.ctx.state === 'suspended') Voice.ctx.resume().catch(() => {}); }, { passive: true }));
+
+Socket.on('socket-open', () => { Voice._onSocketOpen(); Chat._onSocketOpen(); });
+Socket.on('voice-peers', (msg) => Voice._onPeers(msg.peers || []));
+Socket.on('voice-peer-joined', (msg) => Voice._onPeerJoined(msg));
+Socket.on('voice-peer-left', (msg) => Voice._onPeerLeft(msg.userId));
+Socket.on('voice-state', (msg) => Voice._onState(msg));
+Socket.on('voice-signal', (msg) => Voice._onSignal(msg.from, msg.data));
+Socket.on('voice-replaced', () => Voice._onReplaced());
+
+/* ============================== Chat (shared room chat) ==============================
+   History comes from GET .../messages when you enter a room; new messages are pushed over the
+   WebSocket ('room-message'). Images are stored server-side and fetched with the auth header
+   into object URLs (an <img src> can't send a bearer token). */
+const Chat = {
+  MAX_IMAGE_BYTES: 5 * 1024 * 1024,
+  TYPES: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+  roomCode: null,
+  messages: [],
+  unread: 0,
+  pending: null, // { file, url }
+  pinned: true,
+  inView: false,
+  sending: false,
+  _imageUrls: new Map(),
+  _observer: null,
+  _errorTimer: null,
+
+  open(code) {
+    Chat.reset();
+    Chat.roomCode = code;
+    Chat.render();
+    Chat.load();
+  },
+  reset() {
+    Chat.roomCode = null;
+    Chat.messages = [];
+    Chat.unread = 0;
+    Chat.pinned = true;
+    Chat.clearPending();
+    for (const p of Chat._imageUrls.values()) p.then((u) => u && URL.revokeObjectURL(u));
+    Chat._imageUrls.clear();
+    Chat.render();
+  },
+  async load() {
+    const code = Chat.roomCode;
+    if (!code) return;
+    try {
+      const { messages } = await Api.get(`/api/lounge/rooms/${encodeURIComponent(code)}/messages`);
+      if (Chat.roomCode !== code) return;
+      Chat.messages = messages;
+      Chat.render();
+    } catch { /* the next socket-open or reload retries */ }
+  },
+  _onSocketOpen() { if (Chat.roomCode) Chat.load(); }, // catch up on anything missed while disconnected
+  onMessage(msg) {
+    if (msg.roomCode !== Chat.roomCode || Chat.messages.some((m) => m.id === msg.message.id)) return;
+    Chat._add(msg.message);
+  },
+  _add(message) {
+    const own = Auth.isLoggedIn() && message.sender.id === Auth.currentUser.id;
+    const list = document.getElementById('lounge-chat-messages');
+    const wasPinned = Chat.pinned;
+    Chat.messages.push(message);
+    if (list) {
+      const empty = list.querySelector('.lounge-chat__empty');
+      if (empty) empty.remove();
+      list.appendChild(Chat._renderMessage(message));
+      // Follow new messages only if I'm already at the bottom (or wrote it); never yank me out of history.
+      if (wasPinned || own) list.scrollTop = list.scrollHeight;
+    }
+    if (!own && !Chat.isRead()) { Chat.unread += 1; Chat.renderBadge(); }
+  },
+  isRead() { return document.visibilityState === 'visible' && Chat.inView && Chat.pinned; },
+  checkRead() { if (Chat.unread && Chat.isRead()) { Chat.unread = 0; Chat.renderBadge(); } },
+  renderBadge() {
+    const badge = document.getElementById('lounge-chat-badge');
+    if (!badge) return;
+    badge.hidden = Chat.unread === 0;
+    badge.textContent = Chat.unread > 99 ? '99+' : String(Chat.unread);
+  },
+
+  /* ---- rendering ---- */
+  render() {
+    const list = document.getElementById('lounge-chat-messages');
+    if (!list) return;
+    list.replaceChildren();
+    if (!Chat.messages.length && Chat.roomCode) {
+      const empty = document.createElement('li');
+      empty.className = 'lounge-chat__empty';
+      empty.textContent = 'No messages yet — say hi 👋';
+      list.appendChild(empty);
+    }
+    for (const m of Chat.messages) list.appendChild(Chat._renderMessage(m));
+    list.scrollTop = list.scrollHeight;
+    Chat.pinned = true;
+    Chat.renderBadge();
+  },
+  _renderMessage(m) {
+    const li = document.createElement('li');
+    li.className = 'lounge-chat__msg';
+    const avatar = document.createElement('span');
+    avatar.className = 'lounge-friend-item__avatar';
+    Avatars.render(avatar, m.sender);
+    const body = document.createElement('div');
+    body.className = 'lounge-chat__body';
+    const meta = document.createElement('div');
+    meta.className = 'lounge-chat__meta';
+    const name = document.createElement('strong');
+    name.textContent = m.sender.displayName;
+    const time = document.createElement('time');
+    time.dateTime = new Date(m.createdAt).toISOString();
+    time.textContent = new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    meta.append(name, time);
+    body.appendChild(meta);
+    if (m.text) {
+      const text = document.createElement('div');
+      text.className = 'lounge-chat__text';
+      text.textContent = m.text;
+      body.appendChild(text);
+    }
+    if (m.hasImage) {
+      const img = document.createElement('img');
+      img.className = 'lounge-chat__img';
+      img.alt = `Image from ${m.sender.displayName}`;
+      img.tabIndex = 0;
+      img.addEventListener('load', () => { if (Chat.pinned) { const list = document.getElementById('lounge-chat-messages'); list.scrollTop = list.scrollHeight; } });
+      img.addEventListener('click', () => Chat.openLightbox(m));
+      img.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); Chat.openLightbox(m); } });
+      Chat.imageUrl(m).then((url) => { if (url) img.src = url; else img.alt = 'Image unavailable'; });
+      body.appendChild(img);
+    }
+    li.append(avatar, body);
+    return li;
+  },
+  imageUrl(m) {
+    if (!Chat._imageUrls.has(m.id)) {
+      const code = Chat.roomCode;
+      Chat._imageUrls.set(m.id, fetch(`/api/lounge/rooms/${encodeURIComponent(code)}/messages/${encodeURIComponent(m.id)}/image`, { headers: { Authorization: `Bearer ${Api.token}` } })
+        .then((res) => (res.ok ? res.blob() : null))
+        .then((blob) => (blob ? URL.createObjectURL(blob) : null))
+        .catch(() => null));
+    }
+    return Chat._imageUrls.get(m.id);
+  },
+  async openLightbox(m) {
+    const url = await Chat.imageUrl(m);
+    if (!url) return;
+    const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }[m.imageMime] || 'png';
+    document.getElementById('image-lightbox-img').src = url;
+    const link = document.getElementById('image-lightbox-download');
+    link.href = url;
+    link.download = `study-lounge-${m.id.slice(0, 8)}.${ext}`;
+    document.getElementById('image-lightbox').showModal();
+  },
+
+  /* ---- composing ---- */
+  showError(text) {
+    const el = document.getElementById('lounge-chat-error');
+    clearTimeout(Chat._errorTimer);
+    if (!text) { el.hidden = true; return; }
+    setFieldStatus(el, text, 'error');
+    el.hidden = false;
+    Chat._errorTimer = setTimeout(() => { el.hidden = true; }, 6000);
+  },
+  setPending(file) {
+    if (!file) return;
+    if (!Chat.TYPES.includes(file.type)) { Chat.showError('Only png, jpg, webp or gif images can be sent.'); return; }
+    if (file.size > Chat.MAX_IMAGE_BYTES) { Chat.showError(`That image is ${(file.size / 1048576).toFixed(1)} MB — the limit is 5 MB.`); return; }
+    Chat.showError('');
+    Chat.clearPending();
+    Chat.pending = { file, url: URL.createObjectURL(file) };
+    document.getElementById('lounge-chat-preview-img').src = Chat.pending.url;
+    document.getElementById('lounge-chat-preview-name').textContent = file.name || 'Pasted image';
+    document.getElementById('lounge-chat-preview').hidden = false;
+  },
+  clearPending() {
+    if (Chat.pending) URL.revokeObjectURL(Chat.pending.url);
+    Chat.pending = null;
+    const preview = document.getElementById('lounge-chat-preview');
+    if (preview) preview.hidden = true;
+    const file = document.getElementById('lounge-chat-file');
+    if (file) file.value = '';
+  },
+  async send() {
+    const input = document.getElementById('lounge-chat-input');
+    const text = input.value.trim();
+    if (Chat.sending || !Chat.roomCode || (!text && !Chat.pending)) return;
+    Chat.sending = true;
+    document.getElementById('lounge-chat-send').disabled = true;
+    try {
+      const body = { text };
+      if (Chat.pending) {
+        const file = Chat.pending.file;
+        body.image = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('Could not read that image.'));
+          reader.readAsDataURL(file);
+        });
+      }
+      const { message } = await Api.post(`/api/lounge/rooms/${encodeURIComponent(Chat.roomCode)}/messages`, body);
+      input.value = '';
+      input.style.height = '';
+      Chat.clearPending();
+      Chat.showError('');
+      if (!Chat.messages.some((m) => m.id === message.id)) Chat._add(message);
+    } catch (err) {
+      Chat.showError(err.message);
+    } finally {
+      Chat.sending = false;
+      document.getElementById('lounge-chat-send').disabled = false;
+    }
+  },
+  init() {
+    const input = document.getElementById('lounge-chat-input');
+    const card = document.getElementById('lounge-chat');
+    const list = document.getElementById('lounge-chat-messages');
+    if (!input || !card) return;
+    const attach = document.getElementById('lounge-chat-attach');
+    LineIcons.set(attach, 'image');
+    LineIcons.set(document.getElementById('lounge-chat-preview-remove'), 'close');
+    LineIcons.set(document.getElementById('image-lightbox-close'), 'close');
+    attach.addEventListener('click', () => document.getElementById('lounge-chat-file').click());
+    document.getElementById('lounge-chat-file').addEventListener('change', (e) => Chat.setPending(e.target.files[0]));
+    document.getElementById('lounge-chat-preview-remove').addEventListener('click', () => Chat.clearPending());
+    document.getElementById('lounge-chat-send').addEventListener('click', () => Chat.send());
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); Chat.send(); }
+    });
+    input.addEventListener('input', () => { input.style.height = 'auto'; input.style.height = `${Math.min(input.scrollHeight, 110)}px`; });
+    input.addEventListener('paste', (e) => {
+      const item = [...(e.clipboardData ? e.clipboardData.items : [])].find((i) => i.kind === 'file' && i.type.startsWith('image/'));
+      if (item) { e.preventDefault(); Chat.setPending(item.getAsFile()); }
+    });
+    let dragDepth = 0;
+    const hasFiles = (e) => e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+    card.addEventListener('dragenter', (e) => { if (hasFiles(e)) { dragDepth += 1; card.classList.add('is-dragover'); } });
+    card.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+    card.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) card.classList.remove('is-dragover'); });
+    card.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dragDepth = 0;
+      card.classList.remove('is-dragover');
+      Chat.setPending(e.dataTransfer.files[0]);
+    });
+    list.addEventListener('scroll', () => { if (!list.clientHeight) return; Chat.pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 60; Chat.checkRead(); }, { passive: true });
+    document.getElementById('lounge-chat-badge').addEventListener('click', () => { list.scrollTop = list.scrollHeight; Chat.pinned = true; Chat.checkRead(); });
+    Chat._observer = new IntersectionObserver((entries) => {
+      const was = Chat.inView;
+      Chat.inView = entries[entries.length - 1].intersectionRatio >= 0.3;
+      // A hidden view forgets its scroll offset; if I was following the conversation, show the newest again.
+      if (!was && Chat.inView && Chat.pinned) list.scrollTop = list.scrollHeight;
+      Chat.checkRead();
+    }, { threshold: [0, 0.3, 1] });
+    Chat._observer.observe(card);
+    document.addEventListener('visibilitychange', () => Chat.checkRead());
+    const box = document.getElementById('image-lightbox');
+    document.getElementById('image-lightbox-close').addEventListener('click', () => box.close());
+    box.addEventListener('click', (e) => { if (e.target === box) box.close(); });
+  },
+};
+Socket.on('room-message', (msg) => Chat.onMessage(msg));
 
 /* ============================== Confetti (tiny, no library) ============================== */
 const Confetti = {
@@ -4634,6 +5582,7 @@ const UI = {
     const nameDisplay = document.getElementById('user-name-display');
     UI._applyAvatarVisual(avatar, 'user-profile__avatar--photo');
     if (nameDisplay) nameDisplay.textContent = state.profile.username;
+    avatar.title = state.profile.username;
     UI.renderProfileModalView();
   },
 
@@ -4642,6 +5591,7 @@ const UI = {
     document.getElementById('notif-picker').hidden = !loggedIn;
     document.getElementById('user-name-display').textContent =
       loggedIn ? Auth.currentUser.displayName : state.profile.username;
+    document.getElementById('user-avatar').title = document.getElementById('user-name-display').textContent;
     document.getElementById('profile-modal-logout-btn').hidden = !loggedIn;
     document.getElementById('profile-modal-login-btn').hidden = loggedIn;
     document.getElementById('friends-drawer-guest').hidden = loggedIn;
@@ -4894,58 +5844,256 @@ const UI = {
     document.getElementById('lounge-room-goal').textContent = room.goal || 'No goal set.';
 
     const grid = document.getElementById('lounge-member-grid');
-    grid.replaceChildren();
-    for (const m of room.members) {
-      const card = document.createElement('div');
-      card.className = 'lounge-grid-card';
-
-      const ring = document.createElement('div');
-      ring.className = 'lounge-ring';
-      ring.dataset.status = m.status;
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('viewBox', '0 0 80 80');
-      const track = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      track.setAttribute('cx', '40'); track.setAttribute('cy', '40'); track.setAttribute('r', '36');
-      track.setAttribute('class', 'lounge-ring__track');
-      const fill = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-      fill.setAttribute('cx', '40'); fill.setAttribute('cy', '40'); fill.setAttribute('r', '36');
-      fill.setAttribute('class', 'lounge-ring__fill');
-      const circumference = 2 * Math.PI * 36;
-      fill.setAttribute('stroke-dasharray', String(circumference));
-      fill.setAttribute('stroke-dashoffset', String(circumference * (1 - Lounge.phaseFraction(m))));
-      svg.append(track, fill);
-      const avatarEl = document.createElement('span');
-      avatarEl.className = 'lounge-ring__avatar';
-      Avatars.render(avatarEl, m);
-      ring.append(svg, avatarEl);
-      if (!m.online) ring.classList.add('lounge-ring--offline');
-
-      const name = document.createElement('span');
-      name.className = 'lounge-grid-card__name';
-      name.textContent = m.displayName + (m.isHost ? ' (Host)' : '');
-
-      const status = document.createElement('span');
-      status.className = 'lounge-grid-card__status';
-      if (!m.online) {
-        status.textContent = 'Offline';
-        status.dataset.status = 'idle';
-      } else {
-        const memberStatus = Lounge.statusLabel(m);
-        status.textContent = memberStatus.text;
-        status.dataset.status = memberStatus.status;
-      }
-
-      const metrics = document.createElement('span');
-      metrics.className = 'lounge-grid-card__metrics';
-      metrics.textContent = room.mission
-        ? (m.missionState === 'checked-in' ? 'Checked in' : m.missionState === 'abandoned' ? 'Abandoned sprint' : `Sprint: ${m.missionProgress}/${room.mission.targetPomodoros}`)
-        : '';
-
-      card.append(ring, name, status, metrics);
-      grid.appendChild(card);
-    }
+    // Cards are built once per member and updated in place: this runs every second (and on every voice
+    // event), and a rebuild would tear down a volume slider mid-drag and drop the speaking glow.
+    const existing = new Map([...grid.children].map((c) => [c.dataset.uid, c]));
+    room.members.forEach((m, i) => {
+      const card = existing.get(m.id) || UI._buildMemberCard(m);
+      UI._updateMemberCard(card, m, room);
+      if (grid.children[i] !== card) grid.insertBefore(card, grid.children[i] || null);
+      existing.delete(m.id);
+    });
+    for (const stale of existing.values()) stale.remove();
+    Voice.paintSpeaking();
     UI.renderLoungeMission();
     UI.renderLoungeActivityLog();
+  },
+
+  _buildMemberCard(m) {
+    const card = document.createElement('div');
+    card.className = 'lounge-grid-card';
+    card.dataset.uid = m.id;
+    const ring = document.createElement('div');
+    ring.className = 'lounge-ring';
+    ring.dataset.uid = m.id;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 80 80');
+    const track = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    track.setAttribute('cx', '40'); track.setAttribute('cy', '40'); track.setAttribute('r', '36');
+    track.setAttribute('class', 'lounge-ring__track');
+    const fill = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    fill.setAttribute('cx', '40'); fill.setAttribute('cy', '40'); fill.setAttribute('r', '36');
+    fill.setAttribute('class', 'lounge-ring__fill');
+    fill.setAttribute('stroke-dasharray', String(2 * Math.PI * 36));
+    svg.append(track, fill);
+    const avatarEl = document.createElement('span');
+    avatarEl.className = 'lounge-ring__avatar';
+    const badges = document.createElement('span');
+    badges.className = 'lounge-ring__badges';
+    ring.append(svg, avatarEl, badges);
+    const name = document.createElement('span');
+    name.className = 'lounge-grid-card__name';
+    const status = document.createElement('span');
+    status.className = 'lounge-grid-card__status';
+    const metrics = document.createElement('span');
+    metrics.className = 'lounge-grid-card__metrics';
+    card.append(ring, name, status, metrics);
+    card._refs = { ring, fill, avatarEl, badges, name, status, metrics, avatarKey: null };
+    card._refs.voice = Voice.buildCardControls(card, m);
+    return card;
+  },
+
+  _updateMemberCard(card, m, room) {
+    const r = card._refs;
+    r.ring.dataset.status = m.status;
+    r.ring.classList.toggle('lounge-ring--offline', !m.online);
+    const circumference = 2 * Math.PI * 36;
+    r.fill.setAttribute('stroke-dashoffset', String(circumference * (1 - Lounge.phaseFraction(m))));
+    const avatarKey = `${m.avatarUrl || ''}|${m.avatar || ''}|${m.displayName}`;
+    if (r.avatarKey !== avatarKey) { r.avatarKey = avatarKey; Avatars.render(r.avatarEl, m); }
+    r.name.textContent = m.displayName + (m.isHost ? ' (Host)' : '');
+    if (!m.online) {
+      r.status.textContent = 'Offline';
+      r.status.dataset.status = 'idle';
+    } else {
+      const memberStatus = Lounge.statusLabel(m);
+      r.status.textContent = memberStatus.text;
+      r.status.dataset.status = memberStatus.status;
+    }
+    r.metrics.textContent = room.mission
+      ? (m.missionState === 'checked-in' ? 'Checked in' : m.missionState === 'abandoned' ? 'Abandoned sprint' : `Sprint: ${m.missionProgress}/${room.mission.targetPomodoros}`)
+      : '';
+    Voice.updateCard(r, m);
+  },
+
+  /** Sprint settings: a glass dropdown (4 presets + "Custom…"), a "25 min focus · 5 min break" summary
+      with an edit icon, and a panel of - / + steppers (focus 5-120, break 1-60; plus the pomodoro count,
+      1-12, when "Custom…" is chosen). The dropdown and panel expand IN the layout instead of floating over
+      it, so they never cover Start Sprint or the card below. read() returns the values or null after
+      showing a friendly message; the server enforces the same ranges. */
+  _buildSprintPicker() {
+    const RANGES = { count: [1, 12], focus: [5, 120], brk: [1, 60] };
+    const clampTo = (n, [lo, hi]) => Math.min(hi, Math.max(lo, n));
+    const saved = safeParseGlobal('pomodoroSprintPrefs') || {};
+    const v = {
+      count: 1,
+      focus: clampTo(Number.isInteger(saved.focus) ? saved.focus : state.settings.pomodoro, RANGES.focus),
+      brk: clampTo(Number.isInteger(saved.brk) ? saved.brk : state.settings.shortBreak, RANGES.brk),
+    };
+    let custom = false;
+    const label = (n) => `${n} Pomodoro${n > 1 ? 's' : ''}`;
+
+    const root = document.createElement('div');
+    root.className = 'lounge-select';
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.id = 'lounge-mission-target';
+    trigger.className = 'lounge-select__trigger';
+    trigger.setAttribute('aria-haspopup', 'listbox');
+    trigger.setAttribute('aria-expanded', 'false');
+    trigger.setAttribute('aria-label', 'Sprint length');
+    const triggerText = document.createElement('span');
+    trigger.append(triggerText, LineIcons.el('chevron'));
+    root.appendChild(trigger);
+
+    const menu = document.createElement('ul');
+    menu.className = 'lounge-select__menu';
+    menu.setAttribute('role', 'listbox');
+    menu.hidden = true;
+    const options = [1, 2, 3, 4, 'custom'].map((k) => {
+      const li = document.createElement('li');
+      li.className = 'lounge-select__option';
+      li.setAttribute('role', 'option');
+      li.dataset.key = String(k);
+      li.tabIndex = -1;
+      li.textContent = k === 'custom' ? 'Custom…' : label(k);
+      menu.appendChild(li);
+      return li;
+    });
+
+    const summaryRow = document.createElement('div');
+    summaryRow.className = 'lounge-sprint-summary';
+    const summary = document.createElement('span');
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'icon-btn';
+    editBtn.setAttribute('aria-label', 'Edit sprint settings');
+    editBtn.setAttribute('aria-expanded', 'false');
+    editBtn.appendChild(LineIcons.el('edit'));
+    summaryRow.append(summary, editBtn);
+
+    const panel = document.createElement('div');
+    panel.className = 'lounge-sprint-panel';
+    panel.hidden = true;
+    const error = document.createElement('p');
+    error.className = 'field-hint is-error';
+    error.hidden = true;
+    const setError = (t) => { error.textContent = t; error.hidden = !t; };
+    const rows = {};
+    const sync = () => {
+      triggerText.textContent = custom ? 'Custom…' : label(v.count);
+      options.forEach((li) => li.setAttribute('aria-selected', String(li.dataset.key === (custom ? 'custom' : String(v.count)))));
+      summary.textContent = `${v.focus} min focus · ${v.brk} min break`;
+      rows.count.row.hidden = !custom;
+      Object.values(rows).forEach((r) => r.show());
+    };
+    const makeRow = (key, title, unit) => {
+      const [lo, hi] = RANGES[key];
+      const row = document.createElement('div');
+      row.className = 'lounge-stepper-row';
+      const name = document.createElement('span');
+      name.textContent = `${title} `;
+      const range = document.createElement('small');
+      range.textContent = unit ? `${lo}–${hi} ${unit}` : `${lo}–${hi}`;
+      name.appendChild(range);
+      const stepper = document.createElement('div');
+      stepper.className = 'lounge-stepper';
+      const minus = document.createElement('button');
+      const plus = document.createElement('button');
+      [minus, plus].forEach((b, i) => {
+        b.type = 'button';
+        b.className = 'icon-btn';
+        b.textContent = i ? '+' : '–';
+        b.setAttribute('aria-label', `${i ? 'Increase' : 'Decrease'} ${title.toLowerCase()}`);
+      });
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.inputMode = 'numeric';
+      input.maxLength = 3;
+      input.setAttribute('aria-label', title);
+      stepper.append(minus, input, plus);
+      row.append(name, stepper);
+      const set = (n) => { v[key] = clampTo(n, RANGES[key]); setError(''); sync(); };
+      minus.addEventListener('click', () => set(v[key] - 1));
+      plus.addEventListener('click', () => set(v[key] + 1));
+      input.addEventListener('change', () => {
+        const raw = input.value.trim();
+        const n = Number(raw);
+        if (!/^\d+$/.test(raw) || n < lo || n > hi) {
+          setError(`${title} must be a whole number from ${lo} to ${hi}${unit ? ` ${unit}` : ''}.`);
+          input.setAttribute('aria-invalid', 'true');
+          return;
+        }
+        set(n);
+      });
+      rows[key] = {
+        row,
+        show() { input.value = String(v[key]); minus.disabled = v[key] <= lo; plus.disabled = v[key] >= hi; input.removeAttribute('aria-invalid'); },
+      };
+      return row;
+    };
+    panel.append(makeRow('count', 'Pomodoros', ''), makeRow('focus', 'Focus', 'min'), makeRow('brk', 'Break', 'min'), error);
+
+    const togglePanel = (open) => {
+      panel.hidden = !open;
+      editBtn.setAttribute('aria-expanded', String(open));
+    };
+    let active = -1;
+    const setActive = (i) => {
+      active = (i + options.length) % options.length;
+      options.forEach((li, idx) => { li.dataset.active = String(idx === active); });
+      options[active].focus();
+    };
+    const close = (refocus) => {
+      menu.hidden = true;
+      trigger.setAttribute('aria-expanded', 'false');
+      if (refocus) trigger.focus();
+    };
+    const open = () => {
+      menu.hidden = false;
+      trigger.setAttribute('aria-expanded', 'true');
+      setActive(options.findIndex((li) => li.getAttribute('aria-selected') === 'true'));
+    };
+    const choose = (li) => {
+      if (li.dataset.key === 'custom') { custom = true; sync(); close(false); togglePanel(true); }
+      else { custom = false; v.count = Number(li.dataset.key); sync(); close(true); }
+    };
+    trigger.addEventListener('click', () => (menu.hidden ? open() : close(false)));
+    trigger.addEventListener('keydown', (e) => {
+      if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && menu.hidden) { e.preventDefault(); open(); }
+    });
+    editBtn.addEventListener('click', () => togglePanel(panel.hidden));
+    options.forEach((li) => li.addEventListener('click', () => choose(li)));
+    menu.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setActive(active + 1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(active - 1); }
+      else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(options[active]); }
+      else if (e.key === 'Escape') { e.preventDefault(); close(true); }
+      else if (e.key === 'Tab') close(false);
+    });
+    const outside = (e) => {
+      if (!root.isConnected) { document.removeEventListener('click', outside); return; }
+      if (!root.contains(e.target) && !menu.contains(e.target)) close(false);
+    };
+    document.addEventListener('click', outside);
+
+    sync();
+    return {
+      root, menu, summaryRow, panel,
+      read() {
+        for (const [key, title] of [['count', 'Pomodoros'], ['focus', 'Focus'], ['brk', 'Break']]) {
+          const [lo, hi] = RANGES[key];
+          if (!Number.isInteger(v[key]) || v[key] < lo || v[key] > hi) {
+            togglePanel(true);
+            setError(`${title} must be a whole number from ${lo} to ${hi}.`);
+            return null;
+          }
+        }
+        return { target: v.count, focus: v.focus, brk: v.brk };
+      },
+      /** The host's last used lengths become the next default. */
+      remember() { safeSetGlobal('pomodoroSprintPrefs', { focus: v.focus, brk: v.brk }); },
+    };
   },
 
   renderLoungeMission() {
@@ -4962,28 +6110,24 @@ const UI = {
         const form = document.createElement('form');
         form.className = 'lounge-mission-form';
         form.id = 'lounge-mission-start-form';
-        const select = document.createElement('select');
-        select.id = 'lounge-mission-target';
-        [1, 2, 3, 4].forEach((n) => {
-          const opt = document.createElement('option');
-          opt.value = String(n);
-          opt.textContent = `${n} Pomodoro${n > 1 ? 's' : ''}`;
-          select.appendChild(opt);
-        });
+        const picker = UI._buildSprintPicker();
         const btn = document.createElement('button');
         btn.type = 'submit';
         btn.id = 'lounge-mission-start-btn';
         btn.className = 'btn btn-primary';
         btn.textContent = 'Start Sprint';
-        form.append(select, btn);
+        form.append(picker.root, btn, picker.menu, picker.summaryRow, picker.panel);
         const hint = document.createElement('p');
         hint.className = 'field-hint';
         hint.id = 'lounge-mission-solo-hint';
         container.append(form, hint);
         form.addEventListener('submit', (e) => {
           e.preventDefault();
+          const picked = picker.read(); // null (with an inline message) if a value is invalid
+          if (picked === null) return;
           btn.disabled = true;
-          Lounge.startMission(select.value)
+          Lounge.startMission(picked.target, picked.focus, picked.brk)
+            .then(() => picker.remember())
             .catch((err) => setFieldStatus(hint, err.message, 'error'))
             .finally(() => { btn.disabled = false; });
         });
@@ -4993,6 +6137,7 @@ const UI = {
       const hintEl = document.getElementById('lounge-mission-solo-hint');
       startBtn.disabled = solo || !isHost;
       startBtn.hidden = !isHost;
+      document.getElementById('lounge-mission-target').disabled = !isHost;
       hintEl.textContent = !isHost ? 'Only the host can start a sprint.' : solo ? 'Invite at least one member to start a group sprint.' : '';
       return;
     }
@@ -5030,7 +6175,12 @@ const UI = {
       cancelBtn.textContent = 'Cancel Sprint';
       cancelBtn.addEventListener('click', () => { cancelBtn.disabled = true; Lounge.cancelMission().catch(() => { cancelBtn.disabled = false; }); });
 
-      container.append(alert, progress, chips, giveUpBtn, cancelBtn);
+      // Sprint settings are fixed once it starts; this read-only line replaces the picker.
+      const settingsLine = document.createElement('p');
+      settingsLine.className = 'field-hint';
+      settingsLine.id = 'lounge-mission-settings';
+
+      container.append(alert, progress, settingsLine, chips, giveUpBtn, cancelBtn);
     }
 
     const abandoned = room.members.filter((m) => m.missionState === 'abandoned');
@@ -5045,6 +6195,7 @@ const UI = {
     const checkedInCount = room.members.filter((m) => m.missionState === 'checked-in').length;
     document.getElementById('lounge-mission-progress').textContent = `${checkedInCount}/${room.members.length} checked in`;
 
+    document.getElementById('lounge-mission-settings').textContent = `${room.mission.targetPomodoros} pomodoro${room.mission.targetPomodoros > 1 ? 's' : ''} · ${room.mission.focusMinutes} min focus · ${room.mission.breakMinutes} min break`;
     const chipsEl = document.getElementById('lounge-mission-chips');
     chipsEl.replaceChildren();
     for (const m of room.members) {
@@ -5127,19 +6278,13 @@ const UI = {
     const chip = document.getElementById('lounge-chip');
     if (!chip) return;
     const room = state.lounge.room;
+    document.getElementById('site-header').classList.toggle('site-header--room', !!room);
     if (!room) { chip.hidden = true; return; }
     chip.hidden = false;
-    if (!chip.dataset.built) {
-      chip.dataset.built = '1';
-      const dot = document.createElement('span');
-      dot.className = 'live-users__dot';
-      const text = document.createElement('span');
-      text.className = 'live-users__count';
-      text.id = 'lounge-chip-text';
-      chip.append(dot, text);
-    }
     const activeCount = room.members.filter((m) => m.status !== 'idle').length;
-    document.getElementById('lounge-chip-text').textContent = `Group: ${room.code} · ${activeCount} active`;
+    const text = `Group: ${room.code} · ${activeCount} active`;
+    document.getElementById('lounge-chip-text').textContent = text;
+    chip.title = `${document.getElementById('live-users-count').textContent} online · ${text}`;
   },
 
   renderLoungeView() {
@@ -6420,6 +7565,13 @@ const UI = {
       Lounge.leaveRoom();
     });
     document.getElementById('lounge-chip').addEventListener('click', () => UI.selectView('lounge'));
+    const more = document.getElementById('header-more');
+    const moreToggle = document.getElementById('header-more-toggle');
+    const setMore = (open) => { more.classList.toggle('is-open', open); moreToggle.setAttribute('aria-expanded', String(open)); };
+    moreToggle.addEventListener('click', (e) => { e.stopPropagation(); setMore(!more.classList.contains('is-open')); });
+    document.addEventListener('click', (e) => { if (!more.contains(e.target)) setMore(false); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setMore(false); });
+    document.getElementById('header-more-menu').addEventListener('click', () => setMore(false));
 
     // ---- Leaderboard range ----
     [['daily', 'leaderboard-tab-daily'], ['weekly', 'leaderboard-tab-weekly'], ['alltime', 'leaderboard-tab-alltime']].forEach(([range, id]) => {

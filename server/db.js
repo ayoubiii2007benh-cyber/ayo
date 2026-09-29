@@ -193,11 +193,29 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(reset_token_hash);
   `);
 
+  // Shared room chat. Rows (and image bytes) are removed by ON DELETE CASCADE when the room itself
+  // is deleted -- which happens when the last member leaves -- so a room's chat lives exactly as long
+  // as the room. Images are stored in Postgres (BYTEA), never on the local disk (CLAUDE.md, Rule #1).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS room_messages (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      sender_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      text TEXT NOT NULL DEFAULT '',
+      image BYTEA,
+      image_mime TEXT,
+      created_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_room_messages_room ON room_messages(room_id, created_at);
+  `);
+
   // Columns added after the initial schema shipped. Postgres's own ADD COLUMN IF NOT EXISTS
   // (unlike SQLite) makes these safe to just always run -- no existence-check needed.
   await pool.query(`
     ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+    ALTER TABLE rooms ADD COLUMN IF NOT EXISTS mission_focus_min INTEGER;
+    ALTER TABLE rooms ADD COLUMN IF NOT EXISTS mission_break_min INTEGER;
   `);
 
   // SQLite's schema used `COLLATE NOCASE` for case-insensitive uniqueness/lookups on these
