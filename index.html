@@ -940,6 +940,38 @@
   .lounge-voice-bar .btn[aria-pressed="true"] { background: color-mix(in srgb, var(--acc) 18%, transparent); color: var(--acc); border-color: var(--acc); }
   .lounge-voice-bar .btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .lounge-voice-hint { width: 100%; margin: 4px 0 0; }
+  /* ---- video tiles: a member card with camera/screen on becomes a wide 16:9 tile ---- */
+  .lounge-tile {
+    position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: var(--r-md); overflow: hidden; background: #000;
+    border: 2px solid transparent; cursor: pointer; transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  }
+  .lounge-tile video { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .lounge-tile--screen video, .lounge-tile:fullscreen video { object-fit: contain; }
+  .lounge-tile--mirror video { transform: scaleX(-1); }
+  .lounge-tile--speaking {
+    border-color: color-mix(in srgb, var(--short) 90%, transparent);
+    box-shadow: 0 0 18px 4px color-mix(in srgb, var(--short) 55%, transparent);
+  }
+  .lounge-tile__bar {
+    position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 6px;
+    padding: 22px 10px 8px; background: linear-gradient(transparent, rgba(0, 0, 0, 0.62)); color: #fff; font-size: 13px; font-weight: 700; text-align: left;
+  }
+  .lounge-tile__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lounge-tile__badges { display: flex; gap: 4px; }
+  .lounge-tile__fs { width: 30px; height: 30px; color: #fff; flex-shrink: 0; }
+  .lounge-tile__fs .icon { width: 16px; height: 16px; }
+  .lounge-grid-card--video { padding: 8px 8px 12px; grid-column: span 2; }
+  .lounge-grid-card--video .lounge-ring, .lounge-grid-card--video .lounge-grid-card__name,
+  .lounge-grid-card--video .lounge-grid-card__status, .lounge-grid-card--video .lounge-grid-card__metrics { display: none; }
+  .lounge-member-grid.has-spotlight { grid-template-columns: minmax(0, 1fr) 190px; grid-auto-rows: min-content; align-items: start; }
+  .lounge-member-grid.has-spotlight .lounge-grid-card { grid-column: 2; }
+  .lounge-member-grid.has-spotlight .lounge-grid-card--spot { grid-column: 1; grid-row: 1 / span var(--others); }
+  @media (max-width: 700px) {
+    .lounge-grid-card--video { grid-column: auto; }
+    .lounge-member-grid.has-spotlight { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+    .lounge-member-grid.has-spotlight .lounge-grid-card { grid-column: auto; }
+    .lounge-member-grid.has-spotlight .lounge-grid-card--spot { grid-column: 1 / -1; grid-row: auto; }
+  }
   /* The cyan glow sits OUTSIDE the ring's box, so it never touches the pink/teal progress arc. */
   .lounge-ring { border-radius: 50%; transition: box-shadow 0.18s ease; }
   .lounge-ring--speaking {
@@ -1670,6 +1702,8 @@
         <div class="lounge-voice-bar" id="lounge-voice-bar" role="group" aria-label="Voice chat">
           <button type="button" class="btn btn-secondary" id="voice-mute-btn" aria-pressed="false"></button>
           <button type="button" class="btn btn-secondary" id="voice-deafen-btn" aria-pressed="false"></button>
+          <button type="button" class="btn btn-secondary" id="voice-camera-btn" aria-pressed="false"></button>
+          <button type="button" class="btn btn-secondary" id="voice-screen-btn" aria-pressed="false"></button>
           <p class="field-hint lounge-voice-hint" id="voice-hint" hidden></p>
         </div>
         <h3>Friends</h3>
@@ -4720,6 +4754,10 @@ const LineIcons = {
     chevron: '<path d="M5 8l5 5 5-5"/>',
     image: '<rect x="2.5" y="3.5" width="15" height="13" rx="3"/><circle cx="7" cy="8" r="1.4"/><path d="M3 15l4.5-4.5 3 3L13 11l4 4"/>',
     close: '<path d="M5 5l10 10M15 5L5 15"/>',
+    camera: '<rect x="2.5" y="5.5" width="10.5" height="9" rx="2.4"/><path d="M13 9l4.5-2.5v7L13 11z"/>',
+    'camera-off': '<rect x="2.5" y="5.5" width="10.5" height="9" rx="2.4"/><path d="M13 9l4.5-2.5v7L13 11zM3 3l14 14"/>',
+    screen: '<rect x="2.5" y="3.5" width="15" height="10.5" rx="2.2"/><path d="M7 17h6M10 14v3"/>',
+    expand: '<path d="M12 3h5v5M8 17H3v-5M17 3l-5.5 5.5M3 17l5.5-5.5"/>',
     edit: '<path d="M3.5 16.5l.9-3.6L13.6 3.7a1.6 1.6 0 0 1 2.3 0l.4.4a1.6 1.6 0 0 1 0 2.3L7.1 15.6z"/><path d="M12 5.3l2.7 2.7"/>',
     more: '<circle cx="4.5" cy="10" r="1.3"/><circle cx="10" cy="10" r="1.3"/><circle cx="15.5" cy="10" r="1.3"/>',
   },
@@ -4755,6 +4793,12 @@ const Voice = {
   /** userId -> { muted, deafened } for every OTHER member currently in voice */
   states: {},
   speaking: new Set(),
+  /** 'none' | 'camera' | 'screen': what I am showing (only one at a time); videoStream is that capture. */
+  video: 'none',
+  videoStream: null,
+  videoError: '',
+  spotlight: null,
+  _videoErrTimer: null,
   _speakUntil: {},
   ctx: null,
   _iceServers: null,
@@ -4799,6 +4843,7 @@ const Voice = {
     if (Voice.roomCode) Socket.send({ type: 'voice-leave' });
     Voice.roomCode = null;
     for (const uid of [...Voice.peers.keys()]) Voice._closePeer(uid);
+    Voice._stopVideoTracks();
     Voice.states = {};
     Voice.speaking.clear();
     if (Voice.localStream) { Voice.localStream.getTracks().forEach((t) => t.stop()); Voice.localStream = null; }
@@ -4810,7 +4855,7 @@ const Voice = {
   },
   _sendJoin() {
     if (!Voice.roomCode || Voice.replaced) return;
-    Socket.send({ type: 'voice-join', muted: Voice.micMuted, deafened: Voice.deafened });
+    Socket.send({ type: 'voice-join', muted: Voice.micMuted, deafened: Voice.deafened, video: Voice.video });
   },
   _ensureCtx() {
     if (!Voice.ctx) {
@@ -4870,9 +4915,10 @@ const Voice = {
     const track = Voice.localStream && Voice.localStream.getAudioTracks()[0];
     if (track) track.enabled = !Voice.micMuted && !Voice.deafened;
     for (const uid of Voice.peers.keys()) Voice._updateGain(uid);
-    Socket.send({ type: 'voice-state', muted: Voice.micMuted, deafened: Voice.deafened });
+    Voice._sendState();
     Voice._refreshUI();
   },
+  _sendState() { Socket.send({ type: 'voice-state', muted: Voice.micMuted, deafened: Voice.deafened, video: Voice.video }); },
   _updateGain(uid) {
     const peer = Voice.peers.get(uid);
     if (!peer || !peer.gain) return;
@@ -4881,27 +4927,114 @@ const Voice = {
     peer.gain.gain.setTargetAtTime(value, Voice.ctx.currentTime, 0.015);
   },
 
+  /* ---- camera / screen share: one video track rides the existing voice connections ---- */
+  async _attachLocal(peer, ts) {
+    const [tm, tv, ta] = ts;
+    if (tm) { tm.direction = 'sendrecv'; peer.sender = tm.sender; }
+    if (tv) { tv.direction = 'sendrecv'; peer.vsender = tv.sender; }
+    if (ta) { ta.direction = 'sendrecv'; peer.asender = ta.sender; }
+    const mic = Voice.localStream && Voice.localStream.getAudioTracks()[0];
+    if (mic && tm) await tm.sender.replaceTrack(mic);
+    await Voice._sendVideoTracks(peer); // someone joining mid-share gets my video straight away
+  },
+  async _sendVideoTracks(peer) {
+    const vt = (Voice.videoStream && Voice.videoStream.getVideoTracks()[0]) || null;
+    const at = (Voice.video === 'screen' && Voice.videoStream && Voice.videoStream.getAudioTracks()[0]) || null;
+    if (peer.vsender) { await peer.vsender.replaceTrack(vt).catch(() => {}); if (vt) Voice._capBitrate(peer.vsender); }
+    if (peer.asender) await peer.asender.replaceTrack(at).catch(() => {});
+  },
+  _capBitrate(sender) {
+    try {
+      const p = sender.getParameters();
+      if (!p.encodings || !p.encodings.length) return;
+      p.encodings[0].maxBitrate = Voice.video === 'screen' ? 2500000 : 700000;
+      sender.setParameters(p).catch(() => {});
+    } catch { /* not negotiated yet; retried once connected */ }
+  },
+  _stopVideoTracks() {
+    if (Voice.videoStream) Voice.videoStream.getTracks().forEach((t) => t.stop());
+    Voice.videoStream = null;
+    Voice.video = 'none';
+    for (const peer of Voice.peers.values()) {
+      if (peer.vsender) peer.vsender.replaceTrack(null).catch(() => {});
+      if (peer.asender) peer.asender.replaceTrack(null).catch(() => {});
+    }
+  },
+  _setVideoError(text) {
+    Voice.videoError = text;
+    clearTimeout(Voice._videoErrTimer);
+    if (text) Voice._videoErrTimer = setTimeout(() => { Voice.videoError = ''; Voice.renderBar(); }, 7000);
+    Voice.renderBar();
+  },
+  /** Toggle 'camera' or 'screen'. Turning one on turns the other off; pressing the active one turns it off. */
+  async setVideo(kind) {
+    if (!Voice.roomCode || Voice.replaced) return;
+    if (Voice.video === kind) { Voice._stopVideoTracks(); Voice._sendState(); Voice._refreshUI(); return; }
+    Voice._setVideoError('');
+    const md = navigator.mediaDevices;
+    let stream;
+    try {
+      if (kind === 'camera') {
+        if (!md || !md.getUserMedia) throw Object.assign(new Error('unsupported'), { name: 'NotSupportedError' });
+        stream = await md.getUserMedia({ video: { width: { ideal: 640, max: 640 }, height: { ideal: 360, max: 360 }, frameRate: { ideal: 24, max: 30 } }, audio: false });
+      } else {
+        if (!md || !md.getDisplayMedia) throw Object.assign(new Error('unsupported'), { name: 'NotSupportedError' });
+        // audio: true asks for tab/system sound where the browser offers it; it's simply absent otherwise
+        stream = await md.getDisplayMedia({ video: { width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 15 } }, audio: true });
+      }
+    } catch (err) {
+      const blocked = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+      Voice._setVideoError(kind === 'camera'
+        ? (blocked ? 'Camera access is blocked. Allow it in your browser to turn your camera on.' : err && err.name === 'NotFoundError' ? 'No camera found.' : 'Your camera can’t be started here.')
+        : (blocked ? 'Screen sharing was cancelled or blocked.' : 'Your browser can’t share the screen.'));
+      return;
+    }
+    if (!Voice.roomCode) { stream.getTracks().forEach((t) => t.stop()); return; }
+    Voice._stopVideoTracks();
+    Voice.videoStream = stream;
+    Voice.video = kind;
+    const vt = stream.getVideoTracks()[0];
+    if (kind === 'screen') vt.applyConstraints({ frameRate: { max: 15 }, width: { max: 1920 }, height: { max: 1080 } }).catch(() => {});
+    vt.contentHint = kind === 'screen' ? 'detail' : 'motion';
+    // The browser's own "Stop sharing" bar ends the track: reflect that immediately.
+    vt.addEventListener('ended', () => {
+      if (Voice.videoStream !== stream) return;
+      Voice._stopVideoTracks();
+      Voice._sendState();
+      Voice._refreshUI();
+    });
+    for (const peer of Voice.peers.values()) Voice._sendVideoTracks(peer);
+    Voice._sendState();
+    Voice._refreshUI();
+  },
+
   /* ---- peer connections ---- */
   async _connectTo(uid) {
     Voice._closePeer(uid);
     const pc = await Voice._newPeer(uid);
-    const t = pc.addTransceiver('audio', { direction: 'sendrecv' });
-    const peer = Voice.peers.get(uid);
-    peer.sender = t.sender;
-    const track = Voice.localStream && Voice.localStream.getAudioTracks()[0];
-    if (track) await t.sender.replaceTrack(track);
+    // Fixed order (both ends rely on it, see ontrack): 0 = voice, 1 = camera/screen video, 2 = screen-share audio.
+    const ts = [pc.addTransceiver('audio', { direction: 'sendrecv' }), pc.addTransceiver('video', { direction: 'sendrecv' }), pc.addTransceiver('audio', { direction: 'sendrecv' })];
+    await Voice._attachLocal(Voice.peers.get(uid), ts);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     Voice._signal(uid, { description: pc.localDescription });
   },
   async _newPeer(uid) {
     const pc = new RTCPeerConnection({ iceServers: await Voice._iceConfig() });
-    const peer = { pc, audioEl: null, source: null, gain: null, analyser: null, pending: [], sender: null };
+    const peer = { pc, audioEl: null, source: null, gain: null, analyser: null, pending: [], sender: null, vsender: null, asender: null, videoStream: null, screenEl: null, screenSource: null };
     Voice.peers.set(uid, peer);
     pc.onicecandidate = (e) => { if (e.candidate) Voice._signal(uid, { candidate: e.candidate }); };
-    pc.ontrack = (e) => Voice._attachRemote(uid, e.streams[0] || new MediaStream([e.track]));
+    pc.ontrack = (e) => {
+      const idx = pc.getTransceivers().indexOf(e.transceiver);
+      const stream = new MediaStream([e.track]);
+      if (idx === 1) Voice._attachRemoteVideo(uid, stream);
+      else if (idx === 2) Voice._attachRemoteScreenAudio(uid, stream);
+      else Voice._attachRemote(uid, stream);
+    };
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState !== 'failed' || Voice.peers.get(uid)?.pc !== pc) return;
+      const cur = Voice.peers.get(uid);
+      if (pc.connectionState === 'connected' && cur && cur.pc === pc && cur.vsender && Voice.video !== 'none') Voice._capBitrate(cur.vsender);
+      if (pc.connectionState !== 'failed' || cur?.pc !== pc) return;
       Voice._closePeer(uid);
       // Only the lower id retries, so both ends never offer at once.
       if (Voice.states[uid] && Auth.isLoggedIn() && Auth.currentUser.id < uid) setTimeout(() => { if (Voice.states[uid] && !Voice.peers.has(uid)) Voice._connectTo(uid).catch(() => {}); }, 1000);
@@ -4919,13 +5052,33 @@ const Voice = {
     peer.audioEl.muted = true;
     peer.audioEl.play().catch(() => {});
     peer.source = ctx.createMediaStreamSource(stream);
-    peer.gain = ctx.createGain();
     peer.analyser = ctx.createAnalyser();
     peer.analyser.fftSize = 512;
-    peer.source.connect(peer.gain);
-    peer.gain.connect(ctx.destination);
+    peer.source.connect(Voice._gainFor(peer));
     peer.source.connect(peer.analyser);
     Voice._updateGain(uid);
+  },
+  _gainFor(peer) {
+    if (!peer.gain) { peer.gain = Voice.ctx.createGain(); peer.gain.connect(Voice.ctx.destination); }
+    return peer.gain;
+  },
+  _attachRemoteScreenAudio(uid, stream) {
+    const peer = Voice.peers.get(uid);
+    const ctx = Voice._ensureCtx();
+    if (!peer || !ctx) return;
+    peer.screenEl = new Audio(); // same Chrome quirk as above
+    peer.screenEl.srcObject = stream;
+    peer.screenEl.muted = true;
+    peer.screenEl.play().catch(() => {});
+    peer.screenSource = ctx.createMediaStreamSource(stream);
+    peer.screenSource.connect(Voice._gainFor(peer));
+    Voice._updateGain(uid);
+  },
+  _attachRemoteVideo(uid, stream) {
+    const peer = Voice.peers.get(uid);
+    if (!peer) return;
+    peer.videoStream = stream;
+    Voice._refreshUI();
   },
   _closePeer(uid) {
     const peer = Voice.peers.get(uid);
@@ -4933,7 +5086,9 @@ const Voice = {
     Voice.peers.delete(uid);
     peer.pc.onicecandidate = peer.pc.ontrack = peer.pc.onconnectionstatechange = null;
     try { peer.pc.close(); } catch { /* already closed */ }
-    try { if (peer.source) peer.source.disconnect(); if (peer.gain) peer.gain.disconnect(); } catch { /* already disconnected */ }
+    try { if (peer.source) peer.source.disconnect(); if (peer.screenSource) peer.screenSource.disconnect(); if (peer.gain) peer.gain.disconnect(); } catch { /* already disconnected */ }
+    if (peer.screenEl) { peer.screenEl.srcObject = null; peer.screenEl = null; }
+    peer.videoStream = null;
     if (peer.audioEl) { peer.audioEl.srcObject = null; peer.audioEl = null; }
     Voice.speaking.delete(uid);
   },
@@ -4948,14 +5103,7 @@ const Voice = {
           Voice._closePeer(from); // an offer always starts a fresh connection
           const pc = await Voice._newPeer(from);
           await pc.setRemoteDescription(desc);
-          const t = pc.getTransceivers().find((x) => x.receiver.track && x.receiver.track.kind === 'audio');
-          const peer = Voice.peers.get(from);
-          if (t) {
-            t.direction = 'sendrecv';
-            peer.sender = t.sender;
-            const track = Voice.localStream && Voice.localStream.getAudioTracks()[0];
-            if (track) await t.sender.replaceTrack(track);
-          }
+          await Voice._attachLocal(Voice.peers.get(from), pc.getTransceivers().slice(0, 3));
           await Voice._flushPending(from);
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
@@ -4987,12 +5135,12 @@ const Voice = {
   _onPeers(peers) {
     if (!Voice.roomCode) return;
     Voice.states = {};
-    for (const p of peers) Voice.states[p.userId] = { muted: p.muted, deafened: p.deafened };
+    for (const p of peers) Voice.states[p.userId] = { muted: p.muted, deafened: p.deafened, video: p.video || 'none' };
     for (const p of peers) Voice._connectTo(p.userId).catch((err) => console.warn('[voice] offer failed', err));
     Voice._refreshUI();
   },
   _onPeerJoined(msg) {
-    Voice.states[msg.userId] = { muted: msg.muted, deafened: msg.deafened };
+    Voice.states[msg.userId] = { muted: msg.muted, deafened: msg.deafened, video: msg.video || 'none' };
     Voice._closePeer(msg.userId); // a stale connection from that user's previous session; their offer is coming
     Voice._refreshUI();
   },
@@ -5002,7 +5150,7 @@ const Voice = {
     Voice._refreshUI();
   },
   _onState(msg) {
-    if (Voice.states[msg.userId]) Voice.states[msg.userId] = { muted: msg.muted, deafened: msg.deafened };
+    if (Voice.states[msg.userId]) Voice.states[msg.userId] = { muted: msg.muted, deafened: msg.deafened, video: msg.video || 'none' };
     Voice._refreshUI();
   },
   _onReplaced() {
@@ -5050,6 +5198,9 @@ const Voice = {
     document.querySelectorAll('.lounge-ring[data-uid]').forEach((ring) => {
       ring.classList.toggle('lounge-ring--speaking', Voice.speaking.has(ring.dataset.uid));
     });
+    document.querySelectorAll('.lounge-tile[data-uid]').forEach((tile) => {
+      tile.classList.toggle('lounge-tile--speaking', Voice.speaking.has(tile.dataset.uid));
+    });
   },
 
   /* ---- UI ---- */
@@ -5066,6 +5217,24 @@ const Voice = {
       muteBtn.addEventListener('click', () => Voice.toggleMute());
       deafenBtn.addEventListener('click', () => Voice.toggleDeafen());
     }
+    const camBtn = document.getElementById('voice-camera-btn');
+    const screenBtn = document.getElementById('voice-screen-btn');
+    if (!camBtn.dataset.built) {
+      camBtn.dataset.built = '1';
+      camBtn.addEventListener('click', () => Voice.setVideo('camera'));
+      screenBtn.addEventListener('click', () => Voice.setVideo('screen'));
+    }
+    const vkey = `${Voice.video}`;
+    if (camBtn.dataset.key !== vkey) {
+      camBtn.dataset.key = vkey;
+      LineIcons.set(camBtn, Voice.video === 'camera' ? 'camera' : 'camera-off', 'Camera');
+      camBtn.setAttribute('aria-pressed', String(Voice.video === 'camera'));
+      camBtn.setAttribute('aria-label', Voice.video === 'camera' ? 'Turn camera off' : 'Turn camera on');
+      LineIcons.set(screenBtn, 'screen', 'Share Screen');
+      screenBtn.setAttribute('aria-pressed', String(Voice.video === 'screen'));
+      screenBtn.setAttribute('aria-label', Voice.video === 'screen' ? 'Stop sharing your screen' : 'Share your screen');
+    }
+    camBtn.disabled = screenBtn.disabled = Voice.replaced;
     const key = `${Voice.micMuted}|${Voice.deafened}|${Voice.micDenied}`;
     if (muteBtn.dataset.key !== key) {
       muteBtn.dataset.key = key;
@@ -5078,10 +5247,49 @@ const Voice = {
     }
     const hint = document.getElementById('voice-hint');
     const text = Voice.replaced ? 'Voice is active in another tab of yours.'
+      : Voice.videoError ? Voice.videoError
       : Voice.micDenied ? 'Microphone unavailable — you can still listen. Click Unmute to try again.' : '';
     hint.textContent = text;
     hint.hidden = !text;
     muteBtn.disabled = deafenBtn.disabled = Voice.replaced;
+  },
+  /** A 16:9 video tile inside a member card (hidden until that person shows camera/screen). */
+  buildTile(card, m) {
+    const el = document.createElement('div');
+    el.className = 'lounge-tile';
+    el.dataset.uid = m.id;
+    el.hidden = true;
+    const video = document.createElement('video');
+    video.autoplay = true; video.muted = true; video.playsInline = true; // sound comes from the Web Audio path, never from here
+    const bar = document.createElement('div');
+    bar.className = 'lounge-tile__bar';
+    const name = document.createElement('span');
+    name.className = 'lounge-tile__name';
+    const badges = document.createElement('span');
+    badges.className = 'lounge-tile__badges';
+    const fs = document.createElement('button');
+    fs.type = 'button';
+    fs.className = 'icon-btn lounge-tile__fs';
+    fs.setAttribute('aria-label', 'Fullscreen');
+    fs.appendChild(LineIcons.el('expand'));
+    fs.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      else if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
+    });
+    bar.append(name, badges, fs);
+    el.append(video, bar);
+    el.addEventListener('click', () => { Voice.spotlight = Voice.spotlight === m.id ? null : m.id; Voice._refreshUI(); });
+    card.prepend(el);
+    return { el, video, name, badges };
+  },
+  /** Spotlight layout: the chosen tile big, everyone else small beside it (see .has-spotlight). */
+  layoutGrid(grid) {
+    const cards = [...grid.children];
+    if (Voice.spotlight && !cards.some((c) => c.dataset.uid === Voice.spotlight && c.classList.contains('lounge-grid-card--video'))) Voice.spotlight = null;
+    grid.classList.toggle('has-spotlight', !!Voice.spotlight);
+    grid.style.setProperty('--others', String(Math.max(1, cards.length - 1)));
+    cards.forEach((c) => c.classList.toggle('lounge-grid-card--spot', c.dataset.uid === Voice.spotlight));
   },
   /** Called by UI.renderLoungeRoom once per member card (built once, then updated in place). */
   buildCardControls(card, m) {
@@ -5114,6 +5322,28 @@ const Voice = {
       const add = (name, label) => { const b = document.createElement('span'); b.className = 'lounge-ring__badge'; b.title = label; b.appendChild(LineIcons.el(name)); badges.appendChild(b); };
       if (wantKey && st.muted) add('mic-off', 'Mic muted');
       if (wantKey && st.deafened) add('headphones-off', 'Deafened');
+    }
+    const kind = isSelf ? Voice.video : (st && st.video) || 'none';
+    const showTile = inVoice && kind !== 'none';
+    const tile = refs.tile;
+    refs.card.classList.toggle('lounge-grid-card--video', showTile);
+    tile.el.hidden = !showTile;
+    if (showTile) {
+      const stream = isSelf ? Voice.videoStream : ((Voice.peers.get(m.id) || {}).videoStream || null);
+      if (tile.video.srcObject !== stream) { tile.video.srcObject = stream; if (stream) tile.video.play().catch(() => {}); }
+      // my own camera preview is mirrored like a mirror; screens are never mirrored
+      tile.el.classList.toggle('lounge-tile--mirror', isSelf && kind === 'camera');
+      tile.el.classList.toggle('lounge-tile--screen', kind === 'screen');
+      tile.name.textContent = m.displayName;
+      if (tile.badges.dataset.key !== wantKey) {
+        tile.badges.dataset.key = wantKey;
+        tile.badges.replaceChildren();
+        const add = (name, label) => { const b = document.createElement('span'); b.className = 'lounge-ring__badge'; b.title = label; b.appendChild(LineIcons.el(name)); tile.badges.appendChild(b); };
+        if (wantKey && st.muted) add('mic-off', 'Mic muted');
+        if (wantKey && st.deafened) add('headphones-off', 'Deafened');
+      }
+    } else if (tile.video.srcObject) {
+      tile.video.srcObject = null;
     }
     // per-person controls change only what *I* hear: shown for other people who are in voice
     const ctl = refs.voice;
@@ -5854,6 +6084,7 @@ const UI = {
       existing.delete(m.id);
     });
     for (const stale of existing.values()) stale.remove();
+    Voice.layoutGrid(grid);
     Voice.paintSpeaking();
     UI.renderLoungeMission();
     UI.renderLoungeActivityLog();
@@ -5888,7 +6119,8 @@ const UI = {
     const metrics = document.createElement('span');
     metrics.className = 'lounge-grid-card__metrics';
     card.append(ring, name, status, metrics);
-    card._refs = { ring, fill, avatarEl, badges, name, status, metrics, avatarKey: null };
+    card._refs = { card, ring, fill, avatarEl, badges, name, status, metrics, avatarKey: null };
+    card._refs.tile = Voice.buildTile(card, m);
     card._refs.voice = Voice.buildCardControls(card, m);
     return card;
   },

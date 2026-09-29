@@ -1079,7 +1079,8 @@ app.get('/api/lounge/rooms/:code/messages/:messageId/image', requireAuth, async 
    members of the SAME room and tracks who is in voice and their mute/deafen flags. All of
    it is in-memory on purpose: it describes live sockets, so it must vanish with them. */
 
-/** roomId -> Map<userId, { ws, muted, deafened }> */
+const VIDEO_KINDS = ['none', 'camera', 'screen'];
+/** roomId -> Map<userId, { ws, muted, deafened, video }> ('video' says what, if anything, they are showing) */
 const voiceRooms = new Map();
 
 function iceServers() {
@@ -1134,12 +1135,13 @@ async function handleVoiceMessage(ws, msg) {
     if (previous && previous.ws !== ws) sendVoice(previous, { type: 'voice-replaced' }); // same user, second tab
     const muted = !!msg.muted;
     const deafened = !!msg.deafened;
+    const video = VIDEO_KINDS.includes(msg.video) ? msg.video : 'none';
     // Tell everyone else first, so a peer that saw the old session drops it before the fresh offer arrives.
     if (previous) broadcastVoice(roomId, { type: 'voice-peer-left', userId }, userId);
-    peers.set(userId, { ws, muted, deafened });
-    const others = [...peers.entries()].filter(([uid]) => uid !== userId).map(([uid, e]) => ({ userId: uid, muted: e.muted, deafened: e.deafened }));
+    peers.set(userId, { ws, muted, deafened, video });
+    const others = [...peers.entries()].filter(([uid]) => uid !== userId).map(([uid, e]) => ({ userId: uid, muted: e.muted, deafened: e.deafened, video: e.video }));
     ws.send(JSON.stringify({ type: 'voice-peers', peers: others }));
-    broadcastVoice(roomId, { type: 'voice-peer-joined', userId, muted, deafened }, userId);
+    broadcastVoice(roomId, { type: 'voice-peer-joined', userId, muted, deafened, video }, userId);
     return;
   }
 
@@ -1150,7 +1152,8 @@ async function handleVoiceMessage(ws, msg) {
   if (msg.type === 'voice-state') {
     self.muted = !!msg.muted;
     self.deafened = !!msg.deafened;
-    broadcastVoice(roomId, { type: 'voice-state', userId, muted: self.muted, deafened: self.deafened }, userId);
+    if (VIDEO_KINDS.includes(msg.video)) self.video = msg.video;
+    broadcastVoice(roomId, { type: 'voice-state', userId, muted: self.muted, deafened: self.deafened, video: self.video }, userId);
   } else if (msg.type === 'voice-signal') {
     const target = typeof msg.to === 'string' ? peers.get(msg.to) : null;
     if (!target || msg.to === userId) return; // target must be in voice in this same room

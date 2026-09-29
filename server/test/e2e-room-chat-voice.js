@@ -62,6 +62,7 @@ async function main() {
   const aSock = await connectSocket(aTok);
   const bSock = await connectSocket(bTok);
   const cSock = await connectSocket(cTok);
+  await sleep(300); // the server registers a socket a moment after it opens
 
   console.log('1. room chat: text');
   const empty = await api(aTok, 'GET', `/api/lounge/rooms/${code}/messages`);
@@ -154,6 +155,22 @@ async function main() {
   aSock.send({ type: 'voice-state', muted: true, deafened: true });
   const st = await waitFor(bSock.events, (e) => e.type === 'voice-state');
   assert(st.userId === aId && st.muted === true && st.deafened === true, 'mute/deafen flags are broadcast');
+  aSock.send({ type: 'voice-state', muted: false, deafened: false, video: 'screen' });
+  const vid = await waitFor(bSock.events, (e) => e.type === 'voice-state' && e.video === 'screen');
+  assert(vid.userId === aId, 'camera/screen state is broadcast to the room');
+  aSock.send({ type: 'voice-state', muted: false, deafened: false, video: 'bogus' });
+  await sleep(200);
+  assert(!bSock.events.some((e) => e.type === 'voice-state' && e.video === 'bogus'), 'an unknown video kind is ignored');
+  const bLate = await connectSocket(bTok);
+  bLate.send({ type: 'voice-join' });
+  const latePeers = await waitFor(bLate.events, (e) => e.type === 'voice-peers');
+  assert(latePeers.peers.find((p) => p.userId === aId).video === 'screen', 'someone joining mid-session is told who already has video on');
+  bLate.send({ type: 'voice-leave' });
+  bLate.ws.close();
+  await sleep(150);
+  bSock.send({ type: 'voice-join', muted: true, deafened: false }); // restore B in voice for the checks below
+  await waitFor(bSock.events, (e) => e.type === 'voice-peers' && e.peers.length === 1);
+  await sleep(300); // let the join/leave broadcasts above settle before counting
   const beforeJunk = bSock.events.length;
   aSock.ws.send('not json'); aSock.send({ type: 'lounge-room', room: {} }); aSock.send({ type: 'voice-bogus' });
   await sleep(200);
