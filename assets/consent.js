@@ -176,6 +176,9 @@
 
   function init() {
     var choice = readChoice();
+    // Anyone who visited before consent existed may still carry Google Analytics cookies from the old,
+    // unconditional tag. Without a "yes" on record they are removed.
+    if (!choice || !choice.analytics) deleteAnalyticsCookies();
     if (choice) { apply(choice.analytics); markDecided(); } // stays denied unless they said yes
     else open(false);
     document.addEventListener('click', function (e) {
