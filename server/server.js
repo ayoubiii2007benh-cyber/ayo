@@ -1280,16 +1280,16 @@ app.get('/site.webmanifest', (req, res) => {
 app.get('/', (req, res) => {
   const nonce = crypto.randomBytes(16).toString('base64');
   const html = fs.readFileSync(INDEX_HTML_PATH, 'utf8')
-    .replace('<script>', `<script nonce="${nonce}">`);
+    .replace(/<script>/g, `<script nonce="${nonce}">`);
   res.set('Content-Security-Policy', [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' https://www.youtube.com https://challenges.cloudflare.com`,
+    `script-src 'self' 'nonce-${nonce}' https://www.youtube.com https://challenges.cloudflare.com https://www.googletagmanager.com`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src https://fonts.gstatic.com",
     "img-src 'self' data: blob: https:",
     "media-src 'self' data: blob: https:",
     "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://challenges.cloudflare.com",
-    "connect-src 'self' https://generativelanguage.googleapis.com",
+    "connect-src 'self' https://generativelanguage.googleapis.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com",
     "frame-ancestors 'none'",
   ].join('; '));
   res.type('html').send(html);
