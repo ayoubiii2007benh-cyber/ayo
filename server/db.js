@@ -24,8 +24,10 @@ types.setTypeParser(20, (val) => parseInt(val, 10));
 const pool = new Pool({
   connectionString: DATABASE_URL,
   // Neon (and most managed Postgres hosts) require TLS; this keeps the connection encrypted
-  // without depending on the platform's CA bundle including their specific chain.
-  ssl: { rejectUnauthorized: false },
+  // without depending on the platform's CA bundle including their specific chain. Set
+  // DATABASE_SSL_VERIFY=1 to also verify the server certificate (recommended once confirmed to work
+  // with your provider -- it stops a network attacker impersonating the database).
+  ssl: { rejectUnauthorized: process.env.DATABASE_SSL_VERIFY === '1' },
 });
 pool.on('error', (err) => {
   // A background/idle client hitting an error (e.g. a dropped connection) must not crash the
@@ -54,7 +56,29 @@ async function all(sql, params = []) {
   return res.rows;
 }
 
-const db = { run, get, all, pool };
+/** Runs fn(tx) inside one transaction (tx has the same run/get/all helpers); rolls back if fn throws. */
+async function withTransaction(fn) {
+  const client = await pool.connect();
+  const q = (sql, params = []) => client.query(toPgParams(sql), params);
+  const tx = {
+    run: (sql, params) => q(sql, params),
+    get: async (sql, params) => (await q(sql, params)).rows[0],
+    all: async (sql, params) => (await q(sql, params)).rows,
+  };
+  try {
+    await client.query('BEGIN');
+    const result = await fn(tx);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { /* connection already gone */ }
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+const db = { run, get, all, pool, withTransaction };
 
 /* ============================== schema ==============================
    CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS only -- this function runs on every
@@ -216,6 +240,8 @@ async function initSchema() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT;
     ALTER TABLE rooms ADD COLUMN IF NOT EXISTS mission_focus_min INTEGER;
     ALTER TABLE rooms ADD COLUMN IF NOT EXISTS mission_break_min INTEGER;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS consent_version TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS consent_at BIGINT;
   `);
 
   // SQLite's schema used `COLLATE NOCASE` for case-insensitive uniqueness/lookups on these

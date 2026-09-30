@@ -1,0 +1,87 @@
+/* Cookie banner + shared footer. Uses the site's Liquid Glass tokens (--glass-pop, --edge, --acc ...); the
+   fallbacks only matter on pages that don't define them. */
+.cookie-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 100;
+  width: min(680px, calc(100vw - 24px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 20px 22px;
+  border-radius: var(--r-lg, 30px);
+  color: var(--text, #14100c);
+  background: var(--glass-pop, rgba(255, 255, 255, 0.78));
+  backdrop-filter: var(--blur-pop, blur(50px) saturate(200%));
+  -webkit-backdrop-filter: var(--blur-pop, blur(50px) saturate(200%));
+  border: 1px solid var(--edge, rgba(255, 255, 255, 0.8));
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
+  font-family: var(--font, 'Figtree', system-ui, sans-serif);
+  font-size: 14px;
+  line-height: 1.5;
+}
+@supports not (backdrop-filter: blur(1px)) {
+  .cookie-banner { background: var(--base, var(--bg, #fdfbf8)); }
+}
+.cookie-banner__title { margin: 0 0 6px; font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
+.cookie-banner__text { margin: 0 0 14px; color: var(--dim, var(--text-muted, #6b625c)); }
+.cookie-banner__text a { color: var(--acc, #ff5533); font-weight: 600; }
+.cookie-banner__actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+.cookie-btn {
+  font: inherit;
+  font-weight: 600;
+  min-height: 44px;
+  padding: 10px 22px;
+  border-radius: var(--r-pill, 999px);
+  cursor: pointer;
+  color: var(--text, #14100c);
+  background: var(--glass-hi, rgba(255, 255, 255, 0.66));
+  border: 1px solid var(--edge, rgba(255, 255, 255, 0.8));
+  transition: transform 0.16s ease, background-color 0.16s ease;
+}
+.cookie-btn:hover { background: var(--glass-active, rgba(255, 255, 255, 0.92)); transform: translateY(-1px); }
+.cookie-btn:active { transform: translateY(0); }
+.cookie-btn:focus-visible, .cookie-banner a:focus-visible, .cookie-row input:focus-visible { outline: 2px solid var(--acc, #ff5533); outline-offset: 2px; }
+/* Accept and Reject carry equal visual weight on purpose; "primary" only colours the confirming action. */
+.cookie-btn--primary { background: var(--acc, #ff5533); color: var(--on-acc, #fff); border: none; box-shadow: 0 10px 24px color-mix(in srgb, var(--acc, #ff5533) 33%, transparent); }
+.cookie-btn--primary:hover { background: var(--acc, #ff5533); filter: brightness(1.05); }
+.cookie-banner__manage { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--track, rgba(0, 0, 0, 0.1)); display: flex; flex-direction: column; gap: 14px; }
+.cookie-banner__manage[hidden] { display: none; }
+.cookie-row { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
+.cookie-row input { width: 20px; height: 20px; margin: 2px 0 0; flex-shrink: 0; accent-color: var(--acc, #ff5533); }
+.cookie-row strong { display: block; }
+.cookie-row__desc { display: block; color: var(--dim, var(--text-muted, #6b625c)); font-size: 13px; }
+@media (max-width: 520px) {
+  .cookie-banner { bottom: 8px; padding: 16px; }
+  .cookie-banner__actions { justify-content: stretch; }
+  .cookie-banner__actions .cookie-btn { flex: 1 1 auto; }
+}
+@media (prefers-reduced-motion: reduce) { .cookie-btn { transition: none; } }
+
+/* Footer shared by the app and the legal pages. */
+.site-footer {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 8px clamp(16px, 4vw, 32px) 28px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--dim, var(--text-muted, #6b625c));
+}
+.site-footer a, .site-footer button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 6px 2px;
+  cursor: pointer;
+  text-decoration: none;
+  border-radius: 8px;
+}
+.site-footer a:hover, .site-footer button:hover { color: var(--text, #14100c); text-decoration: underline; }
+.site-footer a:focus-visible, .site-footer button:focus-visible { outline: 2px solid var(--acc, #ff5533); outline-offset: 2px; }

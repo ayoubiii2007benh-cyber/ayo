@@ -1,0 +1,158 @@
+/* Styling for /privacy, /terms and /cookies -- the same Liquid Glass tokens and look as the app.
+   legal.js overrides the colour variables below with the visitor's saved theme, if they have one. */
+:root {
+  --bg: #fdfbf8;
+  --surface: #ffffff;
+  --text: #14100c;
+  --text-muted: #6b625c;
+  --primary: #ff5533;
+  --accent-pomodoro: #ff5533;
+  --accent-shortBreak: #0eb8a0;
+  --accent-longBreak: #7c3aed;
+  --border: color-mix(in srgb, var(--text) 9%, var(--bg));
+
+  --base: var(--bg);
+  --glass: color-mix(in srgb, var(--surface) 46%, transparent);
+  --glass-hi: color-mix(in srgb, var(--surface) 66%, transparent);
+  --glass-pop: color-mix(in srgb, var(--surface) 72%, transparent);
+  --glass-active: color-mix(in srgb, var(--surface) 92%, transparent);
+  --edge-rim: rgba(255, 255, 255, 0.80);
+  --edge: color-mix(in srgb, var(--edge-rim) 70%, var(--border) 30%);
+  --shadow: 0 10px 40px rgba(90, 35, 15, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  --track: color-mix(in srgb, var(--text) 10%, transparent);
+  --dim: var(--text-muted);
+  --acc: var(--accent-pomodoro);
+  --on-acc: #FFFFFF;
+  --r-xl: 36px; --r-lg: 30px; --r-md: 26px; --r-sm: 20px; --r-pill: 999px;
+  --blur: blur(40px) saturate(180%);
+  --blur-pop: blur(50px) saturate(200%);
+  --font: 'Figtree', system-ui, -apple-system, sans-serif;
+  --blob-0: color-mix(in srgb, var(--acc) 62%, white 38%);
+  --blob-1: color-mix(in srgb, var(--primary) 45%, white 55%);
+  --blob-2: color-mix(in srgb, var(--accent-longBreak) 48%, white 52%);
+}
+[data-theme="dark"] {
+  --edge-rim: rgba(255, 255, 255, 0.14);
+  --shadow: 0 10px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  --blob-0: color-mix(in srgb, var(--acc) 55%, black 25%);
+  --blob-1: color-mix(in srgb, var(--primary) 45%, black 35%);
+  --blob-2: color-mix(in srgb, var(--accent-longBreak) 45%, black 35%);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { height: 100%; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  min-height: 100%;
+  color: var(--text);
+  background: var(--base);
+  font-family: var(--font);
+  font-weight: 400;
+  line-height: 1.65;
+  overflow-x: hidden;
+}
+a { color: color-mix(in srgb, var(--acc) 72%, var(--text)); }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 8px; }
+
+/* Soft colour blobs behind the page, like the app's default background. */
+.bg-blobs { position: fixed; inset: 0; z-index: -2; overflow: hidden; pointer-events: none; }
+.bg-blob { position: absolute; border-radius: 50%; filter: blur(90px); }
+.bg-blob--0 { left: -10vw; top: -12vh; width: min(560px, 55vw); height: min(560px, 55vw); background: var(--blob-0); opacity: 0.85; }
+.bg-blob--1 { right: -11vw; top: 14vh; width: min(640px, 60vw); height: min(640px, 60vw); background: var(--blob-1); opacity: 0.8; filter: blur(100px); }
+.bg-blob--2 { left: 24vw; bottom: -24vh; width: min(620px, 58vw); height: min(520px, 50vw); background: var(--blob-2); opacity: 0.75; filter: blur(100px); }
+
+.glass {
+  background: var(--glass);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow);
+}
+@supports not (backdrop-filter: blur(1px)) { .glass { background: color-mix(in srgb, var(--base) 88%, white); } }
+
+.legal-header {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 22px clamp(16px, 4vw, 32px) 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.brand {
+  height: 52px;
+  padding: 0 20px 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--r-pill);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+.brand__mark { width: 30px; height: 30px; color: var(--acc); display: flex; }
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: var(--r-pill);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 15px;
+}
+.back-link:hover { background: var(--glass-active); }
+
+.legal {
+  max-width: 900px;
+  margin: 14px auto 12px;
+  padding: clamp(24px, 5vw, 48px);
+  border-radius: var(--r-xl);
+  width: calc(100% - clamp(32px, 8vw, 64px));
+}
+.legal h1 { margin: 0 0 6px; font-size: clamp(28px, 5vw, 40px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.15; }
+.legal .meta { margin: 0 0 24px; color: var(--dim); font-size: 14px; }
+.legal h2 { margin: 36px 0 10px; font-size: 22px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.25; }
+.legal h3 { margin: 22px 0 6px; font-size: 17px; font-weight: 700; }
+.legal p, .legal ul, .legal ol { margin: 0 0 14px; }
+.legal ul, .legal ol { padding-left: 1.3em; }
+.legal li { margin: 4px 0; }
+.legal strong { font-weight: 700; }
+.legal .summary {
+  margin: 0 0 8px;
+  padding: 16px 20px;
+  border-radius: var(--r-sm);
+  background: var(--glass-hi);
+  border: 1px solid var(--edge);
+}
+.legal .summary p:last-child, .legal .summary ul:last-child { margin-bottom: 0; }
+.legal nav.toc { margin: 18px 0 8px; padding: 0; }
+.legal nav.toc ol { columns: 2 260px; column-gap: 28px; margin: 0; padding-left: 1.4em; font-size: 15px; }
+.legal nav.toc a { text-decoration: none; }
+.legal nav.toc a:hover { text-decoration: underline; }
+.legal .table-wrap { overflow-x: auto; margin: 0 0 16px; border-radius: var(--r-sm); border: 1px solid var(--edge); background: var(--glass-hi); }
+.legal table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 560px; }
+.legal th, .legal td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--track); }
+.legal th { font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); }
+.legal tr:last-child td { border-bottom: none; }
+.legal code { font-family: ui-monospace, 'Cascadia Code', Consolas, Menlo, monospace; font-size: 0.92em; padding: 1px 6px; border-radius: 6px; background: var(--track); }
+.legal .btn-inline {
+  font: inherit; font-weight: 600; cursor: pointer; min-height: 44px; padding: 10px 22px;
+  border-radius: var(--r-pill); color: var(--text); background: var(--glass-hi); border: 1px solid var(--edge);
+}
+.legal .btn-inline:hover { background: var(--glass-active); }
+
+@media (max-width: 560px) {
+  .legal { width: calc(100% - 24px); padding: 22px 18px; border-radius: var(--r-lg); }
+  .legal h2 { font-size: 20px; }
+}
+@media print {
+  .bg-blobs, .back-link, .site-footer, .cookie-banner { display: none !important; }
+  .glass { background: #fff; box-shadow: none; border: none; }
+  body { background: #fff; color: #000; }
+}

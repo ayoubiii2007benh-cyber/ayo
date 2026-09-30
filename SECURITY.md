@@ -1,437 +1,133 @@
-# Security
+# Security & privacy
 
-This document describes how this app protects user data today, what it
-deliberately doesn't do yet, and what to check before you deploy it. It's
-written to be read alongside the code, not instead of it — `server/*.js`
-is short enough to read in full, and you should before trusting anything
-below blindly.
+What protects user data today, what is deliberately not done, and what to check when deploying.
+Read it next to the code: `server/*.js` is short enough to read in full.
+
+Last reviewed: 2026-09-30 (privacy/legal + security hardening pass).
 
 ## Architecture
 
-One Express process serves everything: the static frontend (`index.html`),
-the JSON API, and the WebSocket connection, all on the same origin. Data
-lives in a single SQLite file (`server/data.db` by default, or `DB_PATH`),
-accessed directly through Node's built-in `node:sqlite` — no ORM, no
-separate database server, no separate frontend host in the default setup.
+One Express process serves the static frontend (`index.html`, `assets/`, `legal/`), the JSON API and the
+WebSocket, all on one origin. **All user data lives in an external Postgres database (`DATABASE_URL`)** --
+never on the server's disk (Render's disk is wiped on every deploy; see CLAUDE.md, Rule #1). Schema changes
+are additive only (`server/db.js`).
 
-## Authentication
+## Authentication and sessions
 
-Passwords are hashed with bcrypt at cost factor 10 (`server/auth.js`) —
-plaintext passwords are never stored and never logged. A successful
-login or registration returns a JWT with a 7-day expiry. The token
-carries the user's id and a `token_version` number pulled from the
-`users` table at signing time.
+- **Passwords:** bcrypt, cost 12 (`server/auth.js`). Older cost-10 hashes are re-hashed transparently at the
+  next successful login. New passwords: 8-72 bytes (bcrypt ignores anything past 72), a short common-password
+  deny-list, not equal to the username/email.
+- **Session = HttpOnly cookie.** A signed JWT (HS256, 7 days) in `__Host-pomo_session` (`Secure`, `HttpOnly`,
+  `SameSite=Lax`, `Path=/`; plain `pomo_session` on http://localhost). Scripts on the page can never read it
+  and it never appears in a URL or JSON body. A fresh session is minted at every login/registration/reset.
+- **Revocation:** every request re-checks the JWT's `token_version` against the database. Logout and a
+  password reset bump it (log out everywhere) and clear the cookie.
+- **CSRF, two layers:** (1) any state-changing `/api` request carrying a cross-site `Origin` or
+  `Sec-Fetch-Site: cross-site` is refused; (2) `requireAuth` demands an `X-CSRF-Token` header equal to an HMAC of
+  the session token (returned by login / `GET /api/auth/me`, held in page memory only).
+- **Brute force:** per-IP limits on login/register (10 / 15 min); per-account exponential backoff (from the
+  6th failure: 1, 2, 4 ... 15 minutes); Cloudflare Turnstile required after 2 failures; "user not found" does a
+  dummy bcrypt compare so response time doesn't reveal which usernames exist.
+- **Migration:** people who were signed in under the old design (token in `localStorage`) are upgraded once via
+  `POST /api/auth/session/upgrade` -- the only place a bearer token is still accepted -- and the stored token is
+  deleted by the page.
+- **Password reset** (email code): unchanged design -- 6-digit code stored only as a peppered hash, max 5 tries,
+  10-minute expiry, single-use 15-minute reset token, no account enumeration, sessions revoked on reset.
 
-That `token_version` column is what makes logout mean something
-server-side: every authenticated request re-checks the token's version
-against the current value in the database (`requireAuth`, `server/auth.js`).
-Calling `POST /api/auth/logout` increments the column, which instantly
-invalidates every outstanding token for that account, on every device —
-there's no per-device session tracking, so this is "log out everywhere,"
-not "log out this browser." See Known limitations below.
+## Consent and privacy features
+
+- Registration requires `acceptTerms === true` **on the server**; the timestamp and policy version
+  (`POLICY_VERSION` in `server/server.js`) are stored in `users.consent_version / consent_at`. Accounts that
+  predate the policies (or accepted an older version) must accept at next login or via a blocking dialog
+  (`POST /api/account/consent`). New OAuth accounts need the box ticked too (`?consent=1` on the start URL).
+  **When you change `legal/*.html` materially, bump `POLICY_VERSION` and the dates in those files.**
+- Cookie banner (`assets/consent.js`): Google Consent Mode v2 defaults to denied; `gtag.js` is not even
+  downloaded until analytics is accepted; withdrawing deletes the `_ga*` cookies. The choice lives in
+  `localStorage` (`pomoCookieConsent`) and is re-asked after 12 months.
+- `GET /api/account/export` -- JSON copy of everything stored about the user (no password hash / tokens).
+- `POST /api/account/delete` -- re-authenticates (password, or the username for OAuth-only accounts), hands a
+  hosted room to another member, deletes other users' notifications that embed this user's profile, then deletes
+  the user row (everything else cascades). Open sockets are closed and friends are told.
+- Data minimisation: the app never stores IP addresses (only in-memory rate-limit counters, <= ~1 hour, never
+  logged); no IP is sent to Turnstile; no location of any kind; emails are never logged on a deployed server;
+  Google Fonts replaced by a self-hosted copy (no IP disclosure to Google); Turnstile's script loads only when the
+  sign-in window opens; non-friends no longer see a user's online status / last-seen time.
+- Retention (`purgeStaleRecords`, every 6 h): password-reset rows > 1 day, resolved friend requests / room invites
+  and stale pending invites > 30 days, notifications > 90 days. **Messages, profile, friends and focus history are
+  never auto-deleted.**
 
 ## Authorization
 
-Every route that touches user-specific data goes through the `requireAuth`
-middleware, which derives `req.userId` from the verified JWT — nothing
-ever trusts a user id supplied in a request body, query string, or URL
-param as the acting identity. Every one of those routes' SQL is scoped
-to that id (`WHERE user_id = ?`, friendship/ownership checks on requests
-before mutating them, `areFriends()` checks before conversations or
-messages are readable). There is no route where one user can read or
-write another user's private data by guessing an id.
+`requireAuth` derives `req.userId` from the verified session; no route trusts a user id from the body, query or
+URL as the acting identity. Every query is scoped (`WHERE user_id = ?`, ownership/friendship checks before
+reads or mutations). Room data, room chat, images and voice signalling all require current membership of that
+exact room. WebSocket: the handshake must come from this site's own origin (cross-site WebSocket hijacking is
+refused), the session is read from the cookie (never a URL token), sockets are capped (10 per user, 10k total),
+frames are capped at 32 KB and rate-limited. Room codes are drawn from a CSPRNG with ~8 million combinations.
 
-## Database security
+## Injection / XSS
 
-- Every query goes through parameterized statements
-  (`db.prepare(...).run/get/all`) — no string-concatenated SQL anywhere
-  in the codebase.
-- Foreign keys are declared with `ON DELETE CASCADE` (`server/db.js`),
-  so deleting a user cleans up their friendships, requests, conversations,
-  messages, and notifications instead of leaving orphaned rows.
-- No ORM — just `node:sqlite`, so there's no ORM-layer injection surface
-  to worry about either.
+All SQL is parameterised (`?` -> `$n`); `LIKE` wildcards in user search are escaped. All user-controlled text is
+rendered with `textContent`; `innerHTML` only ever receives the app's own static icon markup. Avatar URLs must
+be `https://` with no quotes/brackets/backslashes. Room-chat images are sniffed by magic bytes (no SVG).
+Async route errors are caught (they used to crash the process): a bad request yields a 4xx/5xx, not an outage.
 
-## Realtime security (WebSocket)
+## Headers
 
-The WebSocket connection authenticates using the same JWT as the REST
-API, passed as a `?token=` query parameter (`server/server.js`) — the
-standard approach for browser WebSockets, which can't set custom headers
-on the upgrade request. This does mean the token can end up in places
-that log full URLs (see Known limitations); the mitigation is that tokens
-are short-lived (7 days, and revocable via logout) rather than replacing
-the mechanism.
+Set on every response: a per-request-nonce **Content-Security-Policy** (`script-src 'self' 'nonce-...'` plus only
+YouTube, Cloudflare Turnstile and Google Tag Manager; `object-src 'none'`, `base-uri 'self'`,
+`form-action 'self'`, `frame-ancestors 'none'`, `upgrade-insecure-requests` on HTTPS), HSTS (1 year,
+includeSubDomains), `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
+`Permissions-Policy` (camera/microphone/screen-share same-origin only; geolocation, payment, USB etc. off),
+`Cache-Control: no-store` on `/api`. `X-Powered-By` is removed. Plain-HTTP requests (as reported by
+`X-Forwarded-Proto`) are redirected to HTTPS.
 
-Once `ALLOWED_ORIGIN` is configured, the WebSocket upgrade handler
-(`server/server.js`) runs:
+Two CSP directives stay loose on purpose: `img-src`/`media-src` allow any `https:` (the Settings page lets users
+paste their own background image/video/audio URL) and `style-src` keeps `'unsafe-inline'` (inline `style`
+attributes are used throughout). `script-src`, the XSS vector that matters, is strict.
 
-```js
-if (allowedOrigins.length && origin && !allowedOrigins.includes(origin)) {
-  socket.destroy();
-  return;
-}
-```
+## Rate limits (in memory, per process)
 
-This only rejects a connection when an `Origin` header is **both present
-and mismatched**. Browsers always send `Origin` on a WebSocket handshake,
-so this does stop a malicious website from opening a WS connection against
-this server using a victim's browser (the attack it was added for). It
-does **not** gate a client that sends no `Origin` header at all — curl, a
-script, or any non-browser WebSocket client is free to omit it, and the
-condition above is simply false, so the connection proceeds regardless of
-`ALLOWED_ORIGIN`. In other words, this check protects against
-browser-based cross-site WS attacks; it provides no protection against a
-scripted attacker who has obtained a valid token (stolen, leaked, or
-phished) and connects directly with a WS client of their own. Locally,
-with `ALLOWED_ORIGIN` unset, the check is skipped entirely (`allowedOrigins.length`
-is `0`) so same-origin dev traffic isn't affected.
-
-## CAPTCHA (Cloudflare Turnstile)
-
-`POST /api/auth/register` and `POST /api/auth/login` verify a Turnstile
-token server-side (`verifyCaptcha()` in `server/server.js`) against
-Cloudflare's `siteverify` endpoint before touching the database or bcrypt.
-The secret key (`TURNSTILE_SECRET_KEY`) is a backend-only environment
-variable, never sent to the client; only the public site key
-(`TURNSTILE_SITE_KEY`) is exposed, via `GET /api/config`.
-
-Also gates `POST /api/auth/forgot` and `POST /api/auth/forgot-username`
-(always) and `POST /api/auth/login` specifically once an identifier has 2+
-recent failed attempts — enforced server-side regardless of what the
-frontend shows, so a client that never sends a token past that point is
-simply rejected.
-
-Three explicit behaviors worth knowing:
-
-- **Unconfigured (no `TURNSTILE_SECRET_KEY`/`TURNSTILE_SITE_KEY`) → falls
-  back to Cloudflare's own published test keys** (site
-  `1x00000000000000000000AA`, secret `1x0000000000000000000000000000000AA`),
-  so local dev and CI never need a Cloudflare account *and* still exercise
-  the real widget and the real `siteverify` call. These test keys always
-  pass verification — **this is a real gap, not an oversight**: a
-  deployment that never sets its own real keys shows a working-looking
-  CAPTCHA that provides zero actual bot protection. See Deployment
-  security requirements.
-- **A network failure reaching Cloudflare fails closed** (the attempt is
-  rejected), not open. A Cloudflare outage means login/signup are
-  unavailable rather than silently unprotected.
-- The frontend (`Captcha` in `index.html`) only loads Turnstile's script
-  and renders a widget if `GET /api/config` reports CAPTCHA enabled, which
-  it now always does (real keys or the test-key fallback above). The
-  login widget specifically renders lazily — only once the failed-attempt
-  threshold is crossed — so a user who gets their password right the
-  first time never sees or loads it.
-
-## OAuth ("Continue with Google" / "Continue with Microsoft")
-
-`server/oauth.js` implements standard authorization-code + PKCE (RFC 7636)
-against each provider directly — no SDK, no dependency, two `fetch` calls
-per sign-in (token exchange, then the provider's OIDC `userinfo` endpoint).
-PKCE is used even though these are confidential (secret-holding) clients:
-it costs nothing and stops an intercepted `code` from being redeemed by
-anyone but the browser that started that exact flow.
-
-- **CSRF/state**: `GET /api/auth/:provider/start` generates a random
-  `state` and a PKCE verifier, stored server-side in memory keyed by
-  `state` (`oauthStates`), and never trusts the client to round-trip
-  anything but that opaque value. `state` is deleted the moment the
-  callback looks it up — replay of a callback URL fails immediately.
-- **No JWT signature verification needed**: profile data comes from calling
-  the provider's own `userinfo` endpoint with the access token we just
-  received, not from decoding the `id_token` ourselves — that endpoint is
-  only reachable with a token the provider itself issued to us over this
-  exact request, so there's no JWKS/signature-verification code to get
-  wrong.
-- **The real session JWT never appears in a URL.** The OAuth callback
-  redirects to `/?oauth=<one-time code>`; the frontend immediately calls
-  `POST /api/auth/oauth/exchange` to trade that code for the actual token
-  (`oauthExchangeCodes`, single-use, 60s expiry) and strips the query
-  param via `history.replaceState`. The alternative — putting the JWT
-  itself in the redirect URL — would leave it in browser history and any
-  access log that captures full URLs.
-- **Account linking trust assumption**: a new OAuth sign-in is linked to an
-  existing password-based account by email match only when the provider
-  asserts the email is verified. Google's `userinfo` response has an
-  explicit `email_verified` claim, honored directly. Microsoft's does not
-  expose that claim, so an email returned there is treated as verified on
-  the assumption that Microsoft only returns a mailbox it authenticated
-  the sign-in against — the same assumption most production apps make,
-  but a real one, stated here rather than left implicit.
-- **No client secret ever reaches the browser.** `GOOGLE_CLIENT_SECRET` /
-  `MICROSOFT_CLIENT_SECRET` are read only from environment variables on
-  the server; the frontend only ever navigates to `/api/auth/:provider/start`
-  (a same-origin link) and never sees a provider's credentials.
-- **Provider buttons are hidden, not just disabled, when unconfigured.**
-  `GET /api/config` reports `oauth.google`/`oauth.microsoft` as `false`
-  unless both that provider's client id and secret are set; the frontend
-  hides the corresponding button, and `/api/auth/:provider/start` 404s
-  regardless of what the frontend shows.
-- **An OAuth-created account gets no usable password.** Its
-  `password_hash` is a bcrypt hash of random bytes nobody knows; signing in
-  again means going through the same provider, the only identity actually
-  verified for that account.
-
-Known gap: there is no UI yet for a *logged-in* user to link a second
-provider (or a password) to their existing account — only the automatic
-email-match linking described above. Explicitly out of scope for this pass.
-
-## Password reset (email code)
-
-`POST /api/auth/forgot` → `POST /api/auth/verify-code` → `POST
-/api/auth/reset-password`, backed by the `password_resets` table
-(`server/db.js`). Notable properties:
-
-- **Never reveals whether an account exists.** `/forgot` and
-  `/forgot-username` return the identical generic response regardless of
-  whether the identifier matched a real account with an email on file —
-  checked before any rate-limit or lookup work that could otherwise leak
-  timing, and rate-limited *before* the account lookup so a 429 doesn't
-  leak existence either.
-- **The 6-digit code is never stored in plaintext.** Only
-  `hashWithPepper(code)` (SHA-256 salted with `JWT_SECRET`, see
-  `server/auth.js`) is persisted, generated with `crypto.randomInt` (a CSPRNG,
-  not `Math.random`). Comparison uses `crypto.timingSafeEqual`
-  (`safeEqual()`), not `===`.
-- **Max 5 wrong code attempts**, then the code is invalidated
-  server-side (`code_hash` cleared) and a fresh `/forgot` request is
-  required — a brute force of a 6-digit space (1,000,000 possibilities)
-  never gets more than 5 guesses per requested code.
-- **The reset token returned by `/verify-code` is single-use and
-  short-lived** (15 min, `crypto.randomBytes(32)`, hashed the same way as
-  the code before storage) — `reset-password` clears it the moment it's
-  redeemed, so a captured token can't be replayed.
-- **Resetting a password logs out every other session** for that
-  account: `reset-password` bumps `token_version`, the same mechanism
-  `POST /api/auth/logout` uses, invalidating every JWT issued before that
-  moment.
-- **Rate-limited two ways**: 3 code requests per identifier per hour and
-  10 per IP per hour (`/forgot`, `/forgot-username` independently);
-  `/verify-code` and `/reset-password` are separately capped per IP too.
-
-## Rate limiting
-
-An in-memory limiter (`rateLimited()` in `server/server.js`) throttles:
-
-| Route | Limit | Keyed by |
-|---|---|---|
-| `POST /api/auth/register` | 10/15min | IP |
-| `POST /api/auth/login` | 10/15min | IP |
-| `POST /api/auth/forgot` | 3/hour + 10/hour | identifier + IP |
-| `POST /api/auth/forgot-username` | 3/hour + 10/hour | identifier + IP |
-| `POST /api/auth/verify-code` | 20/hour | IP |
-| `POST /api/auth/reset-password` | 20/hour | IP |
-| `GET /api/auth/:provider/start` | 20/min | IP |
-| `GET /api/users/search` | 30/min | user id |
-| `POST /api/friends/requests` | 20/min | user id |
-| `POST /api/conversations/:friendId/messages` | 60/min | user id |
-
-Register and login key on IP because there's no authenticated identity
-yet at that point. Every other limited route is behind `requireAuth`, so
-it keys on the verified user id instead — a precise, un-spoofable key
-that sidesteps IP/proxy ambiguity entirely for those routes.
-
-Login also tracks failed attempts per identifier (separately from the
-IP-keyed limit above, never expiring early, reset on a successful login)
-to decide when to require a CAPTCHA — see CAPTCHA above.
-
-IP-based limiting is only as good as `req.ip`, which depends on
-`TRUST_PROXY`. **Only set `TRUST_PROXY=1` if this server is genuinely
-running behind a reverse proxy** (Render, or similar). Enabling it
-without one lets any client set `X-Forwarded-For` themselves and claim
-any IP, bypassing the register/login limits entirely.
-
-The limiter's internal map is swept every 15 minutes to drop stale
-entries (long enough to never wipe a still-active 1-hour window early)
-so it doesn't grow unbounded over the server's lifetime.
-
-## Input validation
-
-Every write endpoint validates its input server-side, regardless of what
-the client already checked:
-
-- Usernames: 3-20 characters, letters/numbers/underscore only.
-- Passwords: 6-200 characters.
-- Email (optional): basic format check, capped at 200 characters.
-- Display name, bio, avatar, message text, search query: all explicitly
-  length-capped (`.slice(...)`) before they touch the database.
-
-## Cross-site scripting (XSS)
-
-All user-controlled content the frontend renders (usernames, display
-names, bios, chat messages, notification text) is set via `textContent`,
-never `innerHTML` — `innerHTML` is only ever used with the app's own
-static icon markup, never with anything a user typed.
-
-On top of that, `index.html` is served with a per-request nonce-based
-Content-Security-Policy (`server/server.js`, the `GET /` handler):
-
-```
-default-src 'self'
-script-src 'self' 'nonce-<random per request>' https://www.youtube.com https://challenges.cloudflare.com
-style-src 'self' 'unsafe-inline' https://fonts.googleapis.com
-font-src https://fonts.gstatic.com
-img-src 'self' data: blob: https:
-media-src 'self' data: blob: https:
-frame-src https://www.youtube.com https://www.youtube-nocookie.com https://challenges.cloudflare.com
-connect-src 'self' https://generativelanguage.googleapis.com
-frame-ancestors 'none'
-```
-
-The app's entire frontend is one inline `<script>` tag; the CSP allows
-it to run only because each response injects a fresh, unguessable nonce
-into that exact tag and scopes `script-src` to it — `'unsafe-inline'` is
-never used for scripts. `frame-ancestors 'none'` blocks this app from
-being framed by anyone (clickjacking).
-
-Two directives are intentionally loose, so they don't read as
-oversights:
-
-- `img-src`/`media-src` allow any `https:` source because the Settings
-  page lets a user paste an arbitrary background image/video URL — there
-  is no fixed set of hosts to allowlist without breaking that feature.
-- `style-src` keeps `'unsafe-inline'` because the app uses inline
-  `style="…"` attributes throughout; nonce-per-attribute isn't practical.
-  This is a real, accepted gap, but it's scoped to styles only —
-  `script-src`, the actual XSS vector, stays strict.
-
-`https://www.youtube.com` is allowlisted for `script-src`/`frame-src`
-because the background-video feature loads the YouTube IFrame API from
-there. `https://www.youtube-nocookie.com` is additionally allowlisted for
-`frame-src` because the actual embedded player iframe is created on that
-privacy-enhanced domain (the IFrame API's `host` option), not youtube.com.
-`https://challenges.cloudflare.com` is allowlisted the same way for the
-Turnstile CAPTCHA widget (see CAPTCHA below) — its script and the iframe
-it renders both need it, and neither is loaded at all unless CAPTCHA is
-actually configured. `connect-src` allows
-`https://generativelanguage.googleapis.com` because the AI chat feature
-calls Google's Gemini API directly from the browser with a user-supplied
-key (the app's own Settings UI already tells the user that key is sent
-directly to Google, never to this app's server).
-
-Baseline headers (`X-Content-Type-Options: nosniff`, `Referrer-Policy:
-no-referrer`, `X-Frame-Options: DENY`, HSTS) come from `helmet`, configured
-with its own CSP disabled (the CSP above replaces it) and frameguard set to
-`deny` to match `frame-ancestors 'none'`. The server's helmet config
-(`server/server.js`) only overrides `contentSecurityPolicy` and
-`frameguard`; every other header — including `Referrer-Policy` — is
-whatever the installed `helmet` version defaults to (currently `no-referrer`
-in helmet 8.x, verified by running the server and inspecting the response
-headers directly). If `helmet` is ever upgraded, re-check that default
-rather than assuming it stays `no-referrer`.
+Global API flood limit (900/min per signed-in account, else per IP); register/login 10 per 15 min per IP;
+forgot-password/username 3 per hour per identifier + 10 per IP; verify-code/reset-password 20/h per IP;
+OAuth start 20/min; search 30/min; friend requests 20/min; DMs 60/min; room create 10/min, join 20/min, chat
+30/min, status 60/min; invites 20/min; focus-session log 30/min (+ 16 h/day cap); export 5/h; delete 5/h.
+Limits are per process and reset on restart -- fine for one instance; use a shared store if you ever scale out.
+**`req.ip` is only meaningful if `TRUST_PROXY` (number of proxy hops) is right** -- see `.env.example`.
 
 ## Secrets
 
-`JWT_SECRET` is required at startup (the server refuses to boot without
-it) and is read only from environment variables / `server/.env`, which
-is gitignored and has never been committed (checked against full git
-history, not just the current working tree). No secret — the JWT
-signing key, a user's password hash, or anything else — is ever sent to
-the client. `publicUser()` (the function that shapes every user object
-the API returns) never includes `email` or `password_hash`.
+`JWT_SECRET` and `DATABASE_URL` are required environment variables; the server refuses to start without them.
+`.env` is gitignored and was never committed (checked against the full git history, together with common API-key
+patterns). Nothing secret is sent to the client; `publicUser()` never includes email or password hash.
+`npm audit`: 0 vulnerabilities. Unused dev dependency `sharp` removed.
 
-## Dependency security
+## Testing
 
-`npm audit` reports 0 vulnerabilities (across all severities) for this
-server's dependencies as of this writing. That's a snapshot, not a
-guarantee — re-run `npm audit` periodically (e.g. before a release),
-rather than assuming it stays clean forever.
+`server/test/run-local.js` starts the real server against an in-memory Postgres (pg-mem) -- it never touches a real
+database. Then `TEST_BASE_URL=http://localhost:3100 node test/e2e-privacy-security.js` (80 checks: cookies, CSRF,
+consent, backoff, export, deletion, WebSocket rules, headers). The older `e2e*.js` scripts predate Turnstile and
+bearer-token removal and need updating before they can run again.
 
-## Logging
+## Known limitations (accepted, listed so silence isn't read as "solved")
 
-Failed logins and `requireAuth` rejections are logged (`console.warn`,
-so they show up in stdout/any host's log capture) with the identifier
-or route involved and the requesting IP — enough to spot brute-forcing
-or probing. Passwords, tokens, and API keys are never logged, on success
-or failure.
+- **No email verification** at sign-up: an address is never confirmed to belong to the person who typed it, so
+  reset codes can go to the wrong inbox, and "email already registered" reveals that an address is in use.
+- **No 2FA.** No per-device session list (logout = everywhere).
+- **Lockout can be abused** to keep a specific account locked for up to 15 minutes (a deliberate trade-off).
+- **Turnstile must have real keys** (`TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY`). With the built-in Cloudflare
+  *test* keys the CAPTCHA always passes and protects nothing.
+- **Avatar image URLs are fetched by other users' browsers** from whatever host the owner chose, which exposes
+  those viewers' IP addresses to that host. Consider removing the feature or proxying images.
+- `DATABASE_SSL_VERIFY` is off by default (connection encrypted, certificate not verified).
+- Voice/video are peer-to-peer WebRTC: participants can see each other's IP addresses (inherent to WebRTC).
+- The Gemini API key a user pastes lives in their browser's localStorage and is sent (as a query parameter) to Google.
 
-## Known limitations
+## Deployment checklist
 
-These are accepted gaps, not oversights — listed explicitly so nobody
-mistakes silence for "solved":
-
-- **No per-device session revocation.** Logout invalidates every token
-  for that user, everywhere, because there's no per-device session
-  table. If you only meant to sign out one browser, you'll need to log
-  back in on the others too.
-- **No email verification for password-based signup.** An email address
-  attached via `POST /api/auth/register` is never confirmed to belong to
-  the account owner. (An email attached via Google/Microsoft sign-in *is*
-  provider-verified — see OAuth above — but that only covers accounts
-  created that way.)
-- **No two-factor authentication.**
-- **The WebSocket Origin check does not gate non-browser clients.** As
-  described in Realtime security above, `ALLOWED_ORIGIN` only rejects
-  connections that send a mismatched `Origin` header. It does not require
-  an `Origin` header to be present, so a scripted client with a valid
-  token — stolen, leaked, or otherwise obtained — connects successfully
-  regardless of this setting. The real backstop against token compromise
-  is the token's short lifetime and revocability via logout, not the
-  Origin check.
-- **Real CAPTCHA protection requires setting real keys (see CAPTCHA
-  above).** A deployment that never sets `TURNSTILE_SITE_KEY`/
-  `TURNSTILE_SECRET_KEY` falls back to Cloudflare's public always-pass
-  test keys — a widget renders, but it provides no bot protection beyond
-  the rate limits described below.
-- **The WebSocket token is passed in the URL query string.** This is the
-  standard pattern for authenticating browser WebSockets (they can't set
-  custom headers on the upgrade request), but it does mean the token can
-  appear in access logs or proxy logs that capture full request URLs.
-  Short-lived, revocable tokens (7 days, killable via logout) are the
-  mitigation in place rather than a different transport.
-
-## Explicitly out of scope, and why
-
-- **XP, leaderboard, and study-session validation.** These systems don't
-  have a server-side implementation yet — everything currently runs
-  client-side only. There's nothing to harden server-side until they're
-  built; this document will need a follow-up section once they are.
-- **File-upload security.** There is no file-upload endpoint on this
-  server. Avatars are short emoji strings, and profile "photos" live
-  entirely in the browser's IndexedDB — they never reach the server.
-- **SSRF (server-side request forgery).** No server-side code fetches a
-  user-supplied URL. Background image/video URLs a user pastes into
-  Settings are loaded directly by the *browser*, never by the server.
-
-## Deployment security requirements
-
-Before deploying this anywhere real:
-
-- Set a genuine, randomly generated `JWT_SECRET` in the production
-  environment. Never reuse the value from a local/dev `.env` file.
-  (`server/.env.example` has a one-liner to generate one.)
-- Set `ALLOWED_ORIGIN` to the actual production origin if the frontend
-  is ever split onto a different domain/host than this API. If it's
-  served same-origin (the default), you can leave it unset.
-- Set `TRUST_PROXY=1` **only if** this server is actually running behind
-  a real reverse proxy that sets `X-Forwarded-For` (Render, etc.).
-  Setting it without one breaks IP-based rate limiting, as noted above.
-- Serve everything over HTTPS. This is required for HSTS to have any
-  effect, and it's what keeps the WebSocket's query-string token from
-  ever crossing the network in plaintext.
-- Set `BASE_URL` to the real production origin (e.g.
-  `https://your-app.example.com`, no trailing slash) before enabling
-  either OAuth provider — it's used to build the redirect URI sent to
-  Google/Microsoft, which must exactly match what's registered in their
-  consoles. A stale `localhost` value here breaks OAuth silently in
-  production (their consent screen will report a redirect_uri mismatch).
-- Set `TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET_KEY` (Cloudflare
-  dashboard) to turn on *real* bot protection for signup/login/forgot-password.
-  Without both, the app still shows a working-looking CAPTCHA (Cloudflare's
-  public test keys, see CAPTCHA above) that always passes — those endpoints
-  are then protected only by the rate limits above, same as before this
-  fallback existed.
-- Set `RESEND_API_KEY` and `EMAIL_FROM` (an address on a domain verified in
-  your Resend account) to actually deliver password-reset and
-  forgot-username emails. Without `RESEND_API_KEY`, those emails are only
-  ever written to the server's own logs (see `server/email.js`) — the
-  flow still works end-to-end for testing, but no real user ever receives
-  the email.
-- Set `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` and/or
-  `MICROSOFT_CLIENT_ID`/`MICROSOFT_CLIENT_SECRET` to enable "Continue
-  with Google/Microsoft" — each pair is independent, and a provider stays
-  hidden until both its values are set. Register the redirect URI
-  `<BASE_URL>/api/auth/<provider>/callback` in that provider's console
-  first, or the callback will fail.
-- Use separate OAuth client registrations (and separate Turnstile
-  widgets, if you want per-environment analytics) for development and
-  production — `server/.env.example` documents this per variable.
+- Real random `JWT_SECRET` (never the dev value); `DATABASE_URL`; `BASE_URL=https://pomodorofocus.site`.
+- `TRUST_PROXY` = number of proxies in front of the app (Render alone: `1`; Cloudflare -> Render: `2`).
+- Real `TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`.
+- `RESEND_API_KEY` + `EMAIL_FROM` if password-reset email should actually be delivered.
+- Optionally `DATABASE_SSL_VERIFY=1` after confirming it connects.
+- In Google Analytics: set data retention to 14 months (the Privacy Policy says so), and keep Google signals off.

@@ -1,17 +1,11 @@
 <!DOCTYPE html>
 <html lang="en" data-mode="pomodoro">
 <head>
-<!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-Y0B0W7YJ78"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-
-  gtag('config', 'G-Y0B0W7YJ78');
-</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Cookie consent + Google Analytics (G-Y0B0W7YJ78). Consent Mode v2 starts fully denied, and gtag.js is only
+     downloaded after the visitor accepts analytics -- see assets/consent.js. This is the page's only Google tag. -->
+<script src="/assets/consent.js"></script>
 <title>Pomodoro App</title>
 <meta name="description" content="A calm, focused Pomodoro timer and daily planner.">
 <link rel="icon" href="/favicon/favicon.svg" type="image/svg+xml">
@@ -21,9 +15,8 @@
 <link rel="apple-touch-icon" href="/favicon/apple-touch-icon.png">
 <meta name="theme-color" content="#F15A3A">
 <link rel="manifest" href="/site.webmanifest">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/assets/fonts/figtree.css">
+<link rel="stylesheet" href="/assets/consent.css">
 <style>
   /* ==================== 1. Liquid Glass design tokens ====================
      New tokens are aliased onto the app's existing live theme variables
@@ -1202,13 +1195,13 @@
   .profile-modal__edit-actions { display: flex; gap: 8px; justify-content: center; margin-top: 4px; }
 
   /* ==================== 17. Auth modal ==================== */
-  dialog#auth-modal {
+  dialog#auth-modal, dialog#consent-modal, dialog#delete-account-modal {
     border: none; border-radius: var(--r-lg); padding: 0; overflow: hidden;
     width: min(380px, calc(100vw - 32px)); max-height: min(600px, calc(100vh - 48px));
     background: var(--glass-pop); backdrop-filter: var(--blur-pop); -webkit-backdrop-filter: var(--blur-pop);
     border: 1px solid var(--edge); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
   }
-  dialog#auth-modal::backdrop { background: rgba(0, 0, 0, 0.25); backdrop-filter: blur(8px); }
+  dialog#auth-modal::backdrop, dialog#consent-modal::backdrop, dialog#delete-account-modal::backdrop { background: rgba(0, 0, 0, 0.25); backdrop-filter: blur(8px); }
   .auth-modal__form { padding: 26px clamp(20px, 5vw, 28px); overflow-y: auto; max-height: inherit; display: flex; flex-direction: column; gap: 12px; }
   .auth-modal__form h2 { font-size: clamp(28px, 8vw, 34px); font-weight: 800; text-align: center; color: var(--text); }
   .auth-modal__tabs { display: flex; gap: 4px; background: var(--track); border-radius: var(--r-pill); padding: 4px; }
@@ -1443,6 +1436,22 @@
     }
     .bg-blob { animation: none !important; }
   }
+
+  /* ==================== Privacy & legal additions ==================== */
+  /* "I agree to the Terms and Privacy Policy" row (sign-up, log-in, and the updated-terms prompt). */
+  .auth-modal__form label.auth-consent { flex-direction: row; align-items: flex-start; gap: 10px; font-weight: 500; line-height: 1.45; cursor: pointer; }
+  .auth-modal__form label.auth-consent input { width: 20px; min-height: 0; height: 20px; padding: 0; margin: 1px 0 0; flex-shrink: 0; accent-color: var(--acc); }
+  .auth-consent a { color: var(--acc); font-weight: 600; }
+  .profile-privacy { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--track); text-align: center; }
+  .profile-privacy h3 { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+  .profile-privacy .field-hint { margin-bottom: 10px; }
+  .profile-privacy .profile-modal__edit-actions { flex-wrap: wrap; }
+  .profile-privacy__links { display: flex; justify-content: center; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; font-size: 13px; }
+  .profile-privacy__links a { color: var(--dim); }
+  .btn-danger { color: var(--danger, #c0392b); }
+  .btn-danger-solid { background: var(--danger, #c0392b); color: #fff; border: none; }
+  .btn-danger-solid:hover { background: var(--danger, #c0392b); filter: brightness(1.08); }
+  @media (max-width: 960px) { .site-footer { padding-bottom: 120px; } }
 </style>
 </head>
 <body>
@@ -1702,6 +1711,14 @@
   <ol class="leaderboard-list glass" id="leaderboard-list"></ol>
 </div>
 </main>
+
+<footer class="site-footer" role="contentinfo">
+  <a href="/privacy">Privacy Policy</a>
+  <a href="/terms">Terms of Service</a>
+  <a href="/cookies">Cookie Policy</a>
+  <button type="button" data-cookie-settings>Cookie settings</button>
+  <a href="mailto:help.pomodorofocus@gmail.com">Contact</a>
+</footer>
 
 <div id="view-lounge" aria-label="Study Lounge" hidden>
   <div class="lounge-heading">
@@ -2102,6 +2119,20 @@
         <button type="button" class="btn btn-secondary" id="profile-modal-logout-btn">Log Out</button>
         <button type="button" class="btn btn-secondary" id="profile-modal-login-btn" hidden>Log In / Sign Up</button>
       </div>
+      <div class="profile-privacy" id="profile-privacy" hidden>
+        <h3>Privacy &amp; data</h3>
+        <p class="field-hint">Your account data is stored on our servers. You can take a copy or erase it completely at any time.</p>
+        <div class="profile-modal__edit-actions">
+          <button type="button" class="btn btn-secondary" id="profile-download-data">Download my data</button>
+          <button type="button" class="btn btn-secondary btn-danger" id="profile-delete-account">Delete my account and data</button>
+        </div>
+        <span class="field-status" id="status-profile-privacy"></span>
+        <div class="profile-privacy__links">
+          <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a>
+          <a href="/terms" target="_blank" rel="noopener">Terms</a>
+          <a href="/cookies" target="_blank" rel="noopener">Cookies</a>
+        </div>
+      </div>
     </div>
 
     <div id="profile-modal-edit" hidden>
@@ -2151,6 +2182,10 @@
         <button type="button" class="auth-modal__forgot-link auth-modal__forgot-link--dim" id="auth-forgot-username-link">Forgot username?</button>
         <button type="button" class="auth-modal__forgot-link" id="auth-forgot-password-link">Forgot password?</button>
       </div>
+      <label class="auth-consent" for="auth-login-consent">
+        <input type="checkbox" id="auth-login-consent" required aria-required="true">
+        <span>I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span>
+      </label>
       <div id="captcha-login" hidden></div>
       <span class="field-status" id="status-auth-login"></span>
       <button type="button" class="btn btn-primary" id="auth-login-submit">Log In</button>
@@ -2164,7 +2199,12 @@
         <input type="email" id="auth-signup-email" maxlength="100" autocomplete="email">
       </label>
       <label for="auth-signup-password">Password
-        <input type="password" id="auth-signup-password" autocomplete="new-password">
+        <input type="password" id="auth-signup-password" autocomplete="new-password" maxlength="72" aria-describedby="auth-signup-password-hint">
+      </label>
+      <p class="field-hint" id="auth-signup-password-hint" style="margin:0">Use 8 to 72 characters. Avoid common passwords.</p>
+      <label class="auth-consent" for="auth-signup-consent">
+        <input type="checkbox" id="auth-signup-consent" required aria-required="true">
+        <span>I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span>
       </label>
       <div id="captcha-signup" hidden></div>
       <span class="field-status" id="status-auth-signup"></span>
@@ -2245,6 +2285,33 @@
     </div>
 
     <button type="button" class="btn btn-secondary" id="auth-guest-btn">Continue as Guest</button>
+  </form>
+</dialog>
+
+<dialog id="consent-modal" aria-labelledby="consent-modal-title" data-locked="true">
+  <form method="dialog" class="auth-modal__form">
+    <h2 id="consent-modal-title">Our terms have been updated</h2>
+    <p class="field-hint">To keep using your account, please read and agree to the current Terms of Service and Privacy Policy. Nothing changes on your device until you do.</p>
+    <label class="auth-consent" for="consent-modal-check">
+      <input type="checkbox" id="consent-modal-check" required aria-required="true">
+      <span>I agree to the <a href="/terms" target="_blank" rel="noopener">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener">Privacy Policy</a></span>
+    </label>
+    <span class="field-status" id="status-consent-modal"></span>
+    <button type="button" class="btn btn-primary" id="consent-modal-accept">Agree and continue</button>
+    <button type="button" class="btn btn-secondary" id="consent-modal-logout">Log out</button>
+  </form>
+</dialog>
+
+<dialog id="delete-account-modal" aria-labelledby="delete-account-title">
+  <form method="dialog" class="auth-modal__form">
+    <h2 id="delete-account-title">Delete your account?</h2>
+    <p class="field-hint">This permanently erases your account and everything tied to it: your profile, friends, direct messages (your friends lose those conversations too), room chat messages, invites, notifications and focus history. <strong>It cannot be undone.</strong> Tasks and stats saved only in this browser are not affected.</p>
+    <label for="delete-account-input"><span id="delete-account-label">Enter your password to confirm</span>
+      <input type="password" id="delete-account-input" autocomplete="current-password" maxlength="1000">
+    </label>
+    <span class="field-status" id="status-delete-account"></span>
+    <button type="button" class="btn btn-primary btn-danger-solid" id="delete-account-confirm">Delete permanently</button>
+    <button type="button" class="btn btn-secondary" id="delete-account-cancel">Cancel</button>
   </form>
 </dialog>
 
@@ -2909,17 +2976,22 @@ const Planner = {
    Thin fetch wrapper for the real backend (server/). Same-origin by default
    (the server itself serves this file), so no base URL is needed. */
 const Api = {
-  token: safeParseGlobal('pomodoroAuthToken'),
-  setToken(t) {
-    this.token = t || null;
-    if (t) safeSetGlobal('pomodoroAuthToken', t); else localStorage.removeItem('pomodoroAuthToken');
+  /* The login session lives in an HttpOnly cookie the browser sends by itself -- page scripts can't read it.
+     The only thing kept here is the per-session CSRF token, in memory, sent on every state-changing request. */
+  csrf: null,
+  /* Older versions kept the session token in localStorage. It is read once so a signed-in person isn't logged out
+     by the upgrade: Auth._restoreSession() swaps it for a cookie, then dropLegacyToken() deletes it. */
+  legacyToken: safeParseGlobal('pomodoroAuthToken'),
+  dropLegacyToken() {
+    this.legacyToken = null;
+    try { localStorage.removeItem('pomodoroAuthToken'); } catch { /* storage unavailable */ }
   },
-  async request(method, path, body) {
-    const headers = { 'Content-Type': 'application/json' };
-    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+  async request(method, path, body, extraHeaders) {
+    const headers = { 'Content-Type': 'application/json', ...extraHeaders };
+    if (this.csrf) headers['X-CSRF-Token'] = this.csrf;
     let res;
     try {
-      res = await fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+      res = await fetch(path, { method, headers, credentials: 'same-origin', body: body !== undefined ? JSON.stringify(body) : undefined });
     } catch {
       throw new Error('Can’t reach the server. Check your connection and try again.');
     }
@@ -2953,8 +3025,8 @@ const Socket = {
   connect() {
     if (this.ws) { try { this.ws.onclose = null; this.ws.close(); } catch { /* already closed */ } }
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    const query = Api.token ? `?token=${encodeURIComponent(Api.token)}` : '';
-    const ws = new WebSocket(`${proto}://${location.host}/ws${query}`);
+    // No token in the URL: the server reads the session from the cookie the browser sends with the handshake.
+    const ws = new WebSocket(`${proto}://${location.host}/ws`);
     this.ws = ws;
     ws.addEventListener('open', () => { this.reconnectDelay = 1000; this.emit('socket-open', {}); });
     ws.addEventListener('message', (e) => {
@@ -3000,18 +3072,28 @@ const Captcha = {
   siteKey: null,
   widgets: {},
   loaded: false,
-  async init(config) {
+  _loading: null,
+  _loginWanted: false,
+  init(config) {
     this.enabled = !!(config.captcha && config.captcha.enabled && config.captcha.siteKey);
     this.siteKey = this.enabled ? config.captcha.siteKey : null;
-    if (!this.enabled) return;
-    try {
-      await this._loadScript();
-      this.loaded = true;
-      this._render('signup', 'captcha-signup');
-      this._render('forgot', 'captcha-forgot');
-    } catch {
-      this.enabled = false; // Cloudflare unreachable: fail visibly rather than silently block submits
+    if (document.getElementById('auth-modal').open) this.ensureLoaded();
+  },
+  /* Cloudflare's script is fetched only when the sign-in window is opened, not for every visitor who just
+     uses the timer -- otherwise each page view would send their IP address to Cloudflare for nothing. */
+  ensureLoaded() {
+    if (!this.enabled || this.loaded) return this._loading;
+    if (!this._loading) {
+      this._loading = this._loadScript().then(() => {
+        this.loaded = true;
+        this._render('signup', 'captcha-signup');
+        this._render('forgot', 'captcha-forgot');
+        if (this._loginWanted) this._render('login', 'captcha-login');
+      }).catch(() => {
+        this.enabled = false; // Cloudflare unreachable: fail visibly rather than silently block submits
+      });
     }
+    return this._loading;
   },
   _loadScript() {
     return new Promise((resolve, reject) => {
@@ -3033,7 +3115,10 @@ const Captcha = {
     this.widgets[key] = window.turnstile.render(el, { sitekey: this.siteKey, theme: this._currentTheme() });
   },
   showLogin() {
-    if (!this.enabled || !this.loaded || this.widgets.login !== undefined) return;
+    if (!this.enabled) return;
+    this._loginWanted = true;
+    if (!this.loaded) { this.ensureLoaded(); return; }
+    if (this.widgets.login !== undefined) return;
     this._render('login', 'captcha-login');
   },
   reRenderForTheme() {
@@ -3076,8 +3161,6 @@ const OAuthUI = {
    still use the timer/tasks/stats fully — those always stay local to this
    device — but friends/presence/chat/notifications require signing in. */
 const Auth = {
-  currentUser: null,
-
   async init() {
     Socket.connect();
     try {
@@ -3095,38 +3178,76 @@ const Auth = {
     if (oauthCode || oauthError) history.replaceState(null, '', location.pathname);
     if (oauthCode) {
       try {
-        const { token, user } = await Api.post('/api/auth/oauth/exchange', { code: oauthCode });
-        Auth._onAuthenticated(token, user);
+        const session = await Api.post('/api/auth/oauth/exchange', { code: oauthCode });
+        Auth._onAuthenticated(session);
         return;
-      } catch { /* fall through to the normal token-based session check below */ }
+      } catch { /* fall through to the normal session check below */ }
     }
     if (oauthError) {
       const message = oauthError === 'email_in_use'
         ? 'An account already exists with that email. Log in with your password to continue.'
-        : 'Sign-in failed. Please try again.';
+        : oauthError === 'consent'
+          ? 'To create an account you need to agree to the Terms of Service and Privacy Policy. Tick the box and try again.'
+          : 'Sign-in failed. Please try again.';
       Auth._pendingAuthMessage = message;
     }
 
-    if (!Api.token) return;
-    try {
-      const { user } = await Api.get('/api/auth/me');
-      Auth.currentUser = user;
-    } catch (err) {
-      // Only a real rejection of the token (expired/invalid/account gone) should
-      // sign the user out. A network hiccup or a briefly-down/cold-starting
-      // server must not log a returning user out from under them.
-      if (err.status === 401 || err.status === 404) Api.setToken(null);
-    }
+    await Auth._restoreSession();
   },
 
-  async register(username, password, displayName, email) {
-    const { token, user } = await Api.post('/api/auth/register', { username, password, displayName, email, captchaToken: Captcha.token('signup') });
-    Auth._onAuthenticated(token, user);
+  currentUser: null,
+  consentRequired: false,
+  passwordLogin: true,
+  _hadSession() { return safeParseGlobal('pomodoroSignedIn') === true; },
+  _applySession(session) {
+    Api.csrf = session.csrfToken || null;
+    Auth.currentUser = session.user;
+    Auth.consentRequired = !!session.consentRequired;
+    Auth.passwordLogin = !session.account || session.account.passwordLogin !== false;
+    safeSetGlobal('pomodoroSignedIn', true); // just a flag so guests don't ping the server on every visit
   },
-  async login(identifier, password) {
+  _markSignedOut() {
+    Api.csrf = null;
+    Auth.currentUser = null;
+    Auth.consentRequired = false;
+    try { localStorage.removeItem('pomodoroSignedIn'); } catch { /* storage unavailable */ }
+  },
+  /* Resumes a session from the cookie; and, once, upgrades a session token left in localStorage by an older
+     version into a cookie (then deletes it), so nobody is logged out by the change. */
+  async _restoreSession() {
+    const legacy = Api.legacyToken;
+    if (!Auth._hadSession() && !legacy) return;
     try {
-      const { token, user } = await Api.post('/api/auth/login', { identifier, password, captchaToken: Captcha.token('login') });
-      Auth._onAuthenticated(token, user);
+      let session = null;
+      let migrated = false;
+      try {
+        session = await Api.get('/api/auth/me');
+      } catch (err) {
+        if (err.status !== 401 || !legacy) throw err;
+      }
+      if (!session && legacy) {
+        session = await Api.request('POST', '/api/auth/session/upgrade', {}, { Authorization: `Bearer ${legacy}` });
+        migrated = true;
+      }
+      Auth._applySession(session);
+      if (migrated) Socket.connect(); // the socket opened before this browser had a cookie
+    } catch (err) {
+      // Only a real rejection (expired/invalid/account gone) should sign the user out. A network hiccup or a
+      // briefly-down/cold-starting server must not log a returning user out from under them.
+      if (err.status === 401 || err.status === 404) Auth._markSignedOut();
+      else return;
+    }
+    Api.dropLegacyToken();
+  },
+
+  async register(username, password, displayName, email, acceptTerms) {
+    const session = await Api.post('/api/auth/register', { username, password, displayName, email, acceptTerms, captchaToken: Captcha.token('signup') });
+    Auth._onAuthenticated(session);
+  },
+  async login(identifier, password, acceptTerms) {
+    try {
+      const session = await Api.post('/api/auth/login', { identifier, password, acceptTerms, captchaToken: Captcha.token('login') });
+      Auth._onAuthenticated(session);
     } catch (err) {
       // The server enforces this regardless; showing the widget here is purely
       // so the *next* attempt's Captcha.token('login') actually has something
@@ -3135,9 +3256,10 @@ const Auth = {
       throw err;
     }
   },
-  _onAuthenticated(token, user) {
-    Api.setToken(token);
-    Auth.currentUser = user;
+  _onAuthenticated(session) {
+    Auth._applySession(session);
+    Api.dropLegacyToken();
+    const user = session.user;
     safeSetGlobal('pomodoroGuestChoice', null);
     Socket.connect();
     state.profile.username = user.displayName;
@@ -3151,9 +3273,8 @@ const Auth = {
     if (typeof UI !== 'undefined') UI.syncAuthUI();
   },
   logout() {
-    Api.post('/api/auth/logout').catch(() => {}); // best-effort; the local clear below is what actually logs this device out
-    Api.setToken(null);
-    Auth.currentUser = null;
+    Api.post('/api/auth/logout').catch(() => {}); // revokes the session server-side and clears the cookie; sent before the local clear below
+    Auth._markSignedOut();
     Socket.connect();
     if (typeof UI !== 'undefined') UI.syncAuthUI();
   },
@@ -3323,14 +3444,14 @@ const ForgotPassword = {
     const status = document.getElementById('status-auth-forgot3');
     const pw = document.getElementById('auth-forgot-new-password').value;
     const confirm = document.getElementById('auth-forgot-confirm-password').value;
-    if (pw.length < 8) { setFieldStatus(status, 'Password must be at least 8 characters.', 'error'); return; }
+    if (pw.length < 8 || pw.length > 72) { setFieldStatus(status, 'Password must be 8 to 72 characters.', 'error'); return; }
     if (pw !== confirm) { setFieldStatus(status, "Passwords don't match.", 'error'); return; }
     setFieldStatus(status, '', '');
     const btn = document.getElementById('auth-forgot3-submit');
     btn.disabled = true;
     try {
-      const { token, user } = await Api.post('/api/auth/reset-password', { resetToken: this.resetToken, password: pw });
-      Auth._onAuthenticated(token, user);
+      const session = await Api.post('/api/auth/reset-password', { resetToken: this.resetToken, password: pw });
+      Auth._onAuthenticated(session);
       document.getElementById('auth-modal').close();
       this.reset();
       showToast('Password updated');
@@ -3360,6 +3481,8 @@ Socket.on('online-count', ({ count }) => {
   const el = document.getElementById('live-users-count');
   if (el) el.textContent = String(count);
 });
+// A friend deleted their account: drop them from the lists.
+Socket.on('friend-removed', () => { if (typeof Friends !== 'undefined') Friends.refreshAll(); });
 
 /* ============================== Friends ==============================
    Real friends/requests/search against the backend in server/. */
@@ -5558,7 +5681,7 @@ const Chat = {
   imageUrl(m) {
     if (!Chat._imageUrls.has(m.id)) {
       const code = Chat.roomCode;
-      Chat._imageUrls.set(m.id, fetch(`/api/lounge/rooms/${encodeURIComponent(code)}/messages/${encodeURIComponent(m.id)}/image`, { headers: { Authorization: `Bearer ${Api.token}` } })
+      Chat._imageUrls.set(m.id, fetch(`/api/lounge/rooms/${encodeURIComponent(code)}/messages/${encodeURIComponent(m.id)}/image`, { credentials: 'same-origin' })
         .then((res) => (res.ok ? res.blob() : null))
         .then((blob) => (blob ? URL.createObjectURL(blob) : null))
         .catch(() => null));
@@ -5905,7 +6028,8 @@ const UI = {
     };
     dialogs.forEach((d) => {
       new MutationObserver(sync).observe(d, { attributes: true, attributeFilter: ['open'] });
-      d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
+      d.addEventListener('click', (e) => { if (e.target === d && !d.dataset.locked) d.close(); });
+      if (d.dataset.locked) d.addEventListener('cancel', (e) => e.preventDefault()); // Escape can't dismiss it either
     });
     sync();
   },
@@ -5961,6 +6085,7 @@ const UI = {
     document.getElementById('user-avatar').title = document.getElementById('user-name-display').textContent;
     document.getElementById('profile-modal-logout-btn').hidden = !loggedIn;
     document.getElementById('profile-modal-login-btn').hidden = loggedIn;
+    document.getElementById('profile-privacy').hidden = !loggedIn;
     document.getElementById('friends-drawer-guest').hidden = loggedIn;
     document.getElementById('friends-drawer-content').hidden = !loggedIn;
     Friends.refreshAll();
@@ -5985,6 +6110,14 @@ const UI = {
     document.getElementById('profile-modal-account-hint').textContent = Auth.isLoggedIn()
       ? `Signed in as ${Auth.currentUser.username}. Friends, presence, and chat are saved online.`
       : 'Using this device as a guest — your timer, tasks, and stats stay local. Log in to add friends and sync across devices.';
+  },
+
+  openConsentModal() {
+    const modal = document.getElementById('consent-modal');
+    if (modal.open) return;
+    document.getElementById('consent-modal-check').checked = false;
+    setFieldStatus(document.getElementById('status-consent-modal'), '', '');
+    modal.showModal();
   },
 
   openProfileModal() {
@@ -7377,11 +7510,21 @@ const UI = {
       UI.syncAuthUI();
       const pendingMessage = Auth._pendingAuthMessage;
       Auth._pendingAuthMessage = null;
-      if (!Auth.isLoggedIn() && (pendingMessage || !safeParseGlobal('pomodoroGuestChoice'))) {
-        document.getElementById('auth-modal').showModal();
-        if (pendingMessage) setFieldStatus(document.getElementById('status-auth-login'), pendingMessage, 'error');
+      // An open modal dialog makes everything behind it unclickable -- including the cookie banner -- so the
+      // automatic pop-ups wait until the visitor has answered the banner.
+      const afterCookieChoice = (fn) => (window.PomoConsent ? window.PomoConsent.whenDecided(fn) : fn());
+      if (Auth.isLoggedIn()) {
+        if (Auth.consentRequired) afterCookieChoice(() => UI.openConsentModal());
+      } else if (pendingMessage || !safeParseGlobal('pomodoroGuestChoice')) {
+        afterCookieChoice(() => {
+          document.getElementById('auth-modal').showModal();
+          if (pendingMessage) setFieldStatus(document.getElementById('status-auth-login'), pendingMessage, 'error');
+        });
       }
     });
+    // Cloudflare's bot check is fetched only once the sign-in window is opened.
+    new MutationObserver(() => { if (document.getElementById('auth-modal').open) Captcha.ensureLoaded(); })
+      .observe(document.getElementById('auth-modal'), { attributes: true, attributeFilter: ['open'] });
     UI.renderTasks();
     UI.renderPomodoroCount();
     UI.renderStatsDashboard();
@@ -7460,6 +7603,8 @@ const UI = {
       document.getElementById('auth-signup-username').value = '';
       document.getElementById('auth-signup-email').value = '';
       document.getElementById('auth-signup-password').value = '';
+      document.getElementById('auth-login-consent').checked = false;
+      document.getElementById('auth-signup-consent').checked = false;
       setFieldStatus(document.getElementById('status-auth-login'), '', '');
       setFieldStatus(document.getElementById('status-auth-signup'), '', '');
       ForgotPassword.reset();
@@ -7472,8 +7617,10 @@ const UI = {
       const identifier = document.getElementById('auth-login-identifier').value.trim();
       const password = document.getElementById('auth-login-password').value;
       setFieldStatus(status, '', '');
+      const consentBox = document.getElementById('auth-login-consent');
+      if (!consentBox.checked) { setFieldStatus(status, 'Please tick the box to agree to the Terms of Service and Privacy Policy.', 'error'); consentBox.focus(); return; }
       try {
-        await Auth.login(identifier, password);
+        await Auth.login(identifier, password, true);
         document.getElementById('auth-modal').close();
         clearAuthModalInputs();
       } catch (err) {
@@ -7488,8 +7635,11 @@ const UI = {
       const email = document.getElementById('auth-signup-email').value.trim();
       const password = document.getElementById('auth-signup-password').value;
       setFieldStatus(status, '', '');
+      const consentBox = document.getElementById('auth-signup-consent');
+      if (!consentBox.checked) { setFieldStatus(status, 'Please tick the box to agree to the Terms of Service and Privacy Policy.', 'error'); consentBox.focus(); return; }
+      if (password.length < 8 || password.length > 72) { setFieldStatus(status, 'Password must be 8 to 72 characters.', 'error'); return; }
       try {
-        await Auth.register(username, password, username, email);
+        await Auth.register(username, password, username, email, true);
         document.getElementById('auth-modal').close();
         clearAuthModalInputs();
       } catch (err) {
@@ -7501,6 +7651,101 @@ const UI = {
     document.getElementById('auth-guest-btn').addEventListener('click', () => {
       Auth.continueAsGuest();
       document.getElementById('auth-modal').close();
+    });
+    // "Continue with Google/Microsoft/Facebook" also needs the agreement box ticked: the choice travels to the
+    // server (consent=1), which refuses to create a new account without it.
+    document.querySelectorAll('.auth-modal__oauth-btn').forEach((link) => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const signup = !document.getElementById('auth-panel-signup').hidden;
+        const box = document.getElementById(signup ? 'auth-signup-consent' : 'auth-login-consent');
+        const status = document.getElementById(signup ? 'status-auth-signup' : 'status-auth-login');
+        if (!box.checked) { setFieldStatus(status, 'Please tick the box to agree to the Terms of Service and Privacy Policy first.', 'error'); box.focus(); return; }
+        location.assign(`${link.getAttribute('href')}?consent=1`);
+      });
+    });
+
+    // ---- Updated terms prompt (accounts created before the policies, or after a policy change) ----
+    document.getElementById('consent-modal-accept').addEventListener('click', async () => {
+      const status = document.getElementById('status-consent-modal');
+      if (!document.getElementById('consent-modal-check').checked) { setFieldStatus(status, 'Please tick the box to agree.', 'error'); return; }
+      try {
+        await Api.post('/api/account/consent', { accept: true });
+        Auth.consentRequired = false;
+        document.getElementById('consent-modal').close();
+      } catch (err) {
+        setFieldStatus(status, err.message, 'error');
+      }
+    });
+    document.getElementById('consent-modal-logout').addEventListener('click', () => {
+      document.getElementById('consent-modal').close();
+      Auth.logout();
+      document.getElementById('auth-modal').showModal();
+    });
+
+    // ---- Privacy & data: download / delete ----
+    const privacyStatus = document.getElementById('status-profile-privacy');
+    document.getElementById('profile-download-data').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      setFieldStatus(privacyStatus, '', '');
+      try {
+        const res = await fetch('/api/account/export', { credentials: 'same-origin' });
+        if (!res.ok) {
+          let message = 'Could not download your data. Try again.';
+          try { message = (await res.json()).error || message; } catch { /* non-JSON error */ }
+          throw new Error(message);
+        }
+        const url = URL.createObjectURL(await res.blob());
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'pomodoro-focus-my-data.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+        setFieldStatus(privacyStatus, 'Downloaded. Your timer, tasks and stats live only in this browser and are not in the file.', 'success');
+      } catch (err) {
+        setFieldStatus(privacyStatus, err.message, 'error');
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    const deleteModal = document.getElementById('delete-account-modal');
+    const deleteInput = document.getElementById('delete-account-input');
+    const deleteStatus = document.getElementById('status-delete-account');
+    document.getElementById('profile-delete-account').addEventListener('click', () => {
+      const usesPassword = Auth.passwordLogin;
+      document.getElementById('delete-account-label').textContent = usesPassword ? 'Enter your password to confirm' : `Type your username (${Auth.currentUser.username}) to confirm`;
+      deleteInput.type = usesPassword ? 'password' : 'text';
+      deleteInput.autocomplete = usesPassword ? 'current-password' : 'off';
+      deleteInput.value = '';
+      setFieldStatus(deleteStatus, '', '');
+      document.getElementById('profile-modal').close();
+      deleteModal.showModal();
+      deleteInput.focus();
+    });
+    document.getElementById('delete-account-cancel').addEventListener('click', () => deleteModal.close());
+    deleteInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); document.getElementById('delete-account-confirm').click(); } });
+    document.getElementById('delete-account-confirm').addEventListener('click', async (e) => {
+      const btn = e.currentTarget;
+      const value = deleteInput.value;
+      if (!value) { setFieldStatus(deleteStatus, Auth.passwordLogin ? 'Enter your password.' : 'Type your username.', 'error'); return; }
+      btn.disabled = true;
+      setFieldStatus(deleteStatus, '', '');
+      try {
+        await Api.post('/api/account/delete', Auth.passwordLogin ? { password: value } : { confirmUsername: value });
+        Auth._markSignedOut();
+        Socket.connect();
+        deleteInput.value = '';
+        deleteModal.close();
+        UI.syncAuthUI();
+        showToast('Your account and data were deleted.');
+      } catch (err) {
+        setFieldStatus(deleteStatus, err.message, 'error');
+      } finally {
+        btn.disabled = false;
+      }
     });
     // Covers every way the dialog can close (Escape, backdrop click, the × equivalents
     // above) -- not just the explicit success paths that already call this directly --

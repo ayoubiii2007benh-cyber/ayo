@@ -10,11 +10,20 @@ const helmet = require('helmet');
 const { WebSocketServer } = require('ws');
 
 const { db, initSchema, id: newId, pairKey } = require('./db');
-const { hashPassword, verifyPassword, signToken, verifyToken, requireAuth, hashWithPepper, safeEqual } = require('./auth');
+const {
+  hashPassword, verifyPassword, verifyAgainstDummy, needsRehash, passwordProblem,
+  signToken, verifyToken, requireAuth, hashWithPepper, safeEqual,
+  parseCookies, sessionTokenFromRequest, setSessionCookie, clearSessionCookie, csrfTokenFor, isSecureRequest,
+} = require('./auth');
 const OAuth = require('./oauth');
 const Email = require('./email');
 
 const PORT = Number(process.env.PORT) || 3000;
+/* Version of the Terms of Service + Privacy Policy users agree to. Bump this (to the new "last updated"
+   date) whenever either document changes in a way users must re-accept; every account whose stored
+   consent_version differs is asked to accept again. Keep in sync with legal/*.html. */
+const POLICY_VERSION = '2026-09-30';
+const CONTACT_EMAIL = 'help.pomodorofocus@gmail.com';
 const allowedOrigins = (process.env.ALLOWED_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
 // Must exactly match the redirect URI registered with each OAuth provider's
 // console -- that's their defense against a code being redeemed against the
@@ -23,24 +32,129 @@ const allowedOrigins = (process.env.ALLOWED_ORIGIN || '').split(',').map((s) => 
 const BASE_URL = (process.env.BASE_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
 
 const app = express();
+app.disable('x-powered-by');
 // Only ever enable this when actually deployed behind a real reverse
 // proxy (e.g. Render). Trusting X-Forwarded-For without one lets a
 // client set that header itself and claim any IP, bypassing every
-// IP-keyed rate limit below.
-if (process.env.TRUST_PROXY === '1') app.set('trust proxy', 1);
+// IP-keyed rate limit below. TRUST_PROXY is the number of proxy hops (1 = Render alone,
+// 2 = e.g. Cloudflare in front of Render).
+if (/^[1-9]$/.test(process.env.TRUST_PROXY || '')) app.set('trust proxy', Number(process.env.TRUST_PROXY));
+
+/* Express 4 does not catch a rejected promise from an async route handler: the request would hang and,
+   on modern Node, the unhandled rejection would crash the whole process (one malformed request = outage).
+   Wrap every handler registered below so a failure becomes a clean 500 instead. */
+for (const method of ['get', 'post', 'put', 'patch', 'delete']) {
+  const original = app[method].bind(app);
+  app[method] = (routePath, ...handlers) => {
+    if (!handlers.length) return original(routePath); // app.get('setting') form
+    return original(routePath, ...handlers.map((h) => (typeof h !== 'function' || h.length >= 4 ? h : (req, res, next) => {
+      let result;
+      try { result = h(req, res, next); } catch (err) { return next(err); }
+      if (result && typeof result.catch === 'function') result.catch(next);
+      return undefined;
+    })));
+  };
+}
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] unhandled rejection:', (reason && (reason.code || reason.message)) || 'unknown');
+});
+
+/* Send people who reach us over plain HTTP (only visible when a proxy/CDN terminates TLS and says so via
+   X-Forwarded-Proto) to HTTPS. Combined with HSTS below this keeps every cookie and token off the wire in clear. */
+app.use((req, res, next) => {
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  if (proto === 'http' && req.headers.host) return res.redirect(308, `https://${req.headers.host}${req.originalUrl}`);
+  next();
+});
+
 app.use(helmet({
-  contentSecurityPolicy: false, // configured separately in a later pass
-  frameguard: { action: 'deny' }, // matches that pass's frame-ancestors 'none'
+  contentSecurityPolicy: false, // set per request below (it needs a fresh nonce)
+  frameguard: { action: 'deny' }, // matches frame-ancestors 'none'
+  hsts: { maxAge: 31536000, includeSubDomains: true },
+  referrerPolicy: { policy: 'no-referrer' },
 }));
-app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : false }));
+/* Camera/microphone/screen-share are needed by Study Lounge rooms (same origin only); the rest of the
+   powerful browser features are switched off for this site and anything it embeds. */
+app.use((req, res, next) => {
+  res.set('Permissions-Policy', 'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), accelerometer=(), gyroscope=(), magnetometer=(), browsing-topics=(), interest-cohort=()');
+  next();
+});
+
+/* Content-Security-Policy with a fresh nonce per request: only scripts carrying that nonce (plus the
+   few listed hosts) may run, which is what stops injected markup from executing. Applied to every response. */
+function buildCsp(nonce, secure) {
+  const directives = [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' https://www.youtube.com https://challenges.cloudflare.com https://www.googletagmanager.com`,
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
+    "img-src 'self' data: blob: https:",
+    "media-src 'self' data: blob: https:",
+    'frame-src https://www.youtube.com https://www.youtube-nocookie.com https://challenges.cloudflare.com',
+    "connect-src 'self' https://generativelanguage.googleapis.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ];
+  if (secure) directives.push('upgrade-insecure-requests');
+  return directives.join('; ');
+}
+app.use((req, res, next) => {
+  res.locals.nonce = crypto.randomBytes(16).toString('base64');
+  res.set('Content-Security-Policy', buildCsp(res.locals.nonce, isSecureRequest(req)));
+  next();
+});
+
+/* API responses carry personal data: never let a browser or proxy cache them. */
+app.use('/api', (req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+
+/* CSRF layer 1: a state-changing request from a browser must come from this site. (Layer 2 is the
+   per-session X-CSRF-Token that requireAuth demands.) The Host header is compared rather than a configured
+   URL so this keeps working however the site is reached (custom domain, preview URL, local dev). */
+const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+/** True when a browser-supplied Origin is this site: the same host the request was addressed to (also as seen
+    by a fronting proxy, X-Forwarded-Host), the configured BASE_URL, or an explicitly allowed origin. */
+function originIsOurs(origin, req) {
+  let parsed;
+  try { parsed = new URL(origin); } catch { return false; }
+  const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+  return parsed.host === req.headers.host
+    || (forwardedHost !== '' && parsed.host === forwardedHost)
+    || parsed.origin === new URL(BASE_URL).origin
+    || allowedOrigins.includes(origin);
+}
+app.use('/api', (req, res, next) => {
+  if (!UNSAFE_METHODS.has(req.method)) return next();
+  const origin = req.headers.origin;
+  const site = req.headers['sec-fetch-site'];
+  const crossSite = site === 'cross-site' || origin === 'null' || (origin && !originIsOurs(origin, req));
+  if (crossSite) return res.status(403).json({ error: 'Cross-site requests are not allowed.' });
+  next();
+});
+
+/* Coarse flood limit over the whole API (routes add their own tighter limits). Deliberately generous: a
+   normal session makes a handful of requests a minute. Signed-in callers are counted per account, so
+   people who share an IP address (an office, a school, a proxy) never throttle one another; anonymous
+   callers are counted per IP. */
+app.use('/api', (req, res, next) => {
+  const token = sessionTokenFromRequest(req);
+  const session = token ? verifyToken(token) : null;
+  const key = session ? `api-user:${session.userId}` : `api-ip:${req.ip}`;
+  if (rateLimited(key, 900, 60_000)) return res.status(429).json({ error: 'Too many requests. Slow down and try again shortly.' });
+  next();
+});
+
+app.use(cors({ origin: allowedOrigins.length ? allowedOrigins : false, credentials: true }));
 const jsonSmall = express.json({ limit: '100kb' });
 const jsonWithImage = express.json({ limit: '8mb' });
 // Only the room-chat send route may carry an image (base64 of up to 5 MB); everything else
-// keeps the 100kb cap. The larger parser is only used for requests that at least present a
-// bearer token, so anonymous callers can never make the server buffer megabytes.
+// keeps the 100kb cap. The larger parser is only used for requests that present a validly signed
+// session, so anonymous callers can never make the server buffer megabytes.
 const ROOM_MESSAGES_PATH_RE = /^\/api\/lounge\/rooms\/[^/]+\/messages$/;
 app.use((req, res, next) => {
-  if (req.method === 'POST' && req.headers.authorization && ROOM_MESSAGES_PATH_RE.test(req.path)) return jsonWithImage(req, res, next);
+  if (req.method === 'POST' && ROOM_MESSAGES_PATH_RE.test(req.path) && verifyToken(sessionTokenFromRequest(req) || '')) return jsonWithImage(req, res, next);
   return jsonSmall(req, res, next);
 });
 
@@ -48,12 +162,14 @@ app.use((req, res, next) => {
 
 const USERNAME_RE = /^[a-zA-Z0-9_]{3,20}$/;
 function isValidUsername(u) { return typeof u === 'string' && USERNAME_RE.test(u); }
-function isValidPassword(p) { return typeof p === 'string' && p.length >= 6 && p.length <= 200; }
 function isValidEmail(e) { return typeof e === 'string' && e.length <= 200 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); }
 /* https:// only (no data:/blob:/http:) -- this URL is stored and handed to every
    other user's browser as an <img src>, so it must be something any client can
-   actually fetch, not a same-origin-only blob: URL or an unbounded inline data: URI. */
-function isValidAvatarUrl(u) { return typeof u === 'string' && u.length <= 500 && /^https:\/\/\S+$/.test(u); }
+   actually fetch, not a same-origin-only blob: URL or an unbounded inline data: URI.
+   Quotes, brackets and backslashes are refused so it can never break out of the CSS url(...) it is placed in. */
+function isValidAvatarUrl(u) { return typeof u === 'string' && u.length <= 500 && /^https:\/\/[^\s"'()<>\\]+$/.test(u); }
+/** Escapes LIKE wildcards so a search for "50%" or "a_b" matches literally instead of as a pattern. */
+function escapeLike(s) { return s.replace(/[\\%_]/g, '\\$&'); }
 
 /* Minimal in-memory throttle on auth endpoints: N attempts per key per window.
    No new dependency, resets on restart -- adequate for this app's scale. */
@@ -85,18 +201,31 @@ setInterval(() => {
    next attempt need a captcha", not just a boolean past-the-limit check, and
    it resets to zero on a successful login rather than expiring on a timer. */
 const loginFailures = new Map();
-const LOGIN_FAILURE_WINDOW_MS = 15 * 60_000;
+const LOGIN_FAILURE_WINDOW_MS = 60 * 60_000;
 const LOGIN_CAPTCHA_THRESHOLD = 2;
+const LOGIN_LOCK_AFTER = 6; // failures before the account starts locking for a while
+const LOGIN_LOCK_BASE_MS = 60_000; // 1 min, doubling with every further failure, capped below
+const LOGIN_LOCK_MAX_MS = 15 * 60_000;
 function loginFailureCount(key) {
   const record = loginFailures.get(key);
   if (!record || Date.now() - record.start > LOGIN_FAILURE_WINDOW_MS) return 0;
   return record.count;
 }
+/** Milliseconds this identifier must wait before another attempt is even looked at (0 = not locked). */
+function loginLockRemaining(key) {
+  const record = loginFailures.get(key);
+  if (!record || Date.now() - record.start > LOGIN_FAILURE_WINDOW_MS) return 0;
+  return Math.max(0, (record.lockedUntil || 0) - Date.now());
+}
 function recordLoginFailure(key) {
   const now = Date.now();
-  const record = loginFailures.get(key);
-  if (!record || now - record.start > LOGIN_FAILURE_WINDOW_MS) { loginFailures.set(key, { start: now, count: 1 }); return 1; }
+  let record = loginFailures.get(key);
+  if (!record || now - record.start > LOGIN_FAILURE_WINDOW_MS) { record = { start: now, count: 0, lockedUntil: 0 }; loginFailures.set(key, record); }
   record.count += 1;
+  // Exponential backoff against password guessing: from the 6th failure on, wait 1, 2, 4, ... up to 15 minutes.
+  if (record.count >= LOGIN_LOCK_AFTER) {
+    record.lockedUntil = now + Math.min(LOGIN_LOCK_MAX_MS, LOGIN_LOCK_BASE_MS * 2 ** (record.count - LOGIN_LOCK_AFTER));
+  }
   return record.count;
 }
 function clearLoginFailures(key) { loginFailures.delete(key); }
@@ -123,10 +252,11 @@ const TURNSTILE_SECRET_KEY = process.env.TURNSTILE_SECRET_KEY || TURNSTILE_TEST_
 
 /* A missing, invalid, expired, or already-used token is always rejected, and a
    network failure reaching Cloudflare fails closed (rejected), not open. */
-async function verifyCaptcha(token, ip) {
-  if (typeof token !== 'string' || !token) return false;
+async function verifyCaptcha(token) {
+  if (typeof token !== 'string' || !token || token.length > 4096) return false;
   try {
-    const body = new URLSearchParams({ secret: TURNSTILE_SECRET_KEY, response: token, remoteip: ip || '' });
+    // remoteip is optional and deliberately not sent: it would hand visitors' IP addresses to Cloudflare for nothing.
+    const body = new URLSearchParams({ secret: TURNSTILE_SECRET_KEY, response: token });
     const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', { method: 'POST', body });
     const data = await res.json();
     return data.success === true;
@@ -137,9 +267,10 @@ async function verifyCaptcha(token, ip) {
 
 /* ============================== oauth (Google / Microsoft) ============================== */
 
-/** state -> { verifier, provider, expiresAt }: created by /start, consumed once by /callback. */
+/** state -> { verifier, provider, consent, expiresAt }: created by /start, consumed once by /callback.
+    `consent` records whether the person ticked "I agree to the Terms and Privacy Policy" before leaving for the provider. */
 const oauthStates = new Map();
-/** one-time code -> { token, user, expiresAt }: bridges the server-side OAuth
+/** one-time code -> { token, userId, expiresAt }: bridges the server-side OAuth
     redirect back to a normal JSON response the frontend can consume, without
     ever putting the real session JWT in a URL (query strings end up in
     browser history and server access logs). */
@@ -164,6 +295,9 @@ async function usernameFromEmail(email) {
 /* Thrown when an OAuth email collides with an existing account that was
    never proven to belong to that address. See findOrCreateOAuthUser. */
 class OAuthEmailInUseError extends Error {}
+/* Thrown when someone would create a brand-new account through a provider without having agreed to the
+   Terms of Service and Privacy Policy. */
+class OAuthConsentRequiredError extends Error {}
 
 /* Links or creates a local account for a verified OAuth identity. Deliberately
    does not create a usable password for a brand-new account -- signing in
@@ -181,19 +315,20 @@ class OAuthEmailInUseError extends Error {}
    the merge and telling the user to log in with their password instead
    closes that off; self-service linking from a *logged-in* session is a
    documented known gap (see SECURITY.md), not implemented here. */
-async function findOrCreateOAuthUser(provider, profile) {
+async function findOrCreateOAuthUser(provider, profile, consent) {
   const link = await db.get('SELECT user_id FROM oauth_accounts WHERE provider = ? AND provider_user_id = ?', [provider, profile.sub]);
   if (link) return getUserById(link.user_id);
 
   if (await getUserByEmail(profile.email)) throw new OAuthEmailInUseError();
+  if (!consent) throw new OAuthConsentRequiredError();
 
   const id = newId();
   const now = Date.now();
   const unusablePassword = await hashPassword(crypto.randomBytes(32).toString('hex'));
   await db.run(
-    `INSERT INTO users (id, username, email, password_hash, display_name, avatar, bio, created_at, last_seen_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, await usernameFromEmail(profile.email), profile.email, unusablePassword, (profile.name || profile.email.split('@')[0]).slice(0, 40), '', '', now, now]
+    `INSERT INTO users (id, username, email, password_hash, display_name, avatar, bio, created_at, last_seen_at, consent_version, consent_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, await usernameFromEmail(profile.email), profile.email, unusablePassword, (profile.name || profile.email.split('@')[0]).slice(0, 40), '', '', now, now, POLICY_VERSION, now]
   );
   const user = await getUserById(id);
   await db.run(
@@ -219,6 +354,12 @@ function publicUser(row, extra) {
     online: isOnline(row.id),
     ...extra,
   };
+}
+/** Profile of someone the viewer is NOT friends with: same shape, but no presence or last-seen time. */
+function strangerUser(row, extra) {
+  const user = publicUser(row, extra);
+  if (!user) return null;
+  return { ...user, online: false, lastSeenAt: null };
 }
 function getUserById(id) { return db.get('SELECT * FROM users WHERE id = ?', [id]); }
 // COLLATE NOCASE (SQLite) has no Postgres equivalent; case-insensitive lookup instead compares
@@ -254,13 +395,36 @@ async function createNotification(userId, type, data) {
 
 /* ============================== auth routes ============================== */
 
+/* A session is issued by setting the HttpOnly cookie; the body carries only what the page needs to
+   know (who it is, the CSRF token for this session, and whether it must accept updated terms) and
+   NEVER the session token itself, so no script on the page can read or leak it. */
+async function sessionBody(user, token) {
+  const oauth = await db.get('SELECT 1 AS linked FROM oauth_accounts WHERE user_id = ? LIMIT 1', [user.id]);
+  return {
+    user: publicUser(user),
+    csrfToken: csrfTokenFor(token),
+    consentRequired: user.consent_version !== POLICY_VERSION,
+    policyVersion: POLICY_VERSION,
+    account: { passwordLogin: !oauth },
+  };
+}
+async function startSession(req, res, user, status = 200) {
+  const token = signToken(user.id, user.token_version);
+  setSessionCookie(req, res, token);
+  res.status(status).json(await sessionBody(user, token));
+}
+
 app.post('/api/auth/register', async (req, res) => {
   if (rateLimited(`register:${req.ip}`, 10, 15 * 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
-  const { username, password, email, displayName, avatar, captchaToken } = req.body || {};
-  if (!(await verifyCaptcha(captchaToken, req.ip))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
+  const { username, password, email, displayName, avatar, captchaToken, acceptTerms } = req.body || {};
+  // Enforced here, not just in the browser: no account can exist without a recorded agreement.
+  if (acceptTerms !== true) return res.status(400).json({ error: 'You must agree to the Terms of Service and Privacy Policy to create an account.', consentRequired: true });
+  if (!(await verifyCaptcha(captchaToken))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
   if (!isValidUsername(username)) return res.status(400).json({ error: 'Username must be 3-20 characters: letters, numbers, underscore.' });
-  if (!isValidPassword(password)) return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   if (email !== undefined && email !== '' && !isValidEmail(email)) return res.status(400).json({ error: 'That email address looks invalid.' });
+  const pwProblem = passwordProblem(password, { username, email });
+  if (pwProblem) return res.status(400).json({ error: pwProblem });
+  if (displayName !== undefined && typeof displayName !== 'string') return res.status(400).json({ error: 'Invalid display name.' });
   if (await getUserByUsername(username)) return res.status(409).json({ error: 'That username is already taken.' });
   if (email && (await getUserByEmail(email))) return res.status(409).json({ error: 'An account with that email already exists.' });
 
@@ -269,45 +433,59 @@ app.post('/api/auth/register', async (req, res) => {
   try {
     const hash = await hashPassword(password);
     await db.run(
-      `INSERT INTO users (id, username, email, password_hash, display_name, avatar, bio, created_at, last_seen_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, username, email || null, hash, (displayName || username).slice(0, 40), (avatar || '').slice(0, 8), '', now, now]
+      `INSERT INTO users (id, username, email, password_hash, display_name, avatar, bio, created_at, last_seen_at, consent_version, consent_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, username, email || null, hash, ((displayName || username).trim() || username).slice(0, 40), (typeof avatar === 'string' ? avatar : '').slice(0, 8), '', now, now, POLICY_VERSION, now]
     );
-    const user = await getUserById(id);
-    res.status(201).json({ token: signToken(id, 0), user: publicUser(user) });
-  } catch {
-    res.status(500).json({ error: 'Could not create the account. Try again.' });
+    await startSession(req, res, await getUserById(id), 201);
+  } catch (err) {
+    console.error('[auth] registration failed:', err.code || err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Could not create the account. Try again.' });
   }
 });
 
 app.post('/api/auth/login', async (req, res) => {
   if (rateLimited(`login:${req.ip}`, 10, 15 * 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
-  const { identifier, password, captchaToken } = req.body || {};
-  if (typeof identifier !== 'string' || typeof password !== 'string') return res.status(400).json({ error: 'Username/email and password are required.' });
+  const { identifier, password, captchaToken, acceptTerms } = req.body || {};
+  if (typeof identifier !== 'string' || typeof password !== 'string' || !identifier || !password) return res.status(400).json({ error: 'Username/email and password are required.' });
+  if (identifier.length > 200 || password.length > 1000) return res.status(400).json({ error: 'Incorrect username/email or password.' });
+  const failKey = identifier.trim().toLowerCase();
+  // Brute-force backoff: after repeated failures this identifier is paused for a growing amount of time.
+  const lockedFor = loginLockRemaining(failKey);
+  if (lockedFor > 0) {
+    return res.status(429).json({ error: `Too many failed attempts. Try again in ${Math.ceil(lockedFor / 60_000)} minute(s).`, captchaRequired: true });
+  }
   // Captcha is only required once this identifier has racked up a couple of failures,
   // so a normal user typing their password correctly the first time is never bothered
   // by it -- but it's enforced here server-side regardless of what the client shows.
-  const failKey = identifier.trim().toLowerCase();
   if (loginFailureCount(failKey) >= LOGIN_CAPTCHA_THRESHOLD) {
-    if (!(await verifyCaptcha(captchaToken, req.ip))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
+    if (!(await verifyCaptcha(captchaToken))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.', captchaRequired: true });
   }
-  const user = identifier.includes('@') ? await getUserByEmail(identifier) : await getUserByUsername(identifier);
-  if (!user) {
-    console.warn(`[auth] failed login for "${identifier}" from ${req.ip}`);
+  const user = identifier.includes('@') ? await getUserByEmail(identifier.trim()) : await getUserByUsername(identifier.trim());
+  const fail = () => {
     const count = recordLoginFailure(failKey);
     return res.status(401).json({ error: 'Incorrect username/email or password.', captchaRequired: count >= LOGIN_CAPTCHA_THRESHOLD });
+  };
+  if (!user) {
+    await verifyAgainstDummy(password); // same work as a real check, so timing doesn't reveal which usernames exist
+    return fail();
   }
   try {
-    const ok = await verifyPassword(password, user.password_hash);
-    if (!ok) {
-      console.warn(`[auth] failed login for "${identifier}" from ${req.ip}`);
-      const count = recordLoginFailure(failKey);
-      return res.status(401).json({ error: 'Incorrect username/email or password.', captchaRequired: count >= LOGIN_CAPTCHA_THRESHOLD });
-    }
+    if (!(await verifyPassword(password, user.password_hash))) return fail();
     clearLoginFailures(failKey);
-    res.json({ token: signToken(user.id, user.token_version), user: publicUser(user) });
-  } catch {
-    res.status(500).json({ error: 'Login failed. Try again.' });
+    // Accounts that predate the policy, or that accepted an older version, must agree again before a session is issued.
+    if (user.consent_version !== POLICY_VERSION) {
+      if (acceptTerms !== true) return res.status(400).json({ error: 'Please agree to the Terms of Service and Privacy Policy to continue.', consentRequired: true });
+      await db.run('UPDATE users SET consent_version = ?, consent_at = ? WHERE id = ?', [POLICY_VERSION, Date.now(), user.id]);
+    }
+    // Quietly upgrade hashes made with an older, cheaper bcrypt cost.
+    if (needsRehash(user.password_hash)) {
+      await db.run('UPDATE users SET password_hash = ? WHERE id = ?', [await hashPassword(password), user.id]).catch(() => {});
+    }
+    await startSession(req, res, await getUserById(user.id));
+  } catch (err) {
+    console.error('[auth] login failed:', err.code || err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Login failed. Try again.' });
   }
 });
 
@@ -323,13 +501,14 @@ function generateResetCode() {
 
 app.post('/api/auth/forgot', async (req, res) => {
   const { identifier, captchaToken } = req.body || {};
-  if (!(await verifyCaptcha(captchaToken, req.ip))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
+  if (!(await verifyCaptcha(captchaToken))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
   const GENERIC = { message: 'If an account exists, we sent a code to its email address.' };
-  if (typeof identifier !== 'string' || !identifier.trim()) return res.json(GENERIC);
+  if (typeof identifier !== 'string' || !identifier.trim() || identifier.length > 200) return res.json(GENERIC);
   const normalized = identifier.trim();
   // Rate-limited before lookup, and identically regardless of outcome below, so
-  // neither the 429 nor the 200 ever reveals whether the account exists.
-  if (rateLimited(`forgot-id:${normalized.toLowerCase()}`, 3, 60 * 60_000) || rateLimited(`forgot-ip:${req.ip}`, 10, 60 * 60_000)) {
+  // neither the 429 nor the 200 ever reveals whether the account exists. (Keys are hashed so
+  // the limiter's memory never holds a raw email address.)
+  if (rateLimited(`forgot-id:${hashWithPepper(normalized.toLowerCase())}`, 3, 60 * 60_000) || rateLimited(`forgot-ip:${req.ip}`, 10, 60 * 60_000)) {
     return res.status(429).json({ error: 'Too many requests. Try again later.' });
   }
   const user = normalized.includes('@') ? await getUserByEmail(normalized) : await getUserByUsername(normalized);
@@ -353,10 +532,10 @@ app.post('/api/auth/forgot', async (req, res) => {
 
 app.post('/api/auth/forgot-username', async (req, res) => {
   const { email, captchaToken } = req.body || {};
-  if (!(await verifyCaptcha(captchaToken, req.ip))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
+  if (!(await verifyCaptcha(captchaToken))) return res.status(400).json({ error: 'Captcha verification failed. Please try again.' });
   const GENERIC = { message: 'If an account exists with that email, we sent its username.' };
   if (typeof email !== 'string' || !isValidEmail(email)) return res.json(GENERIC);
-  if (rateLimited(`forgot-uname-id:${email.toLowerCase()}`, 3, 60 * 60_000) || rateLimited(`forgot-uname-ip:${req.ip}`, 10, 60 * 60_000)) {
+  if (rateLimited(`forgot-uname-id:${hashWithPepper(email.toLowerCase())}`, 3, 60 * 60_000) || rateLimited(`forgot-uname-ip:${req.ip}`, 10, 60 * 60_000)) {
     return res.status(429).json({ error: 'Too many requests. Try again later.' });
   }
   const user = await getUserByEmail(email);
@@ -375,7 +554,7 @@ app.post('/api/auth/verify-code', async (req, res) => {
   if (rateLimited(`verify-code:${req.ip}`, 20, 60 * 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again in a few minutes.' });
   const { identifier, code } = req.body || {};
   const BAD = { error: "That code isn't right or has expired." };
-  if (typeof identifier !== 'string' || typeof code !== 'string' || !identifier.trim() || !code.trim()) return res.status(400).json(BAD);
+  if (typeof identifier !== 'string' || typeof code !== 'string' || !identifier.trim() || !code.trim() || identifier.length > 200 || code.length > 20) return res.status(400).json(BAD);
   const user = identifier.includes('@') ? await getUserByEmail(identifier.trim()) : await getUserByUsername(identifier.trim());
   if (!user) return res.status(400).json(BAD);
   const row = await db.get(
@@ -407,9 +586,11 @@ app.post('/api/auth/reset-password', async (req, res) => {
   const { resetToken, password } = req.body || {};
   const INVALID = { error: 'That reset link is invalid or expired. Start over.' };
   if (typeof resetToken !== 'string' || !resetToken) return res.status(400).json(INVALID);
-  if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
   const row = await db.get('SELECT * FROM password_resets WHERE reset_token_hash = ? AND used_at IS NULL', [hashWithPepper(resetToken)]);
   if (!row || !row.reset_token_expires_at || row.reset_token_expires_at < Date.now()) return res.status(400).json(INVALID);
+  const owner = await getUserById(row.user_id);
+  const pwProblem = passwordProblem(password, { username: owner && owner.username, email: owner && owner.email });
+  if (pwProblem) return res.status(400).json({ error: pwProblem });
   try {
     const hash = await hashPassword(password);
     const now = Date.now();
@@ -420,9 +601,10 @@ app.post('/api/auth/reset-password', async (req, res) => {
     const user = await getUserById(row.user_id);
     clearLoginFailures(user.username.toLowerCase());
     if (user.email) clearLoginFailures(user.email.toLowerCase());
-    res.json({ token: signToken(user.id, user.token_version), user: publicUser(user) });
-  } catch {
-    res.status(500).json({ error: 'Could not reset the password. Try again.' });
+    await startSession(req, res, user);
+  } catch (err) {
+    console.error('[auth] password reset failed:', err.code || err.message);
+    if (!res.headersSent) res.status(500).json({ error: 'Could not reset the password. Try again.' });
   }
 });
 
@@ -443,7 +625,8 @@ app.get('/api/auth/:provider/start', (req, res) => {
   if (rateLimited(`oauth-start:${req.ip}`, 20, 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again shortly.' });
   const { verifier, challenge } = OAuth.pkcePair();
   const state = crypto.randomBytes(24).toString('base64url');
-  oauthStates.set(state, { verifier, provider, expiresAt: Date.now() + 5 * 60_000 });
+  // consent=1 is only sent by the page once the "I agree to the Terms and Privacy Policy" box is ticked.
+  oauthStates.set(state, { verifier, provider, consent: req.query.consent === '1', expiresAt: Date.now() + 5 * 60_000 });
   const redirectUri = `${BASE_URL}/api/auth/${provider}/callback`;
   res.redirect(OAuth.authorizeUrl(provider, { state, challenge, redirectUri }));
 });
@@ -461,35 +644,54 @@ app.get('/api/auth/:provider/callback', async (req, res) => {
     const redirectUri = `${BASE_URL}/api/auth/${provider}/callback`;
     const tokens = await OAuth.exchangeCode(provider, { code, verifier: entry.verifier, redirectUri });
     const profile = await OAuth.fetchProfile(provider, tokens.access_token);
-    const user = await findOrCreateOAuthUser(provider, profile);
+    const user = await findOrCreateOAuthUser(provider, profile, entry.consent);
     const exchangeCode = crypto.randomBytes(24).toString('base64url');
-    oauthExchangeCodes.set(exchangeCode, {
-      token: signToken(user.id, user.token_version),
-      user: publicUser(user),
-      expiresAt: Date.now() + 60_000,
-    });
+    oauthExchangeCodes.set(exchangeCode, { userId: user.id, expiresAt: Date.now() + 60_000 });
     res.redirect(`/?oauth=${exchangeCode}`);
   } catch (err) {
     if (err instanceof OAuthEmailInUseError) return res.redirect('/?oauthError=email_in_use');
+    if (err instanceof OAuthConsentRequiredError) return res.redirect('/?oauthError=consent');
     console.error(`[oauth] ${provider} sign-in failed:`, err.message);
     res.redirect('/?oauthError=1');
   }
 });
 
-/* One-time code -> real session token, so the JWT itself never appears in a
+/* One-time code -> session cookie, so the session itself never appears in a
    URL (server access logs, browser history, Referer headers). */
-app.post('/api/auth/oauth/exchange', (req, res) => {
+app.post('/api/auth/oauth/exchange', async (req, res) => {
   const code = req.body && req.body.code;
   const entry = typeof code === 'string' ? oauthExchangeCodes.get(code) : null;
   if (entry) oauthExchangeCodes.delete(code);
   if (!entry || entry.expiresAt < Date.now()) return res.status(400).json({ error: 'Invalid or expired sign-in code.' });
-  res.json({ token: entry.token, user: entry.user });
+  const user = await getUserById(entry.userId);
+  if (!user) return res.status(400).json({ error: 'Invalid or expired sign-in code.' });
+  await startSession(req, res, user);
 });
 
 app.get('/api/auth/me', requireAuth, async (req, res) => {
   const user = await getUserById(req.userId);
   if (!user) return res.status(404).json({ error: 'Account no longer exists.' });
-  res.json({ user: publicUser(user) });
+  res.json(await sessionBody(user, req.sessionToken));
+});
+
+/* One-time migration for people who were already signed in when sessions moved from a token kept in the
+   page's localStorage (readable by scripts) to an HttpOnly cookie. The old token is accepted here, and only
+   here, to mint the cookie; the page then deletes its stored copy. Nothing else accepts a bearer token. */
+app.post('/api/auth/session/upgrade', async (req, res) => {
+  if (rateLimited(`upgrade:${req.ip}`, 30, 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again shortly.' });
+  const header = req.headers.authorization || '';
+  const payload = header.startsWith('Bearer ') ? verifyToken(header.slice(7)) : null;
+  const user = payload && (await getUserById(payload.userId));
+  if (!user || user.token_version !== payload.tokenVersion) return res.status(401).json({ error: 'Session expired. Please log in again.' });
+  await startSession(req, res, user);
+});
+
+/* Records acceptance of the current Terms of Service + Privacy Policy (shown to people who signed up
+   before they existed, or when they change). */
+app.post('/api/account/consent', requireAuth, async (req, res) => {
+  if (!req.body || req.body.accept !== true) return res.status(400).json({ error: 'You must agree to the Terms of Service and Privacy Policy to keep using your account.' });
+  await db.run('UPDATE users SET consent_version = ?, consent_at = ? WHERE id = ?', [POLICY_VERSION, Date.now(), req.userId]);
+  res.json({ ok: true, policyVersion: POLICY_VERSION });
 });
 
 app.patch('/api/auth/me', requireAuth, async (req, res) => {
@@ -513,6 +715,7 @@ app.patch('/api/auth/me', requireAuth, async (req, res) => {
 
 app.post('/api/auth/logout', requireAuth, async (req, res) => {
   await db.run('UPDATE users SET token_version = token_version + 1 WHERE id = ?', [req.userId]);
+  clearSessionCookie(req, res);
   res.json({ ok: true });
 });
 
@@ -522,11 +725,15 @@ app.get('/api/users/search', requireAuth, async (req, res) => {
   if (rateLimited(`search:${req.userId}`, 30, 60_000)) return res.status(429).json({ error: 'Too many searches. Try again shortly.' });
   const q = String(req.query.q || '').trim().slice(0, 40);
   if (q.length < 2) return res.json({ users: [] });
+  const pattern = `%${escapeLike(q)}%`;
   const rows = await db.all(
     `SELECT * FROM users WHERE id != ? AND (username LIKE ? OR display_name LIKE ?) ORDER BY username LIMIT 20`,
-    [req.userId, `%${q}%`, `%${q}%`]
+    [req.userId, pattern, pattern]
   );
-  const results = await Promise.all(rows.map(async (row) => publicUser(row, { relationship: await relationshipBetween(req.userId, row.id) })));
+  const results = await Promise.all(rows.map(async (row) => {
+    const relationship = await relationshipBetween(req.userId, row.id);
+    return relationship === 'friends' ? publicUser(row, { relationship }) : strangerUser(row, { relationship });
+  }));
   res.json({ users: results });
 });
 
@@ -542,7 +749,8 @@ async function relationshipBetween(me, other) {
 app.get('/api/users/:id', requireAuth, async (req, res) => {
   const user = await getUserById(req.params.id);
   if (!user) return res.status(404).json({ error: 'User not found.' });
-  res.json({ user: publicUser(user, { relationship: await relationshipBetween(req.userId, user.id) }) });
+  const relationship = await relationshipBetween(req.userId, user.id);
+  res.json({ user: relationship === 'friends' || user.id === req.userId ? publicUser(user, { relationship }) : strangerUser(user, { relationship }) });
 });
 
 /* ============================== friends ============================== */
@@ -678,8 +886,9 @@ app.get('/api/conversations/:friendId/messages', requireAuth, async (req, res) =
   const friendId = req.params.friendId;
   if (!(await areFriends(req.userId, friendId))) return res.status(403).json({ error: 'You can only view conversations with friends.' });
   const conv = await getOrCreateConversation(req.userId, friendId);
-  const before = req.query.before ? Number(req.query.before) : Date.now() + 1;
-  const limit = Math.min(Number(req.query.limit) || 50, 100);
+  const beforeNum = Number(req.query.before);
+  const before = req.query.before && Number.isFinite(beforeNum) ? Math.trunc(beforeNum) : Date.now() + 1;
+  const limit = Math.max(1, Math.min(Math.trunc(Number(req.query.limit)) || 50, 100));
   const rows = await db.all(
     `SELECT * FROM messages WHERE conversation_id = ? AND created_at < ? ORDER BY created_at DESC LIMIT ?`,
     [conv.id, before, limit]
@@ -748,9 +957,13 @@ app.post('/api/notifications/read-all', requireAuth, async (req, res) => {
 
 const ROOM_CODE_WORDS = ['FOCUS', 'FLOW', 'GRIND', 'DEEP', 'CALM', 'ZEN', 'LOCK', 'PUSH'];
 const ROOM_CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+/* The code IS the access control for a room (anyone holding it can join), so it is drawn from a CSPRNG and is long
+   enough (8 words x 32^4 = ~8 million) that guessing one is hopeless under the join rate limit. Rooms created
+   before this change keep their shorter codes until they empty out. */
 function generateRoomCode() {
-  const word = ROOM_CODE_WORDS[Math.floor(Math.random() * ROOM_CODE_WORDS.length)];
-  const suffix = ROOM_CODE_CHARS[Math.floor(Math.random() * ROOM_CODE_CHARS.length)] + ROOM_CODE_CHARS[Math.floor(Math.random() * ROOM_CODE_CHARS.length)];
+  const word = ROOM_CODE_WORDS[crypto.randomInt(ROOM_CODE_WORDS.length)];
+  let suffix = '';
+  for (let i = 0; i < 4; i += 1) suffix += ROOM_CODE_CHARS[crypto.randomInt(ROOM_CODE_CHARS.length)];
   return `${word}-${suffix}`;
 }
 const ROOM_STATUSES = ['idle', 'focusing', 'resting'];
@@ -1262,37 +1475,167 @@ app.get('/api/leaderboard', requireAuth, async (req, res) => {
   res.json({ range, entries });
 });
 
+/* ============================== account: data export & deletion ==============================
+   GDPR/UK GDPR rights of access, portability and erasure, available to every signed-in user. */
+
+const iso = (ms) => (Number.isFinite(Number(ms)) && ms !== null ? new Date(Number(ms)).toISOString() : null);
+const EXPORT_IMAGE_BUDGET_BYTES = 20 * 1024 * 1024;
+
+app.get('/api/account/export', requireAuth, async (req, res) => {
+  if (rateLimited(`export:${req.userId}`, 5, 60 * 60_000)) return res.status(429).json({ error: 'You can download your data a few times per hour. Try again later.' });
+  const uid = req.userId;
+  const user = await getUserById(uid);
+  if (!user) return res.status(404).json({ error: 'Account no longer exists.' });
+
+  const oauth = await db.all('SELECT provider, email, created_at FROM oauth_accounts WHERE user_id = ?', [uid]);
+  const friends = await db.all('SELECT u.username, u.display_name, f.created_at FROM friendships f JOIN users u ON u.id = f.friend_id WHERE f.user_id = ? ORDER BY f.created_at', [uid]);
+  const sent = await db.all('SELECT r.status, r.created_at, r.responded_at, u.username AS other FROM friend_requests r JOIN users u ON u.id = r.to_user_id WHERE r.from_user_id = ? ORDER BY r.created_at', [uid]);
+  const received = await db.all('SELECT r.status, r.created_at, r.responded_at, u.username AS other FROM friend_requests r JOIN users u ON u.id = r.from_user_id WHERE r.to_user_id = ? ORDER BY r.created_at', [uid]);
+
+  const convRows = await db.all('SELECT id, user_a, user_b, created_at FROM conversations WHERE user_a = ? OR user_b = ?', [uid, uid]);
+  const conversations = [];
+  for (const c of convRows) {
+    const other = await getUserById(c.user_a === uid ? c.user_b : c.user_a);
+    const msgs = await db.all('SELECT sender_id, text, created_at, read_at FROM messages WHERE conversation_id = ? ORDER BY created_at', [c.id]);
+    conversations.push({
+      with: other ? other.username : null,
+      startedAt: iso(c.created_at),
+      messages: msgs.map((m) => ({ from: m.sender_id === uid ? 'me' : 'them', text: m.text, sentAt: iso(m.created_at), readAt: iso(m.read_at) })),
+    });
+  }
+
+  const notifications = await db.all('SELECT type, data, created_at, read_at FROM notifications WHERE user_id = ? ORDER BY created_at', [uid]);
+  const membership = await getCurrentRoomMembership(uid);
+  const room = membership ? await getRoomById(membership.room_id) : null;
+  const roomMessages = await db.all('SELECT text, image, image_mime, created_at FROM room_messages WHERE sender_id = ? ORDER BY created_at', [uid]);
+  let imageBytes = 0;
+  const invitesSent = await db.all('SELECT status, created_at FROM room_invites WHERE from_user_id = ? ORDER BY created_at', [uid]);
+  const invitesReceived = await db.all('SELECT status, created_at FROM room_invites WHERE to_user_id = ? ORDER BY created_at', [uid]);
+  const sessions = await db.all('SELECT minutes, completed_at FROM focus_sessions WHERE user_id = ? ORDER BY completed_at', [uid]);
+
+  const payload = {
+    about: 'A copy of the personal data Pomodoro Focus (pomodorofocus.site) holds about you on its servers. Your timer, tasks, stats and settings live only in your browser and are not included here. Password hashes and security tokens are deliberately left out.',
+    exportedAt: new Date().toISOString(),
+    account: {
+      id: user.id, username: user.username, email: user.email, displayName: user.display_name, avatarEmoji: user.avatar,
+      avatarUrl: user.avatar_url, bio: user.bio, createdAt: iso(user.created_at), lastSeenAt: iso(user.last_seen_at),
+      agreedToTermsAndPrivacyVersion: user.consent_version, agreedAt: iso(user.consent_at),
+    },
+    linkedSignIns: oauth.map((o) => ({ provider: o.provider, email: o.email, linkedAt: iso(o.created_at) })),
+    friends: friends.map((f) => ({ username: f.username, displayName: f.display_name, friendsSince: iso(f.created_at) })),
+    friendRequestsSent: sent.map((r) => ({ to: r.other, status: r.status, sentAt: iso(r.created_at), respondedAt: iso(r.responded_at) })),
+    friendRequestsReceived: received.map((r) => ({ from: r.other, status: r.status, sentAt: iso(r.created_at), respondedAt: iso(r.responded_at) })),
+    directMessages: conversations,
+    notifications: notifications.map((n) => { let data = null; try { data = JSON.parse(n.data); } catch { /* keep null */ } return { type: n.type, data, createdAt: iso(n.created_at), readAt: iso(n.read_at) }; }),
+    currentStudyRoom: room ? { code: room.code, goal: room.goal, joinedAt: iso(membership.joined_at), isHost: room.host_user_id === uid } : null,
+    roomChatMessagesYouSent: roomMessages.map((m) => {
+      const entry = { text: m.text, sentAt: iso(m.created_at) };
+      if (m.image) {
+        entry.imageMime = m.image_mime;
+        if (imageBytes + m.image.length <= EXPORT_IMAGE_BUDGET_BYTES) { imageBytes += m.image.length; entry.imageBase64 = m.image.toString('base64'); }
+        else entry.imageOmitted = 'too large to include in this download; contact us to receive it';
+      }
+      return entry;
+    }),
+    roomInvitesSent: invitesSent.map((i) => ({ status: i.status, at: iso(i.created_at) })),
+    roomInvitesReceived: invitesReceived.map((i) => ({ status: i.status, at: iso(i.created_at) })),
+    completedFocusSessions: sessions.map((x) => ({ minutes: x.minutes, completedAt: iso(x.completed_at) })),
+  };
+  res.set('Content-Disposition', 'attachment; filename="pomodoro-focus-my-data.json"');
+  res.type('application/json').send(JSON.stringify(payload, null, 2));
+});
+
+/* Permanently deletes the signed-in user's account and everything tied to it (friendships, requests, direct
+   messages in both directions, notifications, room memberships and chat messages, invites, focus sessions,
+   linked sign-ins, reset records). Requires re-entering the password (or, for accounts created through
+   Google/Microsoft/Facebook, typing the username) so a stolen session alone cannot do it. */
+app.post('/api/account/delete', requireAuth, async (req, res) => {
+  if (rateLimited(`acct-delete:${req.userId}`, 5, 60 * 60_000)) return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+  const uid = req.userId;
+  const user = await getUserById(uid);
+  if (!user) return res.status(404).json({ error: 'Account no longer exists.' });
+  const body = req.body || {};
+  const oauthLinked = await db.get('SELECT 1 AS linked FROM oauth_accounts WHERE user_id = ? LIMIT 1', [uid]);
+  if (oauthLinked) {
+    if (typeof body.confirmUsername !== 'string' || body.confirmUsername.trim().toLowerCase() !== user.username.toLowerCase()) {
+      return res.status(400).json({ error: 'Type your username exactly to confirm.' });
+    }
+  } else if (typeof body.password !== 'string' || !body.password || body.password.length > 1000 || !(await verifyPassword(body.password, user.password_hash))) {
+    return res.status(400).json({ error: 'That password is incorrect.' });
+  }
+
+  const friendIds = (await db.all('SELECT friend_id FROM friendships WHERE user_id = ?', [uid])).map((r) => r.friend_id);
+  // Leaving first hands a room the user hosts to its longest-seated member (or removes it if empty) instead of
+  // letting the account deletion tear a shared room down around everyone else in it.
+  await leaveCurrentRoom(uid);
+  for (const hosted of await db.all('SELECT id FROM rooms WHERE host_user_id = ?', [uid])) {
+    const next = await db.get('SELECT user_id FROM room_members WHERE room_id = ? AND user_id <> ? ORDER BY joined_at ASC LIMIT 1', [hosted.id, uid]);
+    if (next) await db.run('UPDATE rooms SET host_user_id = ? WHERE id = ?', [next.user_id, hosted.id]);
+  }
+  await db.withTransaction(async (tx) => {
+    // Other people's notifications embed a copy of this user's profile (name, avatar, bio) and message previews.
+    await tx.run('DELETE FROM notifications WHERE user_id <> ? AND data LIKE ?', [uid, `%"id":"${uid}"%`]);
+    await tx.run('DELETE FROM users WHERE id = ?', [uid]); // everything else cascades (see db.js)
+  });
+
+  for (const ws of [...(connections.get(uid) || [])]) { try { ws.close(4000, 'account deleted'); } catch { /* already closed */ } }
+  for (const friendId of friendIds) sendToUser(friendId, { type: 'friend-removed', userId: uid });
+  clearSessionCookie(req, res);
+  res.json({ ok: true });
+});
+
+/* ============================== data retention ==============================
+   Short-lived operational records are removed automatically so they don't pile up. Nothing a person wrote
+   (messages, profile, friends, focus history) is ever touched here -- that stays until they delete it or
+   their account. Kept in step with the retention section of legal/privacy.html. */
+async function purgeStaleRecords() {
+  const now = Date.now();
+  const DAY = 24 * 60 * 60_000;
+  try {
+    await db.run('DELETE FROM password_resets WHERE created_at < ?', [now - DAY]);
+    await db.run(`DELETE FROM friend_requests WHERE status <> 'pending' AND COALESCE(responded_at, created_at) < ?`, [now - 30 * DAY]);
+    await db.run(`DELETE FROM room_invites WHERE (status <> 'pending' AND COALESCE(responded_at, created_at) < ?) OR created_at < ?`, [now - 30 * DAY, now - 30 * DAY]);
+    await db.run('DELETE FROM notifications WHERE created_at < ?', [now - 90 * DAY]);
+  } catch (err) {
+    console.error('[retention] purge failed:', err.code || err.message);
+  }
+}
+
 /* ============================== presence ============================== */
 
 app.get('/api/presence/online-count', (req, res) => res.json({ count: onlineUserCount() }));
 
 /* ============================== static frontend ============================== */
 
-const INDEX_HTML_PATH = path.join(__dirname, '..', 'index.html');
+const ROOT_DIR = path.join(__dirname, '..');
+const INDEX_HTML_PATH = path.join(ROOT_DIR, 'index.html');
 
-app.use('/favicon', express.static(path.join(__dirname, '..', 'favicon')));
+app.use('/favicon', express.static(path.join(ROOT_DIR, 'favicon')));
+// Shared page scripts/styles (cookie-consent banner, legal page styling) and the self-hosted font.
+app.use('/assets', express.static(path.join(ROOT_DIR, 'assets'), { maxAge: '5m' }));
 // Guide videos + guides.json (the list the Guides page reads). Static files only, no user data.
 app.use('/guides', express.static(path.join(__dirname, '..', 'guides')));
 app.get('/site.webmanifest', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'site.webmanifest'));
 });
 
-app.get('/', (req, res) => {
-  const nonce = crypto.randomBytes(16).toString('base64');
-  const html = fs.readFileSync(INDEX_HTML_PATH, 'utf8')
-    .replace(/<script>/g, `<script nonce="${nonce}">`);
-  res.set('Content-Security-Policy', [
-    "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' https://www.youtube.com https://challenges.cloudflare.com https://www.googletagmanager.com`,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src https://fonts.gstatic.com",
-    "img-src 'self' data: blob: https:",
-    "media-src 'self' data: blob: https:",
-    "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://challenges.cloudflare.com",
-    "connect-src 'self' https://generativelanguage.googleapis.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com",
-    "frame-ancestors 'none'",
-  ].join('; '));
+/* Serves an HTML file with this request's CSP nonce added to every inline <script>. */
+function sendHtml(res, filePath) {
+  const html = fs.readFileSync(filePath, 'utf8').replace(/<script>/g, `<script nonce="${res.locals.nonce}">`);
+  res.set('Cache-Control', 'no-cache');
   res.type('html').send(html);
+}
+
+app.get('/', (req, res) => sendHtml(res, INDEX_HTML_PATH));
+
+// Legal pages -- a fixed whitelist, never a path taken from the request.
+for (const page of ['privacy', 'terms', 'cookies']) {
+  const file = path.join(ROOT_DIR, 'legal', `${page}.html`);
+  app.get([`/${page}`, `/${page}/`, `/${page}.html`], (req, res) => sendHtml(res, file));
+}
+
+app.get('/.well-known/security.txt', (req, res) => {
+  res.type('text/plain').send(`Contact: mailto:${CONTACT_EMAIL}\nPreferred-Languages: en\nCanonical: ${BASE_URL}/.well-known/security.txt\n`);
 });
 
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
@@ -1306,8 +1649,8 @@ app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
     const message = status === 413 ? 'Request body too large.' : 'Malformed request.';
     return res.status(status).json({ error: message });
   }
-  console.error(err);
-  res.status(500).json({ error: 'Something went wrong.' });
+  console.error('[server] unhandled error:', err && (err.code || err.message) || 'unknown');
+  if (!res.headersSent) res.status(500).json({ error: 'Something went wrong.' });
 });
 
 /* ============================== realtime: presence + push ============================== */
@@ -1316,6 +1659,8 @@ const server = http.createServer(app);
 // Clients only ever send small voice-signaling JSON; cap frames so a socket can't push megabytes at us.
 const wss = new WebSocketServer({ noServer: true, maxPayload: 32 * 1024 });
 
+const MAX_SOCKETS_TOTAL = 10_000;
+const MAX_SOCKETS_PER_USER = 10;
 /** userId -> Set<ws> (a user can have several tabs/devices open at once) */
 const connections = new Map();
 /** every open socket, authenticated or anonymous, for the public online-count broadcast */
@@ -1347,11 +1692,14 @@ function broadcastOnlineCount() { broadcastAll({ type: 'online-count', count: on
 
 server.on('upgrade', (req, socket, head) => {
   if (!req.url.startsWith('/ws')) { socket.destroy(); return; }
+  // Browsers always send Origin on a WebSocket handshake. Refuse any page that isn't this site, so another
+  // website can't open a socket that rides on a visitor's session cookie (cross-site WebSocket hijacking).
   const origin = req.headers.origin;
-  if (allowedOrigins.length && origin && !allowedOrigins.includes(origin)) {
+  if (origin && !originIsOurs(origin, req)) {
     socket.destroy();
     return;
   }
+  req.hasSameSiteOrigin = !!origin; // connections without an Origin (non-browser clients) never get a session
   wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
 
@@ -1379,11 +1727,17 @@ wss.on('connection', async (ws, req) => {
       .catch((err) => console.error('[voice] signaling error:', err.message));
   });
 
-  const url = new URL(req.url, 'http://internal');
-  const token = url.searchParams.get('token');
+  const token = req.hasSameSiteOrigin ? sessionTokenFromRequest(req) : null;
   const payload = token ? verifyToken(token) : null;
   const user = payload ? await getUserById(payload.userId) : null;
   const validSession = !!user && user.token_version === payload.tokenVersion;
+
+  // Connection caps so one person (or a script) can't exhaust the server's memory with sockets.
+  if (allSockets.size >= MAX_SOCKETS_TOTAL || (validSession && (connections.get(user.id) || new Set()).size >= MAX_SOCKETS_PER_USER)) {
+    authResolved();
+    ws.close(1013, 'too many connections');
+    return;
+  }
 
   ws.isAlive = true;
   ws.userId = validSession ? user.id : null;
@@ -1430,6 +1784,8 @@ const heartbeat = setInterval(() => {
 
 initSchema()
   .then(() => {
+    setTimeout(purgeStaleRecords, 60_000).unref();
+    setInterval(purgeStaleRecords, 6 * 60 * 60_000).unref();
     server.listen(PORT, () => {
       console.log(`Pomodoro server listening on http://localhost:${PORT}`);
     });

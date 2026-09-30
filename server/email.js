@@ -11,7 +11,15 @@ const RESEND_API_URL = 'https://api.resend.com/emails';
 async function sendEmail({ to, subject, html, text }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
-    console.log(`[email] RESEND_API_KEY not set -- logging instead of sending.\n  To: ${to}\n  Subject: ${subject}\n  ---\n${text}\n  ---`);
+    // Local development only: print the email so the reset flow can be tried without an email provider.
+    // On a deployed server (HTTPS BASE_URL or NODE_ENV=production) never write addresses or one-time
+    // codes to the logs -- anyone who can read the logs could otherwise take over accounts.
+    const deployed = process.env.NODE_ENV === 'production' || !!process.env.RENDER || /^https:/i.test(process.env.BASE_URL || '');
+    if (deployed) {
+      console.warn('[email] RESEND_API_KEY is not set -- an email was NOT sent (nothing is logged).');
+    } else {
+      console.log(`[email] RESEND_API_KEY not set -- logging instead of sending.\n  To: ${to}\n  Subject: ${subject}\n  ---\n${text}\n  ---`);
+    }
     return { logged: true };
   }
   const from = process.env.EMAIL_FROM;
@@ -22,8 +30,8 @@ async function sendEmail({ to, subject, html, text }) {
     body: JSON.stringify({ from, to, subject, html, text }),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Resend send failed (${res.status}): ${body.slice(0, 300)}`);
+    // The provider's error body can echo the recipient address, so only the status is surfaced (and logged).
+    throw new Error(`Resend send failed (HTTP ${res.status})`);
   }
   return res.json();
 }
