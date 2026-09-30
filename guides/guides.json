@@ -1,0 +1,7 @@
+[
+  { "order": 1, "file": "PomodoroFocus_1_Timer.mp4", "title": "Timer", "description": "Start, pause and customize your focus and break timer." },
+  { "order": 2, "file": "PomodoroFocus_2_Tasks.mp4", "title": "Tasks", "description": "Plan your day and pick the task you want to focus on." },
+  { "order": 3, "file": "PomodoroFocus_3_Progress.mp4", "title": "Progress", "description": "Track your pomodoros, focus time and stats over time." },
+  { "order": 4, "file": "PomodoroFocus_4_Friends.mp4", "title": "Friends", "description": "Add friends, chat and study together in the Study Lounge." },
+  { "order": 5, "file": "PomodoroFocus_5_Settings.mp4", "title": "Settings", "description": "Personalize the timer, sounds, music and appearance." }
+]

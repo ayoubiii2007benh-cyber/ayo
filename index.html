@@ -439,9 +439,10 @@
 
   /* Header stays inside the viewport at every width: first the username text goes (the avatar keeps
      its name as a tooltip), sound/theme/settings fold into a ... menu and the brand word goes;
-     under 900px the tabs move to the bottom bar. Notifications and friends always stay visible. */
+     under 960px the tabs move to the bottom bar. Notifications and friends always stay visible. */
   /* The header row is capped at 1280px, so with the status pill showing there's no room for the name text. */
-  .site-header--room .user-profile__name { display: none; }
+  .site-header--room .user-profile__name, .site-header--room .brand__word { display: none; }
+  .site-header--room .brand { padding: 0 12px; }
   @media (max-width: 1240px) {
     .user-profile__name { display: none; }
   }
@@ -461,13 +462,13 @@
     .header-more.is-open .header-more__menu { display: flex; }
     .header-more__trigger[aria-expanded="true"] { background: var(--track); }
   }
-  @media (max-width: 900px) {
+  @media (max-width: 960px) {
     .primary-nav { display: none; }
     .site-header__row { padding: 16px 16px 8px; gap: 8px; }
     .header-actions { padding: 0 4px 0 4px; gap: 0; }
     .live-users { margin-right: 0; }
   }
-  @media (max-width: 560px), (min-width: 901px) and (max-width: 1060px) {
+  @media (max-width: 560px), (min-width: 961px) and (max-width: 1140px) {
     .lounge-chip__sep, .lounge-chip__text { display: none; }
   }
   @media (max-width: 400px) {
@@ -494,12 +495,13 @@
     font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
     transition: background-color 0.2s ease, color 0.2s ease;
   }
+  @media (max-width: 420px) { .bottom-tab { padding: 8px 8px; min-width: 0; } }
   .bottom-tab[aria-current="page"] { background: var(--glass-active); box-shadow: var(--shadow-active); color: var(--text); }
   .bottom-tab .icon { width: 20px; height: 20px; }
-  @media (max-width: 900px) {
+  @media (max-width: 960px) {
     .bottom-tab-bar { display: flex; }
     main { padding-bottom: 128px; }
-    #view-lounge, #view-reports, #view-leaderboard { padding-bottom: 128px; }
+    #view-lounge, #view-guides, #view-reports, #view-leaderboard { padding-bottom: 128px; }
   }
 
   /* ==================== 8. Timer hero card ==================== */
@@ -823,7 +825,7 @@
   .podium-card--3rd .podium-card__rank { color: var(--focus); }
 
   /* ==================== 14. Study Lounge ==================== */
-  #view-lounge { max-width: 1440px; margin: 0 auto; padding: 4px clamp(20px, 4vw, 32px) 120px; }
+  #view-lounge, #view-guides { max-width: 1440px; margin: 0 auto; padding: 4px clamp(20px, 4vw, 32px) 120px; }
   .lounge-heading { max-width: 1440px; margin: 0 auto var(--space-6); }
   .lounge-heading .field-hint { max-width: 520px; }
   #view-lounge h3 { font-weight: 700; font-size: 17px; color: var(--text); margin: var(--space-5) 0 var(--space-2); }
@@ -1086,7 +1088,34 @@
   .lounge-chat__send:disabled { opacity: 0.5; cursor: not-allowed; }
   .lounge-chat__error { margin: 8px 0 0; }
 
-  dialog#image-lightbox {
+  .guides-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: var(--space-5); }
+  .guide-card {
+    display: flex; flex-direction: column; gap: 12px; padding: 12px 12px 18px; border-radius: var(--r-lg);
+    text-align: left; color: var(--text); font: inherit; cursor: pointer; width: 100%;
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
+  }
+  .guide-card:hover { transform: translateY(-2px); }
+  .guide-card__thumb { position: relative; aspect-ratio: 16 / 9; border-radius: var(--r-md); overflow: hidden; background: var(--track); }
+  .guide-card__thumb video { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+  /* portrait videos (phone-style recordings): a taller thumbnail so the frame isn't cropped to a thin strip */
+  .guide-card__thumb--portrait { aspect-ratio: 4 / 5; }
+  .guide-card__thumb--portrait video { object-position: center 20%; }
+  .guide-card__play {
+    position: absolute; left: 12px; bottom: 12px; width: 40px; height: 40px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; background: var(--acc); color: var(--on-acc);
+    box-shadow: 0 10px 24px color-mix(in srgb, var(--acc) 33%, transparent);
+  }
+  .guide-card__play .icon { width: 16px; height: 16px; margin-left: 2px; }
+  .guide-card__time {
+    position: absolute; right: 10px; bottom: 10px; padding: 3px 10px; border-radius: var(--r-pill);
+    background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .guide-card h3 { margin: 0 6px !important; font-size: 17px; font-weight: 700; }
+  .guide-card p { margin: 0 6px; font-size: 14px; color: var(--dim); line-height: 1.45; }
+  .guide-dialog__title { margin-right: auto; font-size: 17px; font-weight: 700; }
+  #guide-player { display: block; width: auto; max-width: min(92vw, 1000px); max-height: 74vh; margin: 12px 14px 14px; border-radius: var(--r-sm); background: #000; }
+  dialog#guide-dialog::backdrop { background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(8px); }
+  dialog#image-lightbox, dialog#guide-dialog {
     border: 1px solid var(--edge); border-radius: var(--r-lg); padding: 0; overflow: hidden; max-width: calc(100vw - 32px);
     background: var(--glass-pop); backdrop-filter: var(--blur-pop); -webkit-backdrop-filter: var(--blur-pop);
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.35); color: var(--text);
@@ -1438,6 +1467,7 @@
       <button type="button" class="nav-link" id="nav-reports">Reports</button>
       <button type="button" class="nav-link" id="nav-leaderboard">Leaderboard</button>
       <button type="button" class="nav-link" id="nav-lounge">Study Lounge</button>
+      <button type="button" class="nav-link" id="nav-guides">Guides</button>
     </nav>
 
     <div class="header-actions glass">
@@ -1507,6 +1537,10 @@
   <button type="button" class="bottom-tab" id="navbar-lounge">
     <svg class="icon icon--stroke" viewBox="0 0 20 20" aria-hidden="true"><circle cx="7.3" cy="6.6" r="2.5"/><path d="M2.4 16c0-2.9 2.1-4.7 4.9-4.7s4.9 1.8 4.9 4.7"/><circle cx="14.2" cy="7.1" r="1.9"/><path d="M13.4 11.5c2.1.1 3.9 1.8 3.9 4.5"/></svg>
     <span>Study Lounge</span>
+  </button>
+  <button type="button" class="bottom-tab" id="navbar-guides">
+    <svg class="icon icon--stroke" viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="3.5" width="15" height="13" rx="3"/><path d="M8.3 7.4v5.2l4.4-2.6z"/></svg>
+    <span>Guides</span>
   </button>
 </nav>
 
@@ -1740,6 +1774,22 @@
     </div>
   </div>
 </div>
+
+<div id="view-guides" aria-label="Guides" hidden>
+  <div class="lounge-heading">
+    <h2>Guides</h2>
+  </div>
+  <div class="guides-grid" id="guides-grid"></div>
+  <p class="field-hint" id="guides-empty" hidden>No guides yet. Check back soon.</p>
+</div>
+
+<dialog id="guide-dialog" aria-label="Guide video">
+  <div class="image-lightbox__bar">
+    <strong id="guide-dialog-title" class="guide-dialog__title"></strong>
+    <button type="button" class="icon-btn" id="guide-dialog-close" aria-label="Close video"></button>
+  </div>
+  <video id="guide-player" controls playsinline preload="none"></video>
+</dialog>
 
 <dialog id="settings" aria-labelledby="settings-title">
   <form id="settings-form" method="dialog" novalidate>
@@ -4529,6 +4579,7 @@ const Lounge = {
 
   init() {
     Chat.init();
+    Guides.init();
     // A single 1s tick just re-renders (interpolating other members' live countdowns
     // between server snapshots -- see displayRemainingMs); it never mutates state.
     setInterval(() => {
@@ -5624,6 +5675,83 @@ const Chat = {
 };
 Socket.on('room-message', (msg) => Chat.onMessage(msg));
 
+/* ============================== Guides (video tutorials) ==============================
+   The list lives in /guides/guides.json ({ order, file, title, description } per video) so it can be
+   edited without touching this code. Cards only ask for each video's metadata (first frame + duration);
+   the full file is fetched when it is played in the dialog. */
+const Guides = {
+  _loaded: false,
+  _formatDuration(sec) {
+    const s = Math.round(sec);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  },
+  async load() {
+    if (Guides._loaded) return;
+    Guides._loaded = true;
+    let list = [];
+    try {
+      const res = await fetch('/guides/guides.json');
+      if (res.ok) list = await res.json();
+    } catch { /* falls through to the empty state */ }
+    list = (Array.isArray(list) ? list : []).filter((g) => g && typeof g.file === 'string' && typeof g.title === 'string')
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    const grid = document.getElementById('guides-grid');
+    grid.replaceChildren(...list.map(Guides._card));
+    document.getElementById('guides-empty').hidden = list.length > 0;
+  },
+  _card(g) {
+    const url = `/guides/${encodeURIComponent(g.file)}`;
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'glass guide-card';
+    const thumb = document.createElement('div');
+    thumb.className = 'guide-card__thumb';
+    const video = document.createElement('video');
+    video.muted = true; video.playsInline = true; video.preload = 'metadata'; // metadata only: no full download
+    video.src = `${url}#t=0.1`; // shows the first frame as the thumbnail
+    const play = document.createElement('span');
+    play.className = 'guide-card__play';
+    play.innerHTML = '<svg class="icon icon--fill" viewBox="0 0 20 20" aria-hidden="true"><path d="M6.2 4.3v11.4c0 .6.7 1 1.2.7l9-5.7c.5-.3.5-1 0-1.3l-9-5.7c-.5-.3-1.2 0-1.2.6Z"/></svg>';
+    const time = document.createElement('span');
+    time.className = 'guide-card__time';
+    video.addEventListener('loadedmetadata', () => {
+      time.textContent = Guides._formatDuration(video.duration);
+      thumb.classList.toggle('guide-card__thumb--portrait', video.videoHeight > video.videoWidth);
+    });
+    thumb.append(video, play, time);
+    const title = document.createElement('h3');
+    title.textContent = g.title;
+    card.append(thumb, title);
+    if (g.description) { const p = document.createElement('p'); p.textContent = g.description; card.appendChild(p); }
+    card.addEventListener('click', () => Guides.open(g, url));
+    return card;
+  },
+  open(g, url) {
+    const player = document.getElementById('guide-player');
+    document.getElementById('guide-dialog-title').textContent = g.title;
+    player.src = url;
+    document.getElementById('guide-dialog').showModal();
+    player.play().catch(() => {}); // the controls are there if autoplay is blocked
+  },
+  close() {
+    const dialog = document.getElementById('guide-dialog');
+    if (dialog.open) dialog.close();
+  },
+  init() {
+    const dialog = document.getElementById('guide-dialog');
+    const player = document.getElementById('guide-player');
+    LineIcons.set(document.getElementById('guide-dialog-close'), 'close');
+    document.getElementById('guide-dialog-close').addEventListener('click', () => Guides.close());
+    dialog.addEventListener('click', (e) => { if (e.target === dialog) Guides.close(); }); // click outside
+    // Closing (button, Esc or outside) stops playback and drops the file so nothing keeps downloading.
+    dialog.addEventListener('close', () => { player.pause(); player.removeAttribute('src'); player.load(); });
+    // The app's own music would talk over the guide.
+    player.addEventListener('play', () => {
+      if (MusicPlayer._playing) { MusicPlayer.pause(); if (typeof UI.renderMusicUI === 'function') UI.renderMusicUI(); }
+    });
+  },
+};
+
 /* ============================== Confetti (tiny, no library) ============================== */
 const Confetti = {
   COLORS: ['#e0654f', '#2f9e8f', '#5b53a6', '#c98a1f', '#2f9e57'],
@@ -6584,7 +6712,7 @@ const UI = {
 
   selectView(view) {
     state.currentView = view;
-    ['dashboard', 'reports', 'leaderboard', 'lounge'].forEach((v) => {
+    ['dashboard', 'reports', 'leaderboard', 'lounge', 'guides'].forEach((v) => {
       const panel = document.getElementById(`view-${v}`);
       const link = document.getElementById(`nav-${v}`);
       const bottomLink = document.getElementById(`navbar-${v}`);
@@ -6597,6 +6725,7 @@ const UI = {
     if (view === 'reports') UI.renderReports();
     if (view === 'leaderboard') UI.renderLeaderboard();
     if (view === 'lounge') UI.renderLoungeView();
+    if (view === 'guides') Guides.load();
   },
 
   renderReports() {
@@ -7259,7 +7388,7 @@ const UI = {
     Media.applyBackground();
     UI.renderMusicUI();
 
-    ['dashboard', 'reports', 'leaderboard', 'lounge'].forEach((v) => {
+    ['dashboard', 'reports', 'leaderboard', 'lounge', 'guides'].forEach((v) => {
       document.getElementById(`nav-${v}`).addEventListener('click', () => UI.selectView(v));
       const bottomLink = document.getElementById(`navbar-${v}`);
       if (bottomLink) bottomLink.addEventListener('click', () => UI.selectView(v));

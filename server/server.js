@@ -1271,6 +1271,8 @@ app.get('/api/presence/online-count', (req, res) => res.json({ count: onlineUser
 const INDEX_HTML_PATH = path.join(__dirname, '..', 'index.html');
 
 app.use('/favicon', express.static(path.join(__dirname, '..', 'favicon')));
+// Guide videos + guides.json (the list the Guides page reads). Static files only, no user data.
+app.use('/guides', express.static(path.join(__dirname, '..', 'guides')));
 app.get('/site.webmanifest', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'site.webmanifest'));
 });
