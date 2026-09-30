@@ -1310,10 +1310,10 @@
   }
   #settings-form fieldset label:has(input[type="checkbox"]) input::after {
     content: ''; position: absolute; top: 3px; left: 3px; width: 26px; height: 26px; border-radius: 13px;
-    background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2); transition: left 0.25s ease;
+    background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2); transition: transform 0.25s ease;
   }
   #settings-form fieldset label:has(input[type="checkbox"]:checked) input { background: var(--short); }
-  #settings-form fieldset label:has(input[type="checkbox"]:checked) input::after { left: 23px; }
+  #settings-form fieldset label:has(input[type="checkbox"]:checked) input::after { transform: translateX(20px); }
   #settings-form input[type="number"], #settings-form input[type="url"], #settings-form input[type="text"], #settings-form select {
     display: block; width: 100%; margin-top: 6px; padding: 10px 14px; border-radius: 14px;
     border: none; background: var(--glass-hi); color: var(--text); font-weight: 400; min-height: 42px;
@@ -1416,7 +1416,9 @@
   /* ==================== 20. Confetti & motion ==================== */
   .confetti-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 999; overflow: hidden; }
   .confetti-piece { position: absolute; top: -10px; width: 8px; height: 14px; opacity: 0.9; animation: confetti-fall 1.4s ease-in forwards; }
-  @keyframes confetti-fall { to { top: 105%; opacity: 0; } }
+  /* Falls 105% of the viewport (the overlay is fixed/full-screen) with the individual `translate` property, not `top`,
+     so it stays off the layout path. `translate` (unlike `transform`) leaves each piece's inline rotate() intact. */
+  @keyframes confetti-fall { to { translate: 0 calc(105vh + 10px); opacity: 0; } }
 
   @keyframes card-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   #view-dashboard > #stats-dashboard,
@@ -2770,35 +2772,56 @@ const Timer = {
 
   RING_CIRCUMFERENCE: 2 * Math.PI * 192,
 
+  /* Runs 4x a second while the timer runs, so every write is skipped when it would change nothing: an
+     identical textContent still replaces the text node (and an attribute/title rewrite still notifies the
+     browser), which used to re-run style and layout four times a second for no visible difference. */
+  _setText(el, text) { if (el && el.textContent !== text) el.textContent = text; },
+
   updateTimerDisplay() {
-    const el = document.getElementById('timer-display');
-    if (el) el.textContent = Timer.formatTime(state.timer.remainingMs);
+    Timer._setText(document.getElementById('timer-display'), Timer.formatTime(state.timer.remainingMs));
     ['pomodoro', 'shortBreak', 'longBreak'].forEach((m) => {
       const tab = document.getElementById(`mode-tab-${m}`);
       if (!tab) return;
       const active = m === state.timer.mode;
-      tab.setAttribute('aria-selected', String(active));
-      tab.tabIndex = active ? 0 : -1;
+      if (tab.getAttribute('aria-selected') !== String(active)) tab.setAttribute('aria-selected', String(active));
+      const tabIndex = active ? 0 : -1;
+      if (tab.tabIndex !== tabIndex) tab.tabIndex = tabIndex;
     });
     const modeLabel = Timer.MODE_LABELS[state.timer.mode].replace('!', '');
-    const modeNameEl = document.getElementById('timer-mode-name');
-    if (modeNameEl) modeNameEl.textContent = modeLabel;
+    Timer._setText(document.getElementById('timer-mode-name'), modeLabel);
 
     const ring = document.getElementById('timer-ring-fill');
     if (ring) {
       const total = Timer.durationMs(state.timer.mode);
       const elapsed = total > 0 ? Math.min(1, Math.max(0, 1 - state.timer.remainingMs / total)) : 0;
-      ring.style.strokeDasharray = String(Timer.RING_CIRCUMFERENCE);
-      ring.style.strokeDashoffset = String(Timer.RING_CIRCUMFERENCE * (1 - elapsed));
+      const dash = String(Timer.RING_CIRCUMFERENCE);
+      const offsetPx = Timer.RING_CIRCUMFERENCE * (1 - elapsed);
+      const offset = String(offsetPx);
+      if (Timer._ringDash !== dash) { ring.style.strokeDasharray = dash; Timer._ringDash = dash; }
+      if (Timer._ringOffset !== offset) {
+        /* The ring has a 1s CSS transition so that big moves (reset, mode switch, skip, a finished session) sweep
+           smoothly. But a running timer nudges the ring by well under a pixel every 250ms, and letting each of
+           those restart a 1s transition kept the page repainting at 60fps the whole time a timer ran (the
+           ring isn't compositor-animated, so every frame re-rastered it and re-blurred the glass panels).
+           So: a big jump keeps the transition for the next second; small routine steps apply instantly. The
+           colour transition (mode change) is kept either way. */
+        const now = performance.now();
+        if (Timer._ringOffsetPx === undefined || Math.abs(offsetPx - Timer._ringOffsetPx) > 2) Timer._ringSweepUntil = now + 1000;
+        const transition = now >= (Timer._ringSweepUntil || 0) ? 'stroke 0.4s ease' : '';
+        if (Timer._ringTransition !== transition) { ring.style.transition = transition; Timer._ringTransition = transition; }
+        ring.style.strokeDashoffset = offset;
+        Timer._ringOffset = offset;
+        Timer._ringOffsetPx = offsetPx;
+      }
     }
 
     const endsAtEl = document.getElementById('timer-ends-at');
     if (endsAtEl) {
       if (state.timer.running) {
         const end = new Date(Date.now() + state.timer.remainingMs);
-        endsAtEl.textContent = `Ends at ${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`;
+        Timer._setText(endsAtEl, `Ends at ${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`);
       } else {
-        endsAtEl.textContent = '';
+        Timer._setText(endsAtEl, '');
       }
     }
 
@@ -2806,18 +2829,22 @@ const Timer = {
     const sessionLabel = document.getElementById('session-label');
     if (dotsEl) {
       const posInCycle = state.timer.cyclesCompleted % 4;
-      dotsEl.replaceChildren();
-      for (let i = 0; i < 4; i++) {
-        const dot = document.createElement('span');
-        dot.className = 'session-dot' + (i < posInCycle ? ' session-dot--done' : '');
-        dotsEl.appendChild(dot);
+      if (Timer._dotsPos !== posInCycle || dotsEl.childElementCount !== 4) {
+        dotsEl.replaceChildren();
+        for (let i = 0; i < 4; i++) {
+          const dot = document.createElement('span');
+          dot.className = 'session-dot' + (i < posInCycle ? ' session-dot--done' : '');
+          dotsEl.appendChild(dot);
+        }
+        Timer._dotsPos = posInCycle;
       }
-      if (sessionLabel) sessionLabel.textContent = `Session ${posInCycle + 1} · long break after 4`;
+      Timer._setText(sessionLabel, `Session ${posInCycle + 1} · long break after 4`);
     }
 
-    document.title = state.timer.running
+    const title = state.timer.running
       ? `${Timer.formatTime(state.timer.remainingMs)} · ${modeLabel} — Pomodoro`
       : 'Pomodoro App';
+    if (document.title !== title) document.title = title;
   },
 };
 
@@ -2967,8 +2994,8 @@ const Planner = {
     UI.renderTasks();
     UI.renderStatsDashboard();
     UI.renderMissions();
-    UI.renderReports();
-    UI.renderLeaderboard();
+    if (state.currentView === 'reports') UI.renderReports();
+    if (state.currentView === 'leaderboard') UI.renderLeaderboard();
   },
 };
 
@@ -6785,8 +6812,10 @@ const UI = {
     chip.hidden = false;
     const activeCount = room.members.filter((m) => m.status !== 'idle').length;
     const text = `Group: ${room.code} · ${activeCount} active`;
-    document.getElementById('lounge-chip-text').textContent = text;
-    chip.title = `${document.getElementById('live-users-count').textContent} online · ${text}`;
+    const textEl = document.getElementById('lounge-chip-text');
+    if (textEl.textContent !== text) textEl.textContent = text;
+    const title = `${document.getElementById('live-users-count').textContent} online · ${text}`;
+    if (chip.title !== title) chip.title = title;
   },
 
   renderLoungeView() {
@@ -7473,9 +7502,13 @@ const UI = {
     const { currentSec, durationSec } = MusicPlayer.getProgress();
     const bar = document.getElementById('music-progress');
     const time = document.getElementById('music-time');
-    if (durationSec > 0) bar.value = Math.round((currentSec / durationSec) * 1000);
+    if (durationSec > 0) {
+      const pos = String(Math.round((currentSec / durationSec) * 1000));
+      if (bar.value !== pos) bar.value = pos;
+    }
     const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-    time.textContent = `${fmt(currentSec)} / ${fmt(durationSec)}`;
+    const label = `${fmt(currentSec)} / ${fmt(durationSec)}`;
+    if (time.textContent !== label) time.textContent = label; // changes once a second, not 60 times
     if (MusicPlayer.isPlaying()) UI._musicRAF = requestAnimationFrame(UI._musicProgressTick);
     else UI._musicRAF = null;
   },
@@ -7533,8 +7566,7 @@ const UI = {
     UI.renderProfile();
     UI.renderDarkModeToggle();
     UI.renderMuteToggle();
-    UI.renderReports();
-    UI.renderLeaderboard();
+    // (Reports and Leaderboard are rendered when their view is opened -- see selectView.)
     Timer.updateTimerDisplay();
     UI.renderTimerControls();
     Media.applyBackground();
