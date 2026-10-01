@@ -70,8 +70,8 @@ async function main() {
   console.log('1. security headers + CSP');
   const home = await fetch(BASE + '/');
   const csp = home.headers.get('content-security-policy') || '';
-  assert(/script-src 'self' 'nonce-[A-Za-z0-9+/=]+'/.test(csp), 'CSP carries a per-request nonce');
-  assert(!/script-src[^;]*unsafe-inline/.test(csp), "script-src never allows 'unsafe-inline'");
+  assert(/script-src 'self' https:/.test(csp), 'script-src is self + a short allow-list');
+  assert(!/script-src[^;]*unsafe-inline/.test(csp) && !/script-src[^;]*nonce-/.test(csp), "script-src needs neither 'unsafe-inline' nor a nonce");
   assert(/frame-ancestors 'none'/.test(csp) && /object-src 'none'/.test(csp) && /base-uri 'self'/.test(csp), 'frame-ancestors/object-src/base-uri locked down');
   assert(!/fonts\.googleapis/.test(csp), 'no Google Fonts host allowed (font is self-hosted)');
   assert(/googletagmanager\.com/.test(csp) && /google-analytics\.com/.test(csp), 'Google Analytics hosts allowed');
@@ -80,14 +80,37 @@ async function main() {
   assert(/camera=\(self\)/.test(home.headers.get('permissions-policy') || '') && /geolocation=\(\)/.test(home.headers.get('permissions-policy') || ''), 'Permissions-Policy set');
   assert(home.headers.get('referrer-policy') === 'no-referrer', 'Referrer-Policy set');
   const html = await home.text();
-  const bareScripts = (html.match(/<script>/g) || []).length;
-  assert(bareScripts === 0, 'every inline <script> got the nonce');
+  const inlineScripts = (html.match(/<script(?![^>]*\ssrc=)[^>]*>/g) || []).length;
+  assert(inlineScripts === 0, 'the page contains no inline <script> at all');
+  assert(/\/assets\/app\.js\?v=[0-9a-f]{10}/.test(html) && /\/assets\/app\.css\?v=[0-9a-f]{10}/.test(html), 'asset URLs carry a content hash');
   const cfg = await fetch(BASE + '/api/config');
   assert(cfg.headers.get('cache-control') === 'no-store', 'API responses are not cacheable');
   for (const page of ['privacy', 'terms', 'cookies']) {
     const r = await fetch(`${BASE}/${page}`);
     assert(r.status === 200 && (r.headers.get('content-type') || '').includes('html'), `/${page} is served`);
   }
+  console.log('1b. performance: versioned immutable assets, compression, revalidation');
+  const appJsUrl = html.match(/\/assets\/app\.js\?v=[0-9a-f]{10}/)[0];
+  const js = await fetch(BASE + appJsUrl, { headers: { 'Accept-Encoding': 'br' } });
+  assert(js.status === 200 && js.headers.get('content-encoding') === 'br', 'app.js is served brotli-compressed');
+  assert(/immutable/.test(js.headers.get('cache-control') || '') && /max-age=31536000/.test(js.headers.get('cache-control') || ''), 'app.js with its current hash is cached for a year, immutable');
+  assert(/Accept-Encoding/i.test(js.headers.get('vary') || ''), 'Vary: Accept-Encoding set');
+  const jsGz = await fetch(BASE + appJsUrl, { headers: { 'Accept-Encoding': 'gzip' } });
+  assert(jsGz.headers.get('content-encoding') === 'gzip', 'gzip for clients without brotli');
+  const jsPlain = await fetch(BASE + appJsUrl, { headers: { 'Accept-Encoding': 'identity' } });
+  assert(!jsPlain.headers.get('content-encoding') && (await jsPlain.text()).includes('UI.init'), 'plain for clients that accept no encoding');
+  const etag = js.headers.get('etag');
+  // (Node's fetch adds "Cache-Control: no-cache" to conditional requests, which legitimately defeats a 304, so use raw http.)
+  const rawStatus = (p, headers) => new Promise((resolve, reject) => { require('node:http').get(BASE + p, { headers }, (r) => { r.resume(); resolve(r.statusCode); }).on('error', reject); });
+  assert(etag && (await rawStatus(appJsUrl, { 'Accept-Encoding': 'br', 'If-None-Match': etag })) === 304, 'conditional request gets 304');
+  const stale = await fetch(BASE + '/assets/app.js?v=0000000000');
+  assert(!/immutable/.test(stale.headers.get('cache-control') || ''), 'a stale/forged hash is never cached as immutable');
+  const font = await fetch(BASE + '/assets/fonts/figtree-latin.woff2');
+  assert(/immutable/.test(font.headers.get('cache-control') || ''), 'font files are cached immutably');
+  const pageCc = home.headers.get('cache-control') || '';
+  assert(/no-cache/.test(pageCc), 'HTML is always revalidated');
+  assert((await fetch(BASE + '/', { headers: { 'Accept-Encoding': 'br' } })).headers.get('content-encoding') === 'br', 'HTML is served brotli-compressed');
+  assert((await fetch(BASE + '/assets/../server/.env')).status === 404 && (await fetch(BASE + '/assets/%2e%2e/index.html')).status === 404, 'asset handler cannot be used to read other files');
   assert((await fetch(BASE + '/assets/consent.js')).status === 200, '/assets/consent.js is served');
   assert((await fetch(BASE + '/assets/fonts/figtree-latin.woff2')).status === 200, 'self-hosted font is served');
 

@@ -1,7 +1,6 @@
 'use strict';
 
 const path = require('node:path');
-const fs = require('node:fs');
 const http = require('node:http');
 const crypto = require('node:crypto');
 const express = require('express');
@@ -16,6 +15,7 @@ const {
   parseCookies, sessionTokenFromRequest, setSessionCookie, clearSessionCookie, csrfTokenFor, isSecureRequest,
 } = require('./auth');
 const OAuth = require('./oauth');
+const Assets = require('./assets');
 const Email = require('./email');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -68,7 +68,7 @@ app.use((req, res, next) => {
 });
 
 app.use(helmet({
-  contentSecurityPolicy: false, // set per request below (it needs a fresh nonce)
+  contentSecurityPolicy: false, // set below (it depends on whether the request arrived over HTTPS)
   frameguard: { action: 'deny' }, // matches frame-ancestors 'none'
   hsts: { maxAge: 31536000, includeSubDomains: true },
   referrerPolicy: { policy: 'no-referrer' },
@@ -80,12 +80,13 @@ app.use((req, res, next) => {
   next();
 });
 
-/* Content-Security-Policy with a fresh nonce per request: only scripts carrying that nonce (plus the
-   few listed hosts) may run, which is what stops injected markup from executing. Applied to every response. */
-function buildCsp(nonce, secure) {
+/* Content-Security-Policy: no page has an inline <script> any more (the app's JavaScript is a separate,
+   cacheable file), so script-src needs no nonce and no 'unsafe-inline' -- only our own files plus the few
+   listed hosts may run script, which is what stops injected markup from executing. Applied to every response. */
+function buildCsp(secure) {
   const directives = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' https://www.youtube.com https://challenges.cloudflare.com https://www.googletagmanager.com`,
+    "script-src 'self' https://www.youtube.com https://challenges.cloudflare.com https://www.googletagmanager.com",
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
     "img-src 'self' data: blob: https:",
@@ -102,8 +103,7 @@ function buildCsp(nonce, secure) {
   return directives.join('; ');
 }
 app.use((req, res, next) => {
-  res.locals.nonce = crypto.randomBytes(16).toString('base64');
-  res.set('Content-Security-Policy', buildCsp(res.locals.nonce, isSecureRequest(req)));
+  res.set('Content-Security-Policy', buildCsp(isSecureRequest(req)));
   next();
 });
 
@@ -1610,28 +1610,23 @@ app.get('/api/presence/online-count', (req, res) => res.json({ count: onlineUser
 const ROOT_DIR = path.join(__dirname, '..');
 const INDEX_HTML_PATH = path.join(ROOT_DIR, 'index.html');
 
-app.use('/favicon', express.static(path.join(ROOT_DIR, 'favicon')));
-// Shared page scripts/styles (cookie-consent banner, legal page styling) and the self-hosted font.
-app.use('/assets', express.static(path.join(ROOT_DIR, 'assets'), { maxAge: '5m' }));
+app.use('/favicon', express.static(path.join(ROOT_DIR, 'favicon'), { maxAge: '1d' }));
+// The app's own CSS/JS/JSON: brotli/gzip, content-hashed URLs, long-lived caching (see assets.js) ...
+app.use('/assets', Assets.textAssets(path.join(ROOT_DIR, 'assets')));
+// ... and the binary font files, which never change under the same name.
+app.use('/assets/fonts', express.static(path.join(ROOT_DIR, 'assets', 'fonts'), { maxAge: '365d', immutable: true }));
 // Guide videos + guides.json (the list the Guides page reads). Static files only, no user data.
-app.use('/guides', express.static(path.join(__dirname, '..', 'guides')));
+app.use('/guides', express.static(path.join(__dirname, '..', 'guides'), { maxAge: '1d' }));
 app.get('/site.webmanifest', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'site.webmanifest'));
+  res.sendFile(path.join(__dirname, '..', 'site.webmanifest'), { maxAge: '1d' });
 });
 
-/* Serves an HTML file with this request's CSP nonce added to every inline <script>. */
-function sendHtml(res, filePath) {
-  const html = fs.readFileSync(filePath, 'utf8').replace(/<script>/g, `<script nonce="${res.locals.nonce}">`);
-  res.set('Cache-Control', 'no-cache');
-  res.type('html').send(html);
-}
-
-app.get('/', (req, res) => sendHtml(res, INDEX_HTML_PATH));
+app.get('/', (req, res) => Assets.sendPage(req, res, INDEX_HTML_PATH, ROOT_DIR));
 
 // Legal pages -- a fixed whitelist, never a path taken from the request.
 for (const page of ['privacy', 'terms', 'cookies']) {
   const file = path.join(ROOT_DIR, 'legal', `${page}.html`);
-  app.get([`/${page}`, `/${page}/`, `/${page}.html`], (req, res) => sendHtml(res, file));
+  app.get([`/${page}`, `/${page}/`, `/${page}.html`], (req, res) => Assets.sendPage(req, res, file, ROOT_DIR));
 }
 
 app.get('/.well-known/security.txt', (req, res) => {
