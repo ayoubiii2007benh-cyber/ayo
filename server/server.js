@@ -1779,6 +1779,7 @@ const heartbeat = setInterval(() => {
 
 initSchema()
   .then(() => {
+    Assets.preheat(ROOT_DIR, [INDEX_HTML_PATH, ...['privacy', 'terms', 'cookies'].map((p) => path.join(ROOT_DIR, 'legal', `${p}.html`))]);
     setTimeout(purgeStaleRecords, 60_000).unref();
     setInterval(purgeStaleRecords, 6 * 60 * 60_000).unref();
     server.listen(PORT, () => {

@@ -12,6 +12,38 @@ const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
+const vm = require('node:vm');
+
+/* Minification of the app's own CSS and JS (comments and whitespace removed, names shortened inside functions),
+   done once in memory when a file is first served. Pure optimisation: if a minifier isn't installed, throws, or
+   produces something that fails a sanity check, the original file is served instead. NO_MINIFY=1 turns it off
+   (handy when debugging in the browser). */
+let terser = null;
+let csso = null;
+if (process.env.NO_MINIFY !== '1') {
+  try { terser = require('terser'); } catch { /* optional */ }
+  try { csso = require('csso'); } catch { /* optional */ }
+}
+function minify(body, ext) {
+  try {
+    const source = body.toString('utf8');
+    if (ext === '.js' && terser) {
+      const out = terser.minify_sync(source, { compress: { passes: 1 }, mangle: true, format: { comments: false }, ecma: 2022 });
+      if (!out.code) return body;
+      new vm.Script(out.code); // must still parse
+      return Buffer.from(out.code, 'utf8');
+    }
+    if (ext === '.css' && csso) {
+      // restructure:false keeps every rule and declaration in its original order (no merging), so the cascade is untouched.
+      const out = csso.minify(source, { restructure: false, comments: false }).css;
+      const opens = (out.match(/{/g) || []).length;
+      const closes = (out.match(/}/g) || []).length;
+      if (!out || opens !== closes || opens === 0) return body;
+      return Buffer.from(out, 'utf8');
+    }
+  } catch { /* fall back to the original */ }
+  return body;
+}
 
 const TEXT_TYPES = {
   '.css': 'text/css; charset=utf-8',
@@ -26,7 +58,8 @@ const YEAR = 'public, max-age=31536000, immutable';
 /** abs path -> { mtimeMs, size, entry } (re-read automatically if the file changes on disk) */
 const files = new Map();
 
-function makeEntry(body) {
+function makeEntry(body, ext) {
+  if (ext === '.js' || ext === '.css') body = minify(body, ext);
   const entry = { body, version: crypto.createHash('sha256').update(body).digest('hex').slice(0, 10) };
   if (body.length >= MIN_COMPRESS_BYTES) {
     try {
@@ -44,7 +77,7 @@ function loadFile(abs) {
   if (!stat.isFile()) return null;
   const cached = files.get(abs);
   if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.entry;
-  const entry = makeEntry(fs.readFileSync(abs));
+  const entry = makeEntry(fs.readFileSync(abs), path.extname(abs).toLowerCase());
   files.set(abs, { mtimeMs: stat.mtimeMs, size: stat.size, entry });
   return entry;
 }
@@ -63,6 +96,9 @@ function sendEntry(req, res, entry, contentType, cacheControl) {
 /** Adds ?v=<content hash> to every /assets/... URL an HTML page references. */
 function withVersionedAssets(html, rootDir) {
   return html.replace(/\b(href|src)="(\/assets\/[^"?#]+)"/g, (match, attr, url) => {
+    // Fonts keep their plain URL: the stylesheet refers to them without a hash, and a preload must use the same
+    // URL or the browser downloads the font twice. (They are cached immutably by path; rename one if it changes.)
+    if (url.startsWith('/assets/fonts/')) return match;
     const entry = loadFile(path.join(rootDir, url));
     return entry ? `${attr}="${url}?v=${entry.version}"` : match;
   });
@@ -111,4 +147,20 @@ function textAssets(dir) {
   };
 }
 
-module.exports = { loadFile, sendPage, textAssets, YEAR };
+/** Builds (minifies + compresses) every asset and page once, in the background after startup, so the first
+    visitor after a deploy doesn't pay for it. One file per timer tick so the event loop is never blocked for long. */
+function preheat(rootDir, pages) {
+  const targets = [...pages];
+  try {
+    for (const name of fs.readdirSync(path.join(rootDir, 'assets'))) {
+      if (TEXT_TYPES[path.extname(name).toLowerCase()]) targets.push(path.join(rootDir, 'assets', name));
+    }
+  } catch { /* nothing to warm */ }
+  targets.forEach((abs, i) => {
+    setTimeout(() => {
+      try { if (pages.includes(abs)) renderPage(abs, rootDir); else loadFile(abs); } catch { /* served lazily instead */ }
+    }, 200 + i * 50).unref();
+  });
+}
+
+module.exports = { loadFile, sendPage, textAssets, preheat, YEAR };

@@ -15,10 +15,14 @@
 <meta name="theme-color" content="#F15A3A">
 <link rel="manifest" href="/site.webmanifest">
 <link rel="preload" href="/assets/fonts/figtree-latin.woff2" as="font" type="font/woff2" crossorigin>
+<!-- boot.js: tiny and synchronous -- applies the saved colour theme before the first paint (no light flash for dark themes) -->
+<script src="/assets/boot.js"></script>
 <link rel="stylesheet" href="/assets/consent.css">
 <link rel="stylesheet" href="/assets/app.css">
 <script src="/assets/consent.js" defer></script>
-<script src="/assets/app.js" defer></script>
+<!-- app.js: cacheable and deferred. blocking="render" (Chrome/Edge) keeps the first paint waiting for it, as the old
+     inline script did, so nobody sees the page before it is filled in; other browsers ignore the attribute. -->
+<script src="/assets/app.js" defer blocking="render"></script>
 </head>
 <body>
 
