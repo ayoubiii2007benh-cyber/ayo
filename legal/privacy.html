@@ -17,6 +17,9 @@
 <script src="/assets/consent.js" defer></script>
 </head>
 <body>
+<!-- Cloudflare "Email Address Obfuscation" would replace the contact address with a script-decoded placeholder
+     (unreadable without JavaScript) and add a render-blocking script; this tells it to leave this page alone. -->
+<!--email_off-->
 <div class="bg-blobs" aria-hidden="true"><div class="bg-blob bg-blob--0"></div><div class="bg-blob bg-blob--1"></div><div class="bg-blob bg-blob--2"></div></div>
 
 <header class="legal-header">
@@ -213,5 +216,6 @@
   <button type="button" data-cookie-settings>Cookie settings</button>
   <a href="mailto:help.pomodorofocus@gmail.com">Contact</a>
 </footer>
+<!--/email_off-->
 </body>
 </html>
