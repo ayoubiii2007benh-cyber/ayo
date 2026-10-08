@@ -2414,7 +2414,7 @@ const Lounge = {
     // A single 1s tick just re-renders (interpolating other members' live countdowns
     // between server snapshots -- see displayRemainingMs); it never mutates state.
     setInterval(() => {
-      if (typeof UI === 'undefined') return;
+      if (typeof UI === 'undefined' || document.hidden) return; // nothing to repaint in a background tab
       UI.renderLoungeChip();
       if (state.currentView === 'lounge' && state.lounge.room) UI.renderLoungeRoom();
     }, 1000);

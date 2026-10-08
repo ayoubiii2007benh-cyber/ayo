@@ -1453,3 +1453,30 @@
   .btn-danger-solid { background: var(--danger, #c0392b); color: #fff; border: none; }
   .btn-danger-solid:hover { background: var(--danger, #c0392b); filter: brightness(1.08); }
   @media (max-width: 960px) { .site-footer { padding-bottom: 120px; } }
+
+  /* ==================== Phone / touch performance ====================
+     Everything below applies only on small or touch-only screens; the desktop look is untouched.
+     What hurts phones is the GPU work behind the glass: every .glass panel re-blurs whatever is behind it
+     (backdrop-filter) whenever that changes -- and four huge blurred blobs drifted behind them all the time,
+     so the whole stack was re-blurred on every frame. So here: no drifting, cheap radial gradients instead of
+     90-100px filter blurs, a smaller backdrop blur, lighter shadows. */
+  @media (max-width: 768px), (hover: none) and (pointer: coarse) {
+    :root {
+      --blur: blur(14px) saturate(160%);
+      --blur-pop: blur(18px) saturate(170%);
+      --shadow: 0 6px 18px rgba(90, 35, 15, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    }
+    .bg-blob { filter: none !important; animation: none !important; will-change: auto; transition: none; }
+    .bg-blob--0 { background: radial-gradient(closest-side, var(--blob-0), color-mix(in srgb, var(--blob-0) 35%, transparent) 45%, transparent); transform: scale(2); }
+    .bg-blob--1 { background: radial-gradient(closest-side, var(--blob-1), color-mix(in srgb, var(--blob-1) 35%, transparent) 45%, transparent); transform: scale(2); }
+    .bg-blob--2 { background: radial-gradient(closest-side, var(--blob-2), color-mix(in srgb, var(--blob-2) 35%, transparent) 45%, transparent); transform: scale(2); }
+    .bg-blob--3 { background: radial-gradient(closest-side, var(--blob-3), color-mix(in srgb, var(--blob-3) 35%, transparent) 45%, transparent); transform: scale(2); }
+    html[data-theme-preset="deepmesh"] #background-layer { animation: none; }
+    .glass-pop { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22); }
+    /* the dialog panel is already glass; a second blur on the dimmed page behind it is wasted work */
+    dialog::backdrop, .friends-drawer-backdrop { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+    html { -webkit-text-size-adjust: 100%; }
+  }
+  /* No 300ms tap delay / double-tap-zoom wait on anything tappable; no grey tap flash. Safe on desktop too. */
+  a, button, input, select, textarea, label, summary, [role="button"], .nav-link, .icon-btn, .btn { touch-action: manipulation; }
+  html { -webkit-tap-highlight-color: transparent; }
