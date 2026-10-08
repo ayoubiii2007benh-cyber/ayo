@@ -286,31 +286,45 @@ const SoundFX = {
       });
     } catch { /* best-effort notification sound */ }
   },
-  /** A quick, bright two-note "ding" for incoming notifications -- distinct from the
-      timer-completion sound above, and gated on the same music mute/volume controls
-      since this app has no separate sound-effects volume setting. */
-  playNotificationChime() {
-    if (state.musicSettings.muted) return;
-    const peak = 0.15 * (typeof state.musicSettings.volume === 'number' ? state.musicSettings.volume : 1);
-    if (peak <= 0) return;
+  /** Plays a short sequence of sine notes: [frequency Hz, offset s, length s] at the given peak gain. */
+  _notes(notes, peak) {
     const ctx = SoundFX._unlock();
     if (!ctx) return;
     try {
       const now = ctx.currentTime;
-      [1046.5, 1567.98].forEach((freq, i) => { // C6 then G6
+      notes.forEach(([freq, offset, len]) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'sine';
         osc.frequency.value = freq;
-        const start = now + i * 0.09;
+        const start = now + offset;
         gain.gain.setValueAtTime(0.0001, start);
         gain.gain.linearRampToValueAtTime(peak, start + 0.015);
-        gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.22);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + len);
         osc.connect(gain).connect(ctx.destination);
         osc.start(start);
-        osc.stop(start + 0.25);
+        osc.stop(start + len + 0.03);
       });
     } catch { /* best-effort notification sound */ }
+  },
+  /** One distinct sound per kind of notification, so you can tell what happened without looking.
+      Gated on the same music mute/volume controls since this app has no separate sound-effects volume. */
+  CHIMES: {
+    message:        [[1318.51, 0, 0.18], [1318.51, 0.16, 0.22]],                         // E6 E6: soft double tap
+    friend_request: [[880, 0, 0.2], [1108.73, 0.12, 0.2], [1318.51, 0.24, 0.3]],          // A5 C#6 E6: rising
+    friend_accept:  [[1046.5, 0, 0.2], [1318.51, 0.12, 0.2], [1567.98, 0.24, 0.2], [2093, 0.36, 0.4]], // bright arpeggio
+    lounge_invite:  [[659.25, 0, 0.3], [987.77, 0.2, 0.5]],                               // E5 B5: open fifth, longer
+    mission:        [[784, 0, 0.18], [1046.5, 0.14, 0.18], [1318.51, 0.28, 0.18], [1567.98, 0.42, 0.45]], // victory run
+    break_end:      [[698.46, 0, 0.3], [523.25, 0.25, 0.45]],                             // falling: back to work
+    default:        [[1046.5, 0, 0.22], [1567.98, 0.09, 0.22]],                           // C6 G6 (the original ding)
+  },
+  playNotificationChime(type) {
+    // Timer/mission sounds are alarms, like the completion sound: they ignore the music mute and volume.
+    if (type === 'break_end' || type === 'mission') return SoundFX._notes(SoundFX.CHIMES[type], 0.2);
+    if (state.musicSettings.muted) return;
+    const peak = 0.15 * (typeof state.musicSettings.volume === 'number' ? state.musicSettings.volume : 1);
+    if (peak <= 0) return;
+    SoundFX._notes(SoundFX.CHIMES[type] || SoundFX.CHIMES.default, peak);
   },
 };
 
@@ -403,7 +417,7 @@ const Timer = {
     state.timer.endAt = null;
     state.timer.remainingMs = 0;
     Timer.updateTimerDisplay();
-    SoundFX.playCompletionSound();
+    if (state.timer.mode === 'pomodoro') SoundFX.playCompletionSound(); else SoundFX.playNotificationChime('break_end');
     if (state.timer.mode === 'pomodoro') {
       state.timer._sprintDone = Lounge.isLastSprintPomodoro(); // read before check-in changes the room
       Planner.onPomodoroCompleted();
@@ -1234,7 +1248,7 @@ Socket.on('notification', ({ notification }) => {
   Notifications.items.unshift(notification);
   Notifications.unreadCount++;
   if (typeof UI !== 'undefined') UI.renderNotifications();
-  if (typeof SoundFX !== 'undefined') SoundFX.playNotificationChime();
+  if (typeof SoundFX !== 'undefined') SoundFX.playNotificationChime(notification && notification.type);
 });
 Socket.on('message', ({ message }) => {
   if (state.activeChatFriendId !== message.senderId) Notifications.refreshAll();
@@ -2615,7 +2629,7 @@ const Lounge = {
     state.stats.disciplineXP += 50;
     Storage.saveStats(state.stats);
     if (typeof UI !== 'undefined') { UI.renderMissions(); UI.renderStatsDashboard(); }
-    if (typeof SoundFX !== 'undefined') SoundFX.playCompletionSound();
+    if (typeof SoundFX !== 'undefined') SoundFX.playNotificationChime('mission');
     if (typeof Confetti !== 'undefined') Confetti.burst();
   },
 };
