@@ -10,7 +10,7 @@
 (function () {
   'use strict';
   var DEFAULTS = { bg: '#fdfbf8', surface: '#ffffff', text: '#14100c', textMuted: '#6b625c', border: '#14100c', primary: '#ff5533', accentPomodoro: '#ff5533', accentShortBreak: '#0eb8a0', accentLongBreak: '#7c3aed', success: '#2f9e57', warning: '#c98a1f', danger: '#c0392b' };
-  var PRESETS = ['default', 'midnight', 'ocean', 'forest', 'sunset', 'lavender', 'minimal', 'cyberpunk', 'warm', 'monochrome', 'apex', 'lofi', 'coastal', 'terminal', 'deepmesh', 'custom'];
+  var PRESETS = ['default', 'midnight', 'ocean', 'forest', 'sunset', 'lavender', 'minimal', 'cyberpunk', 'warm', 'monochrome', 'apex', 'lofi', 'coastal', 'terminal', 'deepmesh', 'paper', 'evening', 'sage', 'custom'];
 
   function hexToRgb(hex) {
     var m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec((hex || '').trim());
@@ -55,6 +55,10 @@
   s.setProperty('--accent-pomodoro', colors.accentPomodoro);
   s.setProperty('--accent-shortBreak', colors.accentShortBreak);
   s.setProperty('--accent-longBreak', colors.accentLongBreak);
+  function onAccent(hex) { return 1.05 / (relLuminance(hex) + 0.05) >= 3 ? '#ffffff' : '#14100c'; }
+  s.setProperty('--on-accent-pomodoro', onAccent(colors.accentPomodoro));
+  s.setProperty('--on-accent-shortBreak', onAccent(colors.accentShortBreak));
+  s.setProperty('--on-accent-longBreak', onAccent(colors.accentLongBreak));
   s.setProperty('--accent-soft-pomodoro', mix(colors.accentPomodoro, colors.bg, 0.85));
   s.setProperty('--accent-soft-shortBreak', mix(colors.accentShortBreak, colors.bg, 0.85));
   s.setProperty('--accent-soft-longBreak', mix(colors.accentLongBreak, colors.bg, 0.85));
@@ -64,4 +68,23 @@
   s.setProperty('--mesh-4', mix(colors.primary, colors.bg, 0.3));
   root.setAttribute('data-theme-preset', preset);
   root.setAttribute('data-theme', relLuminance(colors.bg) < 0.5 ? 'dark' : 'light');
+
+  /* Language and motion (Appearance; saved by the app under 'uiPrefs'). lang/dir are set now so Arabic lays out
+     right-to-left from the first paint. For French or Arabic the page's dictionary is requested here, in parallel
+     with the app, and the page stays hidden (html[data-i18n-pending], app.css) until the app has applied it -- 3 s
+     at most. Only index.html carries the dictionary URLs, so the legal pages are never held back. */
+  var prefs = {};
+  try { prefs = JSON.parse(localStorage.getItem('uiPrefs')) || {}; } catch (e) { prefs = {}; }
+  var lang = prefs.lang === 'fr' || prefs.lang === 'ar' ? prefs.lang : 'en';
+  if (prefs.motion === 'reduced' || prefs.motion === 'off') root.setAttribute('data-motion', prefs.motion);
+  var dictSrc = lang === 'en' ? null : root.getAttribute('data-i18n-' + lang + '-src');
+  if (dictSrc) {
+    root.setAttribute('lang', lang);
+    root.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+    root.setAttribute('data-i18n-pending', '');
+    var sc = document.createElement('script');
+    sc.src = dictSrc;
+    document.head.appendChild(sc);
+    setTimeout(function () { root.removeAttribute('data-i18n-pending'); }, 3000);
+  }
 })();

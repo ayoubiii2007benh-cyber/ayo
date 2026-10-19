@@ -118,16 +118,15 @@
 
     var title = el('h2', { id: 'cookie-banner-title', class: 'cookie-banner__title', text: 'Your privacy choices' });
     var intro = el('p', { class: 'cookie-banner__text' });
-    intro.appendChild(document.createTextNode('We use essential storage to keep the app working and you signed in. With your permission we also use Google Analytics to count visits and see which parts of the site are used. No advertising, no selling of data. See our '));
+    // One short line: the bar stays slim. The full story is one click away.
+    intro.appendChild(document.createTextNode('We use essential storage to run the app. Analytics only if you accept — no ads, no selling data. '));
     intro.appendChild(el('a', { href: '/cookies', text: 'Cookie Policy' }));
-    intro.appendChild(document.createTextNode(' and '));
-    intro.appendChild(el('a', { href: '/privacy', text: 'Privacy Policy' }));
-    intro.appendChild(document.createTextNode('.'));
 
-    var accept = el('button', { type: 'button', class: 'cookie-btn cookie-btn--primary', text: 'Accept' });
-    var reject = el('button', { type: 'button', class: 'cookie-btn', text: 'Reject' });
-    var manage = el('button', { type: 'button', class: 'cookie-btn', 'aria-expanded': 'false', 'aria-controls': 'cookie-manage', text: 'Manage' });
-    var actions = el('div', { class: 'cookie-banner__actions' }, [reject, manage, accept]);
+    // Reject and Accept look exactly alike (equal weight); Manage is a quieter text button.
+    var accept = el('button', { type: 'button', class: 'cookie-btn cookie-btn--choice', text: 'Accept' });
+    var reject = el('button', { type: 'button', class: 'cookie-btn cookie-btn--choice', text: 'Reject' });
+    var manage = el('button', { type: 'button', class: 'cookie-btn cookie-btn--quiet', 'aria-expanded': 'false', 'aria-controls': 'cookie-manage', text: 'Manage' });
+    var actions = el('div', { class: 'cookie-banner__actions' }, [manage, reject, accept]);
 
     var analyticsBox = el('input', { type: 'checkbox', id: 'cookie-analytics' });
     analyticsBox.checked = !!(current && current.analytics);

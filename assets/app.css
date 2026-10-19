@@ -16,6 +16,15 @@
   src: url(/assets/fonts/figtree-latin.woff2) format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
+/* Arabic: Cairo (SIL Open Font License), Arabic subset only -- downloaded only when Arabic text is on screen. */
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 300 800;
+  font-display: swap;
+  src: url(/assets/fonts/cairo-arabic.woff2) format('woff2');
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC;
+}
 
   /* ==================== 1. Liquid Glass design tokens ====================
      New tokens are aliased onto the app's existing live theme variables
@@ -46,7 +55,7 @@
     --r-xl: 36px; --r-lg: 30px; --r-md: 26px; --r-sm: 20px; --r-pill: 999px;
     --blur: blur(40px) saturate(180%);
     --blur-pop: blur(50px) saturate(200%);
-    --font: 'Figtree', system-ui, -apple-system, sans-serif;
+    --font: 'Figtree', 'Cairo', system-ui, -apple-system, sans-serif;
 
     /* Blobs derive from the live accent/primary/long tokens (not fixed hex) so they stay
        harmonious across every preset and re-tint automatically with the timer mode. */
@@ -69,9 +78,11 @@
     --blob-3: color-mix(in srgb, var(--acc) 70%, black 10%);
   }
 
-  html[data-mode="pomodoro"]  { --accent: var(--accent-pomodoro); }
-  html[data-mode="shortBreak"] { --accent: var(--accent-shortBreak); }
-  html[data-mode="longBreak"]  { --accent: var(--accent-longBreak); }
+  /* --on-accent-* (set by Theme.apply / boot.js) is white unless the accent is so light that white text would drop
+     below 3:1, in which case it's near-black: text on buttons stays readable in every theme. */
+  html[data-mode="pomodoro"]  { --accent: var(--accent-pomodoro); --on-acc: var(--on-accent-pomodoro, #FFFFFF); }
+  html[data-mode="shortBreak"] { --accent: var(--accent-shortBreak); --on-acc: var(--on-accent-shortBreak, #FFFFFF); }
+  html[data-mode="longBreak"]  { --accent: var(--accent-longBreak); --on-acc: var(--on-accent-longBreak, #FFFFFF); }
 
   *, *::before, *::after { box-sizing: border-box; }
   [hidden] { display: none !important; }
@@ -99,24 +110,24 @@
   /* Thin glass-matched scrollbar for every real scroll container in the app (dialogs'
      inner forms, the friends drawer, chat/notif/activity/track lists) -- only shown
      when that container actually needs to scroll (short screens / phones). */
-  .auth-modal__form, .profile-modal__form, #settings-form, .friends-drawer,
+  .auth-modal__form, .profile-modal__form, #settings-form, .ai-panel,
   .chat-dialog__messages, .ai-chat__messages, .notif-picker__menu,
   .lounge-activity-log, .track-list {
     scrollbar-width: thin;
     scrollbar-color: var(--track) transparent;
   }
   .auth-modal__form::-webkit-scrollbar, .profile-modal__form::-webkit-scrollbar,
-  #settings-form::-webkit-scrollbar, .friends-drawer::-webkit-scrollbar,
+  #settings-form::-webkit-scrollbar, .ai-panel::-webkit-scrollbar,
   .chat-dialog__messages::-webkit-scrollbar, .ai-chat__messages::-webkit-scrollbar,
   .notif-picker__menu::-webkit-scrollbar, .lounge-activity-log::-webkit-scrollbar,
   .track-list::-webkit-scrollbar { width: 6px; }
   .auth-modal__form::-webkit-scrollbar-thumb, .profile-modal__form::-webkit-scrollbar-thumb,
-  #settings-form::-webkit-scrollbar-thumb, .friends-drawer::-webkit-scrollbar-thumb,
+  #settings-form::-webkit-scrollbar-thumb, .ai-panel::-webkit-scrollbar-thumb,
   .chat-dialog__messages::-webkit-scrollbar-thumb, .ai-chat__messages::-webkit-scrollbar-thumb,
   .notif-picker__menu::-webkit-scrollbar-thumb, .lounge-activity-log::-webkit-scrollbar-thumb,
   .track-list::-webkit-scrollbar-thumb { background: var(--track); border-radius: 3px; }
   .auth-modal__form::-webkit-scrollbar-track, .profile-modal__form::-webkit-scrollbar-track,
-  #settings-form::-webkit-scrollbar-track, .friends-drawer::-webkit-scrollbar-track,
+  #settings-form::-webkit-scrollbar-track, .ai-panel::-webkit-scrollbar-track,
   .chat-dialog__messages::-webkit-scrollbar-track, .ai-chat__messages::-webkit-scrollbar-track,
   .notif-picker__menu::-webkit-scrollbar-track, .lounge-activity-log::-webkit-scrollbar-track,
   .track-list::-webkit-scrollbar-track { background: transparent; }
@@ -164,9 +175,32 @@
   .bg-blob--1 { right: -11vw; top: 14vh; width: min(640px, 60vw); height: min(640px, 60vw); background: var(--blob-1); opacity: 0.80; filter: blur(100px); animation: blob-drift-b 54s ease-in-out infinite alternate; }
   .bg-blob--2 { left: 24vw; bottom: -24vh; width: min(620px, 58vw); height: min(520px, 50vw); background: var(--blob-2); opacity: 0.75; filter: blur(100px); animation: blob-drift-c 50s ease-in-out infinite alternate; }
   .bg-blob--3 { left: 36vw; top: 22vh; width: min(320px, 32vw); height: min(320px, 32vw); background: var(--blob-3); opacity: 0.55; animation: blob-drift-a 40s ease-in-out infinite alternate-reverse; }
-  @keyframes blob-drift-a { to { transform: translate(3vw, 2vh) scale(1.05); } }
-  @keyframes blob-drift-b { to { transform: translate(-2vw, 3vh) scale(1.04); } }
-  @keyframes blob-drift-c { to { transform: translate(2vw, -3vh) scale(1.03); } }
+  /* The drift is about a pixel per second, so it moves in small steps (under a pixel each, on a 90px blur:
+     invisible) instead of every frame. A smooth 60fps animation here made the browser redraw -- and re-blur every
+     glass panel over -- the whole screen 60 times a second for as long as the page was open, even when idle.
+     Stepping keeps the same path and the same ease-in-out (the 25/50/75% points sit on that curve) at a few
+     redraws a second. Steps per segment follow the distance it covers, so every step is the same size. */
+  @keyframes blob-drift-a {
+    0%   { transform: translate(0, 0) scale(1); animation-timing-function: steps(9); }
+    25%  { transform: translate(0.387vw, 0.258vh) scale(1.00645); animation-timing-function: steps(26); }
+    50%  { transform: translate(1.5vw, 1vh) scale(1.025); animation-timing-function: steps(26); }
+    75%  { transform: translate(2.613vw, 1.742vh) scale(1.04355); animation-timing-function: steps(9); }
+    100% { transform: translate(3vw, 2vh) scale(1.05); }
+  }
+  @keyframes blob-drift-b {
+    0%   { transform: translate(0, 0) scale(1); animation-timing-function: steps(9); }
+    25%  { transform: translate(-0.258vw, 0.387vh) scale(1.00516); animation-timing-function: steps(26); }
+    50%  { transform: translate(-1vw, 1.5vh) scale(1.02); animation-timing-function: steps(26); }
+    75%  { transform: translate(-1.742vw, 2.613vh) scale(1.03484); animation-timing-function: steps(9); }
+    100% { transform: translate(-2vw, 3vh) scale(1.04); }
+  }
+  @keyframes blob-drift-c {
+    0%   { transform: translate(0, 0) scale(1); animation-timing-function: steps(9); }
+    25%  { transform: translate(0.258vw, -0.387vh) scale(1.00387); animation-timing-function: steps(26); }
+    50%  { transform: translate(1vw, -1.5vh) scale(1.015); animation-timing-function: steps(26); }
+    75%  { transform: translate(1.742vw, -2.613vh) scale(1.02613); animation-timing-function: steps(9); }
+    100% { transform: translate(2vw, -3vh) scale(1.03); }
+  }
 
   /* Signature preset background art (below) fully replaces #background-layer's own
      background-image — keep these exactly as-is, just re-hide blobs under them too. */
@@ -208,8 +242,13 @@
   html[data-theme-preset="coastal"] #bg-blobs,
   html[data-theme-preset="terminal"] #bg-blobs,
   html[data-theme-preset="deepmesh"] #bg-blobs { display: none; }
+  /* Same idea as the blobs: background-position can't be animated off the main thread, so a smooth version
+     repainted the full-screen gradients on every frame. Small (about a pixel) steps along the same eased path. */
   @keyframes mesh-drift {
-    0%   { background-position: 0% 0%, 100% 0%, 60% 100%, 0% 100%; }
+    0%   { background-position: 0% 0%, 100% 0%, 60% 100%, 0% 100%; animation-timing-function: steps(16); }
+    25%  { background-position: 1.935% 3.225%, 97.42% 1.935%, 58.065% 98.065%, 2.58% 96.13%; animation-timing-function: steps(44); }
+    50%  { background-position: 7.5% 12.5%, 90% 7.5%, 52.5% 92.5%, 10% 85%; animation-timing-function: steps(44); }
+    75%  { background-position: 13.065% 21.775%, 82.58% 13.065%, 46.935% 86.935%, 17.42% 73.87%; animation-timing-function: steps(16); }
     100% { background-position: 15% 25%, 80% 15%, 45% 85%, 20% 70%; }
   }
   #background-layer img,
@@ -266,35 +305,15 @@
   }
 
   /* ==================== 4. Layout shell ====================
-     Dashboard grid: 300px (stats + missions) | 1fr (timer, spans both rows) | 372px
-     (today's plan + AI chat, spans both rows) — matches the brief's 3-column layout
-     without changing where #timer/#stats-dashboard/.col-left/.col-right live in the DOM. */
+     One column of pages under the header, each starting with a .page-head (section 25). The Timer page has its own
+     two columns (timer | today's tasks). */
   main {
     max-width: 1280px;
     margin: 0 auto;
-    padding: 4px clamp(20px, 4vw, 32px) 140px;
-    display: grid;
-    grid-template-columns: 300px minmax(320px, 1fr) 372px;
-    grid-template-rows: auto 1fr;
-    grid-template-areas: "stats timer plan" "missions timer plan";
-    gap: var(--space-6);
-    align-items: start;
+    padding: 4px clamp(16px, 4vw, 32px) 48px;
   }
-  #view-dashboard { display: contents; }
-  #stats-dashboard { grid-area: stats; }
-  .col-left { grid-area: missions; }
-  #timer { grid-area: timer; }
-  .col-right { grid-area: plan; }
-  .col-left, .col-right { display: flex; flex-direction: column; gap: var(--space-6); min-width: 0; height: 100%; }
-  #missions { flex: 1; }
-  @media (max-width: 900px) {
-    main {
-      grid-template-columns: 1fr;
-      grid-template-rows: auto;
-      grid-template-areas: "timer" "plan" "stats" "missions";
-      padding-bottom: 120px;
-    }
-  }
+  main:focus { outline: none; }
+  .view { min-width: 0; }
 
   /* ==================== 5. Icon buttons / icons / chips ==================== */
   .icon-btn {
@@ -368,7 +387,8 @@
     flex-shrink: 0;
   }
   .nav-link {
-    height: 44px; padding: 0 22px;
+    height: 44px; padding: 0 18px;
+    display: inline-flex; align-items: center; gap: 8px; position: relative; text-decoration: none;
     border: none; border-radius: 22px;
     background: transparent; color: var(--dim);
     font-size: 15px; font-weight: 600;
@@ -393,14 +413,22 @@
   }
   .live-users__dot {
     width: 8px; height: 8px; border-radius: 50%; background: var(--short); flex-shrink: 0;
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--short) 55%, transparent);
+    position: relative;
+  }
+  /* The pulse ring: a circle in the dot's own colour that grows from the dot's 4px radius to 10px (what the old
+     6px box-shadow spread drew) while fading out. Over the dot itself it's the same colour, so only the halo shows.
+     transform + opacity run on the compositor, where an animated box-shadow was repainted on the main thread
+     every frame. */
+  .live-users__dot::after {
+    content: ''; position: absolute; inset: 0; border-radius: 50%;
+    background: color-mix(in srgb, var(--short) 55%, transparent);
     animation: live-pulse 2s infinite;
   }
   .live-users__count { font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
   @keyframes live-pulse {
-    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--short) 55%, transparent); }
-    70% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--short) 0%, transparent); }
-    100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--short) 0%, transparent); }
+    0% { transform: scale(1); opacity: 1; }
+    70% { transform: scale(2.5); opacity: 0; }
+    100% { transform: scale(1); opacity: 0; }
   }
   .lounge-chip { border: none; cursor: pointer; font-weight: 700; color: var(--text); background: var(--glass-hi); border-radius: var(--r-pill); padding: 6px 12px; }
   .lounge-chip:hover { background: var(--glass-active); }
@@ -410,14 +438,12 @@
   .live-users__label { color: var(--dim); }
 
   /* Sound / theme / settings: inline on wide screens (the wrappers vanish), a popover when narrow. */
-  .header-more, .header-more__menu { display: contents; }
-  .header-more__trigger { display: none; }
-  #mute-toggle { order: 1; } #darkmode-toggle { order: 2; } #friends-drawer-toggle { order: 3; } #settings-btn { order: 4; }
   .header-actions .icon-btn { flex-shrink: 0; }
   .header-actions, .status-cluster { min-width: 0; }
   .header-actions { flex-shrink: 1; }
 
   .icon-toolbar { display: flex; align-items: center; gap: 2px; }
+
 
   .user-profile {
     display: flex; align-items: center; gap: 8px;
@@ -432,46 +458,25 @@
   }
   .user-profile__avatar--photo { color: transparent; }
   .user-profile__avatar--emoji { font-size: 20px; }
-  .user-profile__name {
-    border: none; background: var(--glass-hi); color: var(--text); font-weight: 600; font-size: 14px;
-    cursor: pointer; padding: 8px 16px; border-radius: var(--r-pill); max-width: 120px;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-
-  /* Header stays inside the viewport at every width: first the username text goes (the avatar keeps
-     its name as a tooltip), sound/theme/settings fold into a ... menu and the brand word goes;
-     under 960px the tabs move to the bottom bar. Notifications and friends always stay visible. */
-  /* The header row is capped at 1280px, so with the status pill showing there's no room for the name text. */
-  .site-header--room .user-profile__name, .site-header--room .brand__word { display: none; }
+  /* Header: logo, the four pages, then notifications, settings and the account menu. Between 768 and 1100px the
+     logo drops its word to make room; under 768px the pages move to the bottom tab bar. */
+  .site-header--room .brand__word { display: none; }
   .site-header--room .brand { padding: 0 12px; }
-  @media (max-width: 1240px) {
-    .user-profile__name { display: none; }
-  }
-  @media (max-width: 1240px) {
+  @media (max-width: 1100px) {
     .brand__word { display: none; }
     .brand { padding: 0 12px; }
-    .header-more { display: block; position: relative; order: 5; }
-    .header-more__trigger { display: inline-flex; }
-    .header-more__menu {
-      display: none; position: absolute; right: 0; top: calc(100% + 8px); z-index: 1000;
-      flex-direction: row; gap: 2px; padding: 6px; border-radius: var(--r-pill);
-      border: 1px solid var(--edge); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
-      /* no scrim behind this popover, so a mostly solid fill (same reason as .notif-picker__menu) */
-      background: color-mix(in srgb, var(--surface) 94%, transparent);
-      backdrop-filter: var(--blur-pop); -webkit-backdrop-filter: var(--blur-pop);
-    }
-    .header-more.is-open .header-more__menu { display: flex; }
-    .header-more__trigger[aria-expanded="true"] { background: var(--track); }
   }
-  @media (max-width: 960px) {
+  @media (max-width: 767px) {
     .primary-nav { display: none; }
-    .site-header__row { padding: 16px 16px 8px; gap: 8px; }
-    .header-actions { padding: 0 4px 0 4px; gap: 0; }
+    .site-header__row { padding: 14px 16px 8px; gap: 8px; }
+    .header-actions { padding: 0 4px; gap: 0; }
     .live-users { margin-right: 0; }
   }
-  @media (max-width: 560px), (min-width: 961px) and (max-width: 1140px) {
+  @media (max-width: 560px), (min-width: 768px) and (max-width: 1140px) {
     .lounge-chip__sep, .lounge-chip__text { display: none; }
   }
+  /* Set by UI.fitHeader() if the row would still overflow: the room status keeps only its dot and count. */
+  .site-header--tight .lounge-chip__sep, .site-header--tight .lounge-chip__text { display: none; }
   @media (max-width: 400px) {
     .header-actions { padding: 0 2px; }
     .brand { padding: 0 10px; }
@@ -481,7 +486,8 @@
   /* ==================== 7. Mobile bottom tab bar ==================== */
   .bottom-tab-bar {
     display: none;
-    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+    position: fixed; left: 50%; bottom: calc(var(--tabbar-gap) + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+    width: min(480px, calc(100vw - 24px)); box-sizing: border-box;
     z-index: 41;
     border-radius: var(--r-pill);
     padding: 6px;
@@ -492,17 +498,15 @@
   .bottom-tab {
     border: none; background: transparent; color: var(--dim);
     display: flex; flex-direction: column; align-items: center; gap: 2px;
-    padding: 8px 16px; border-radius: 20px; min-width: 64px;
+    flex: 1 1 0; min-width: 0; position: relative; text-decoration: none; justify-content: center;
+    padding: 8px 6px; border-radius: 20px;
     font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap;
     transition: background-color 0.2s ease, color 0.2s ease;
   }
-  @media (max-width: 420px) { .bottom-tab { padding: 8px 8px; min-width: 0; } }
   .bottom-tab[aria-current="page"] { background: var(--glass-active); box-shadow: var(--shadow-active); color: var(--text); }
   .bottom-tab .icon { width: 20px; height: 20px; }
-  @media (max-width: 960px) {
+  @media (max-width: 767px) {
     .bottom-tab-bar { display: flex; }
-    main { padding-bottom: 128px; }
-    #view-lounge, #view-guides, #view-reports, #view-leaderboard { padding-bottom: 128px; }
   }
 
   /* ==================== 8. Timer hero card ==================== */
@@ -587,7 +591,8 @@
   .session-dot { width: 10px; height: 10px; border-radius: 5px; background: var(--track); }
   .session-dot--done { background: var(--acc); }
   .session-label { font-size: 14px; font-weight: 500; color: var(--dim); }
-  #pomodoro-count { font-size: 13px; color: var(--dim); }
+  #pomodoro-count { font-size: 14px; font-weight: 600; color: var(--dim); text-decoration: none; border-radius: 8px; padding: 2px 6px; }
+  #pomodoro-count:hover { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
 
   /* ==================== 9. Stats dashboard ==================== */
   #stats-dashboard {
@@ -636,9 +641,26 @@
   #tasks { border-radius: var(--r-lg); padding: 22px; display: flex; flex-direction: column; gap: 14px; }
   .panel-head--plan h2 { font-size: 26px; font-weight: 800; letter-spacing: -0.8px; }
   .plan-summary { display: block; margin-top: 2px; }
-  #task-form {
-    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
-    padding: 4px 4px 4px 16px; border-radius: 24px; border: 1px solid var(--edge);
+  /* Add a task: one row (what + add); estimate, priority and project wait under "More options". */
+  #task-form { display: flex; flex-direction: column; gap: 6px; }
+  .task-form__row {
+    display: flex; gap: 8px; align-items: center;
+    padding: 4px; padding-inline-start: 16px; border-radius: 24px; border: 1px solid var(--edge);
+  }
+  .task-form__more summary {
+    list-style: none; cursor: pointer; width: fit-content; padding: 4px 8px; border-radius: 10px;
+    font-size: 13px; font-weight: 600; color: var(--dim);
+  }
+  .task-form__more summary::-webkit-details-marker { display: none; }
+  .task-form__more summary::before { content: '+'; display: inline-block; width: 1em; font-weight: 800; }
+  .task-form__more[open] summary::before { content: '−'; }
+  .task-form__more summary:hover { color: var(--text); background: var(--glass-hi); }
+  .task-form__options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 6px 4px 2px; }
+  .task-form__options label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--dim); min-width: 0; }
+  #task-form .task-form__options input, #task-form .task-form__options select { width: 100%; height: 38px; box-sizing: border-box; text-align: start; }
+  @media (max-width: 420px) {
+    .task-form__options { grid-template-columns: 1fr 1fr; }
+    .task-form__options label:last-child { grid-column: 1 / -1; }
   }
   #task-input {
     flex: 1 1 160px; min-width: 0; height: 40px; padding: 0; border: none; background: transparent;
@@ -762,20 +784,19 @@
   /* #view-reports/#view-leaderboard are siblings of #view-dashboard inside <main>'s own
      grid, so without an explicit placement they'd fall into the dashboard's named areas
      (auto-placing into the narrow "stats" cell) instead of using the full width. */
-  #view-reports, #view-leaderboard {
+  #view-progress, #view-methods {
     grid-column: 1 / -1; grid-row: 1 / -1;
     max-width: 1280px; margin: 0 auto; width: 100%;
-    padding: 4px clamp(4px, 2vw, 12px) var(--space-6);
-  }
-  #view-reports h2, #view-leaderboard h2, .lounge-heading h2 {
-    font-size: clamp(28px, 5vw, 44px); font-weight: 800; letter-spacing: -1.6px; margin-bottom: var(--space-5);
+    padding: 4px clamp(4px, 2vw, 12px) var(--space-6); min-width: 0; /* grid items: never wider than the screen */
   }
   #view-reports h3, #view-leaderboard h3 { font-size: 17px; font-weight: 700; margin: 0 0 14px; }
   .reports-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-4); margin-top: 0; max-width: none; }
   .reports-summary .stat-tile { height: auto; padding: 22px; border-radius: 28px; gap: 8px; }
   .reports-summary .stat-tile__value { font-size: 40px; letter-spacing: -1.5px; }
   .bar-chart { display: flex; align-items: flex-end; gap: 22px; height: 220px; padding-top: 10px; }
-  .bar-chart__col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 8px; }
+  .bar-chart__col { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 8px; } /* a long label ("0 min") wraps instead of widening the page */
+  .bar-chart__minutes { text-align: center; }
+  @media (max-width: 360px) { .bar-chart { gap: 10px; } }
   .bar-chart__minutes { font-size: 13px; font-weight: 700; color: var(--dim); }
   .bar-chart__col--today .bar-chart__minutes { color: var(--acc); }
   .bar-chart__bar { width: 100%; max-width: 42px; background: var(--glass-hi); border-radius: 16px 16px 4px 4px; min-height: 4px; }
@@ -827,10 +848,8 @@
 
   /* ==================== 14. Study Lounge ==================== */
   #view-lounge, #view-guides { max-width: 1440px; margin: 0 auto; padding: 4px clamp(20px, 4vw, 32px) 120px; }
-  .lounge-heading { max-width: 1440px; margin: 0 auto var(--space-6); }
-  .lounge-heading .field-hint { max-width: 520px; }
   #view-lounge h3 { font-weight: 700; font-size: 17px; color: var(--text); margin: var(--space-5) 0 var(--space-2); }
-  .lounge-lobby-grid { display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; gap: var(--space-6); margin-top: 8px; }
+  .lounge-lobby-grid { display: grid; grid-template-columns: 1fr; align-items: stretch; gap: var(--space-6); margin-top: 8px; }
   .lounge-lobby-grid > section { border-radius: var(--r-lg); padding: clamp(22px, 4vw, 30px); display: flex; flex-direction: column; }
   @media (max-width: 700px) { .lounge-lobby-grid { grid-template-columns: 1fr; } }
   .lounge-friends-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
@@ -1097,10 +1116,10 @@
   }
   .guide-card:hover { transform: translateY(-2px); }
   .guide-card__thumb { position: relative; aspect-ratio: 16 / 9; border-radius: var(--r-md); overflow: hidden; background: var(--track); }
-  .guide-card__thumb video { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+  .guide-card__thumb video, .guide-card__thumb img { display: block; width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
   /* portrait videos (phone-style recordings): a taller thumbnail so the frame isn't cropped to a thin strip */
   .guide-card__thumb--portrait { aspect-ratio: 4 / 5; }
-  .guide-card__thumb--portrait video { object-position: center 20%; }
+  .guide-card__thumb--portrait video, .guide-card__thumb--portrait img { object-position: center 20%; }
   .guide-card__play {
     position: absolute; left: 12px; bottom: 12px; width: 40px; height: 40px; border-radius: 50%;
     display: flex; align-items: center; justify-content: center; background: var(--acc); color: var(--on-acc);
@@ -1127,16 +1146,15 @@
   #image-lightbox-img { display: block; max-width: min(92vw, 1100px); max-height: 78vh; margin: 12px 14px 14px; border-radius: var(--r-sm); }
 
   /* ==================== 15. Friends drawer & chat dialog ==================== */
-  .friends-drawer-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); backdrop-filter: blur(4px); z-index: 44; }
-  .friends-drawer {
+  .ai-panel {
     position: fixed; top: 16px; right: 16px; bottom: 16px; width: min(400px, calc(100vw - 32px));
     background: var(--glass-pop); backdrop-filter: var(--blur-pop); -webkit-backdrop-filter: var(--blur-pop);
     border: 1px solid var(--edge); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
     border-radius: var(--r-lg); z-index: 45;
     display: flex; flex-direction: column; padding: 20px; overflow-y: auto;
   }
-  .friends-drawer__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-  .friends-drawer__header h2 { font-size: 19px; font-weight: 700; }
+  .ai-panel__head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .ai-panel__head h2 { font-size: 19px; font-weight: 700; }
 
   dialog#chat-dialog {
     border: none; border-radius: var(--r-lg); padding: 0; overflow: hidden;
@@ -1278,13 +1296,13 @@
   /* ==================== 18. Settings dialog ==================== */
   dialog#settings {
     border: none; border-radius: var(--r-lg); padding: 0; overflow: hidden;
-    width: min(480px, calc(100vw - 32px)); max-height: min(720px, calc(100vh - 48px));
+    width: min(860px, calc(100vw - 32px)); height: min(680px, calc(100vh - 48px)); max-height: none;
     background: var(--glass-pop); backdrop-filter: var(--blur-pop); -webkit-backdrop-filter: var(--blur-pop);
     border: 1px solid var(--edge); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
   }
   dialog#settings::backdrop { background: rgba(0, 0, 0, 0.25); backdrop-filter: blur(8px); }
-  #settings-form { padding: 26px clamp(20px, 5vw, 30px) 22px; overflow-y: auto; max-height: inherit; }
-  #settings-title { font-size: 19px; font-weight: 800; margin-bottom: 18px; }
+  #settings-form { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+  #settings-title { font-size: 19px; font-weight: 800; margin: 0; margin-inline-end: auto; }
   .settings-tabs {
     display: flex; gap: 2px; margin-bottom: 20px; padding: 4px; border-radius: var(--r-pill);
     background: var(--track); overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
@@ -1392,9 +1410,6 @@
   }
   #contrast-warnings .field-error { margin-top: 0; margin-bottom: 6px; }
   #reset-theme { border: none; background: none; color: var(--acc); padding: 10px 0; cursor: pointer; min-height: 44px; font-weight: 700; margin-top: 4px; }
-  .settings-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
-  #settings-close { border: none; background: var(--glass-hi); border-radius: var(--r-pill); padding: 10px 20px; cursor: pointer; min-height: 44px; font-weight: 600; }
-  #settings-save { border: none; background: var(--acc); color: var(--on-acc); border-radius: var(--r-pill); padding: 10px 24px; cursor: pointer; min-height: 44px; font-weight: 700; }
 
   /* ==================== 19. Floating media panel ==================== */
   #media-panel {
@@ -1420,13 +1435,8 @@
   @keyframes confetti-fall { to { translate: 0 calc(105vh + 10px); opacity: 0; } }
 
   @keyframes card-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-  #view-dashboard > #stats-dashboard,
-  #view-dashboard .col-left > section,
-  #view-dashboard .col-right > section {
-    animation: card-enter 0.35s ease both;
-  }
-  #view-dashboard .col-left > section:nth-child(2) { animation-delay: 0.04s; }
-  #view-dashboard .col-right > section:nth-child(2) { animation-delay: 0.08s; }
+  #view-dashboard .timer-layout > section { animation: card-enter 0.35s ease both; }
+  #view-dashboard .timer-layout > section:nth-child(2) { animation-delay: 0.06s; }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -1479,10 +1489,364 @@
     html[data-theme-preset="deepmesh"] #background-layer { animation: none; }
     .glass-pop { box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22); }
     /* the dialog panel is already glass; a second blur on the dimmed page behind it is wasted work */
-    dialog::backdrop, .friends-drawer-backdrop { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+    dialog::backdrop { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
     html { -webkit-text-size-adjust: 100%; }
     .bottom-tab-bar, .site-header .glass { background: color-mix(in srgb, var(--surface) 90%, transparent); }
   }
   /* No 300ms tap delay / double-tap-zoom wait on anything tappable; no grey tap flash. Safe on desktop too. */
   a, button, input, select, textarea, label, summary, [role="button"], .nav-link, .icon-btn, .btn { touch-action: manipulation; }
   html { -webkit-tap-highlight-color: transparent; }
+
+  /* ==================== 21. Motion ====================
+     One calm motion language for the whole app: short (140-360ms), a soft ease-out, small distances, and only on
+     things that respond to you (presses, tabs, views, menus, dialogs, study steps, theme changes) -- nothing loops.
+     Appearance -> Motion: "Reduced" keeps the fades but drops movement and the drifting backgrounds (the distances are
+     variables); "Off" stops everything, like the system's reduce-motion setting (section 20) already does. */
+  :root { --ease-calm: cubic-bezier(.22, .8, .26, 1); --t-fast: 140ms; --t-med: 220ms; --t-slow: 340ms; --rise: 8px; --press: .97; }
+  html[data-motion="reduced"] { --rise: 0px; --press: 1; }
+  @keyframes rise-in { from { opacity: 0; transform: translateY(var(--rise)); } to { opacity: 1; transform: none; } }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes pop-in { from { opacity: 0; transform: translateY(calc(var(--rise) * -.5)) scale(calc(1 - (1 - var(--press)) * 1.5)); } to { opacity: 1; transform: none; } }
+  @keyframes settle { from { transform: scale(var(--press)); opacity: .75; } to { transform: none; opacity: 1; } }
+  @keyframes drawer-in { from { opacity: 0; transform: translateX(calc(var(--rise) * 3)); } to { opacity: 1; transform: none; } }
+
+  /* presses */
+  .btn:active, .btn-start:active, .btn-round:active, .nav-link:active, .bottom-tab:active, .mode-tab:active,
+  .theme-swatch:active, .choice-pills button:active, .settings-tabs [role="tab"]:active { transform: scale(var(--press)); }
+  .btn, .btn-start, .btn-round, .nav-link, .bottom-tab, .mode-tab, .theme-swatch, .choice-pills button { transition-timing-function: var(--ease-calm); }
+  /* The play/pause icon pops when you start or pause, and a tab, mode or option settles into place when you pick
+     it. Both classes are set by script in response to you (Timer/UI.renderTimerControls, the click handler in
+     UI.init), so nothing animates on page load. */
+  .btn-start .icon.pop, .sm-timer__btn .icon.pop { animation: pop-in var(--t-med) var(--ease-calm); }
+  .settle { animation: settle var(--t-med) var(--ease-calm); }
+  /* views, sections and study steps rise in when they appear (classes set by UI.selectView) */
+  .view-enter, .view-enter-children > * { animation: rise-in var(--t-slow) var(--ease-calm) both; }
+  /* menus, drawer, dialogs */
+  .notif-picker__menu:not([hidden]), .account-menu__panel:not([hidden]) { animation: pop-in var(--t-med) var(--ease-calm) both; }
+  .ai-panel:not([hidden]) { animation: drawer-in var(--t-slow) var(--ease-calm) both; }
+  dialog[open] { animation: pop-in var(--t-slow) var(--ease-calm) both; }
+  dialog[open]::backdrop { animation: fade-in var(--t-slow) ease both; }
+  /* theme and language changes cross-fade (View Transitions, where supported; see UI.withViewTransition) */
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: 380ms; animation-timing-function: var(--ease-calm); }
+
+  html[data-motion="reduced"] .bg-blob, html[data-motion="reduced"] #background-layer, html[data-motion="reduced"] #background-layer::before { animation: none !important; }
+  html[data-motion="off"] *, html[data-motion="off"] *::before, html[data-motion="off"] *::after {
+    animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important;
+  }
+  html[data-motion="off"] .bg-blob, html[data-motion="off"] #background-layer::before { animation: none !important; }
+  @media (prefers-reduced-motion: reduce) { #background-layer::before { animation: none !important; } }
+
+  /* ==================== 22. Three more themes: Warm Paper, Soft Evening, Sage Mist ====================
+     Each has its own background and one quiet animated accent on a single layer (transform/opacity only, stepped like
+     the blobs, so it costs a few redraws a second): a pool of sunlight that slowly wanders across the paper, stars
+     that softly brighten and dim, mist that drifts sideways. Stopped by Reduced/Off motion. */
+  html[data-theme-preset="paper"] #bg-blobs, html[data-theme-preset="evening"] #bg-blobs, html[data-theme-preset="sage"] #bg-blobs { display: none; }
+  html[data-theme-preset="paper"] #background-layer {
+    background-color: var(--bg);
+    background-image:
+      repeating-linear-gradient(0deg, rgba(110, 80, 40, .035) 0 1px, transparent 1px 4px),
+      repeating-linear-gradient(90deg, rgba(110, 80, 40, .02) 0 1px, transparent 1px 5px),
+      radial-gradient(ellipse at 88% 96%, rgba(181, 83, 47, .12), transparent 52%);
+  }
+  html[data-theme-preset="evening"] #background-layer {
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(ellipse at 50% 120%, rgba(242, 169, 109, .28), transparent 58%),
+      radial-gradient(ellipse at 12% 0%, rgba(194, 166, 239, .18), transparent 50%),
+      linear-gradient(180deg, #1b1a2b 0%, #24213a 62%, #2d2440 100%);
+  }
+  html[data-theme-preset="sage"] #background-layer {
+    background-color: var(--bg);
+    background-image:
+      radial-gradient(ellipse at 15% 0%, rgba(79, 122, 95, .20), transparent 55%),
+      radial-gradient(ellipse at 90% 100%, rgba(63, 116, 132, .16), transparent 55%),
+      linear-gradient(180deg, #eef1ea 0%, #e6ece3 100%);
+  }
+  html[data-theme-preset="paper"] #background-layer[data-empty]::before,
+  html[data-theme-preset="evening"] #background-layer[data-empty]::before,
+  html[data-theme-preset="sage"] #background-layer[data-empty]::before { content: ''; position: absolute; pointer-events: none; }
+  html[data-theme-preset="paper"] #background-layer[data-empty]::before {
+    width: 70vmax; height: 70vmax; left: -15vmax; top: -25vmax; border-radius: 50%;
+    background: radial-gradient(closest-side, rgba(255, 210, 140, .45), rgba(255, 210, 140, 0));
+    animation: sun-wander 60s steps(120) infinite alternate;
+  }
+  @keyframes sun-wander { to { transform: translate(18vmax, 10vmax); } }
+  html[data-theme-preset="evening"] #background-layer[data-empty]::before {
+    inset: 0;
+    background-image:
+      radial-gradient(1.5px 1.5px at 12% 18%, rgba(255, 244, 220, .9), transparent),
+      radial-gradient(1px 1px at 27% 34%, rgba(255, 244, 220, .7), transparent),
+      radial-gradient(1.5px 1.5px at 46% 12%, rgba(255, 244, 220, .8), transparent),
+      radial-gradient(1px 1px at 63% 28%, rgba(255, 244, 220, .6), transparent),
+      radial-gradient(1.5px 1.5px at 78% 9%, rgba(255, 244, 220, .85), transparent),
+      radial-gradient(1px 1px at 89% 38%, rgba(255, 244, 220, .6), transparent),
+      radial-gradient(1px 1px at 8% 46%, rgba(255, 244, 220, .5), transparent),
+      radial-gradient(1.5px 1.5px at 55% 44%, rgba(255, 244, 220, .55), transparent);
+    animation: twinkle 7s steps(14) infinite alternate;
+  }
+  @keyframes twinkle { from { opacity: .45; } to { opacity: 1; } }
+  html[data-theme-preset="sage"] #background-layer[data-empty]::before {
+    inset: -10% -40%;
+    background:
+      radial-gradient(ellipse 40% 12% at 30% 62%, rgba(255, 255, 255, .55), transparent 70%),
+      radial-gradient(ellipse 35% 10% at 70% 30%, rgba(255, 255, 255, .45), transparent 70%),
+      radial-gradient(ellipse 30% 9% at 55% 85%, rgba(255, 255, 255, .4), transparent 70%);
+    animation: mist-drift 70s steps(140) infinite alternate;
+  }
+  @keyframes mist-drift { to { transform: translateX(14%); } }
+
+  /* ==================== 23. Appearance controls: language, theme gallery, motion ==================== */
+  .legend-icon { display: inline-block; width: 16px; height: 16px; vertical-align: -3px; margin-inline-end: 6px; color: var(--acc); }
+  .choice-pills { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 4px; border-radius: 24px; background: var(--track); }
+  .choice-pills button {
+    min-height: 40px; padding: 0 16px; border: none; border-radius: 20px; background: transparent; cursor: pointer;
+    color: var(--dim); font: inherit; font-size: 14px; font-weight: 600;
+    transition: color var(--t-med), background-color var(--t-med), box-shadow var(--t-med), transform var(--t-fast);
+  }
+  .choice-pills button[aria-checked="true"] { color: var(--text); background: var(--glass-active); box-shadow: var(--shadow-active); }
+  .theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+  .theme-swatch {
+    display: flex; flex-direction: column; gap: 6px; padding: 6px 6px 8px; border: 1px solid var(--edge); border-radius: 18px;
+    background: var(--glass-hi); color: var(--text); font: inherit; font-size: 12px; font-weight: 600; text-align: start; cursor: pointer;
+    transition: transform var(--t-fast), border-color var(--t-med), box-shadow var(--t-med);
+  }
+  .theme-swatch:hover { border-color: color-mix(in srgb, var(--acc) 55%, var(--edge)); }
+  .theme-swatch[aria-checked="true"] { border-color: var(--acc); box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc) 35%, transparent); }
+  .theme-swatch__preview { position: relative; height: 44px; border-radius: 12px; overflow: hidden; background: var(--sw-bg); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .06); }
+  .theme-swatch__preview::before { content: ''; position: absolute; inset: 9px 42% 9px 9px; border-radius: 7px; background: var(--sw-surface); }
+  .theme-swatch__preview::after {
+    content: ''; position: absolute; top: 50%; inset-inline-end: 10px; width: 12px; height: 12px; margin-top: -6px; border-radius: 50%;
+    background: var(--sw-accent); box-shadow: -16px 0 0 0 var(--sw-short), -32px 0 0 0 var(--sw-long);
+  }
+  [dir="rtl"] .theme-swatch__preview::before { inset: 9px 9px 9px 42%; }
+  [dir="rtl"] .theme-swatch__preview::after { box-shadow: 16px 0 0 0 var(--sw-short), 32px 0 0 0 var(--sw-long); }
+  .theme-swatch__name { padding: 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #settings-form .settings-subhint { margin: 8px 0 0; }
+
+  /* ==================== 24. Languages ====================
+     The page stays hidden for the moment it takes to apply a saved French/Arabic dictionary (assets/boot.js sets
+     this and the app clears it), so nobody sees English flash first. Arabic: no letter-spacing (it breaks the
+     joined script), and the few left/right-specific rules below are mirrored for right-to-left. */
+  html[data-i18n-pending] body { visibility: hidden; }
+  html[lang="ar"] body, html[lang="ar"] body * { letter-spacing: normal !important; }
+  /* The "العربية" choice uses the system font until Arabic is on, so English and French visitors never fetch Cairo. */
+  html:not([lang="ar"]) [data-lang="ar"] { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  input, textarea { unicode-bidi: plaintext; }
+  /* French and Arabic labels run longer: keep the stat values on one line and the timer modes on one row on phones. */
+  html:not([lang="en"]) #stats-dashboard .stat-tile__value { white-space: nowrap; font-size: clamp(22px, 7vw, 30px); }
+  [dir="rtl"] .live-users { margin-right: 0; margin-left: 4px; }
+  [dir="rtl"] .stat-tile, [dir="rtl"] .guide-card, [dir="rtl"] #profile-modal-edit label { text-align: right; }
+  [dir="rtl"] .ai-chat__messages { padding-right: 0; padding-left: 4px; }
+  [dir="rtl"] .ai-chat__form, [dir="rtl"] .chat-dialog__composer { padding: 4px 16px 4px 4px; }
+  [dir="rtl"] .lounge-chat__composer { padding: 4px 6px 4px 4px; }
+  [dir="rtl"] .chat-bubble--user, [dir="rtl"] .chat-dialog__message--me { border-bottom-right-radius: 18px; border-bottom-left-radius: 6px; }
+  [dir="rtl"] .chat-bubble--assistant, [dir="rtl"] .chat-bubble--error, [dir="rtl"] .chat-dialog__message--friend { border-bottom-left-radius: 18px; border-bottom-right-radius: 6px; }
+  [dir="rtl"] .ai-chat__form button::before, [dir="rtl"] .chat-dialog__composer .btn-primary::before, [dir="rtl"] .lounge-chat__send::before { transform: translate(-58%, -50%) scaleX(-1); }
+  [dir="rtl"] .leaderboard-item__count, [dir="rtl"] .lounge-voice-ctl__pct { text-align: left; }
+  [dir="rtl"] .notif-picker__badge { right: auto; left: 2px; }
+  [dir="rtl"] .notif-picker__menu { left: auto; right: 0; }
+  [dir="rtl"] .lounge-room-code { margin-right: 0; margin-left: 8px; }
+  [dir="rtl"] .lounge-ring__badges { right: auto; left: -4px; }
+  [dir="rtl"] .guide-card__play { left: auto; right: 12px; }
+  [dir="rtl"] .guide-card__time { right: auto; left: 10px; }
+  [dir="rtl"] .guide-dialog__title { margin-right: 0; margin-left: auto; }
+  @keyframes drawer-in-rtl { from { opacity: 0; transform: translateX(calc(var(--rise) * -3)); } to { opacity: 1; transform: none; } }
+  [dir="rtl"] .auth-password-field input { padding-right: 16px !important; padding-left: 46px !important; }
+  [dir="rtl"] .auth-password-toggle { right: auto; left: 4px; }
+  [dir="rtl"] #settings-form fieldset label:has(input[type="checkbox"]) input::after { left: auto; right: 3px; }
+  [dir="rtl"] #settings-form fieldset label:has(input[type="checkbox"]:checked) input::after { transform: translateX(-20px); }
+  [dir="rtl"] #media-panel { right: auto; left: clamp(12px, 3vw, 24px); }
+  @media (max-width: 480px) { [dir="rtl"] #media-panel { left: 12px; right: 12px; } }
+
+  /* ==================== 25. Pages, navigation and panels ====================
+     Four pages (Timer, Study, Progress, Social) plus Help. Each opens with the same .page-head: a title, one line of
+     description and, on the right, optional sub-tabs and a "?" that plays the page's guide. Under 768px the pages
+     live in the bottom tab bar, and every page keeps clear of it: bar + gap + the phone's safe area, plus the
+     floating row (mini-timer, Ask AI) that sits just above it. */
+  :root {
+    --tabbar-h: 64px; --tabbar-gap: 12px;
+    --tabbar-space: calc(var(--tabbar-h) + var(--tabbar-gap) + env(safe-area-inset-bottom, 0px));
+  }
+  .sr-only { position: absolute !important; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+  .skip-link {
+    position: absolute; inset-inline-start: 12px; top: -64px; z-index: 200; padding: 10px 16px; border-radius: var(--r-pill);
+    background: var(--surface); color: var(--text); font-weight: 700; text-decoration: none; box-shadow: var(--shadow);
+  }
+  .skip-link:focus { top: 12px; }
+
+  /* page header */
+  .page-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 12px 20px; margin: 6px 0 var(--space-5); }
+  .page-head__text { min-width: 0; }
+  #main .page-title { font-size: clamp(24px, 3.2vw, 32px); font-weight: 800; letter-spacing: -0.8px; line-height: 1.15; margin: 0; }
+  .page-desc { margin: 4px 0 0; color: var(--dim); font-size: 14.5px; line-height: 1.45; max-width: 62ch; }
+  .page-head__aside { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-inline-start: auto; }
+  .page-head__aside .settings-tabs { margin: 0; }
+  .page-help {
+    width: 36px; height: 36px; flex: none; display: inline-grid; place-items: center; box-sizing: border-box;
+    border-radius: 50%; border: 1px solid var(--edge); background: var(--glass-hi); color: var(--dim);
+    font: inherit; font-size: 15px; font-weight: 800; text-decoration: none; cursor: pointer;
+  }
+  .page-help:hover { color: var(--text); background: var(--glass-active); }
+  /* one card style */
+  .card { border-radius: var(--r-lg); padding: clamp(18px, 3vw, 24px); display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  #main .card > h3 { font-size: 17px; font-weight: 700; margin: 0; }
+
+  /* navigation */
+  .nav-link .icon, .bottom-tab .icon { width: 18px; height: 18px; }
+  .nav-badge {
+    min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; border-radius: 9px;
+    display: inline-grid; place-items: center; background: var(--acc); color: var(--on-acc);
+    font-size: 11px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums;
+  }
+  .nav-badge[hidden] { display: none; }
+  .bottom-tab .nav-badge { position: absolute; top: 3px; inset-inline-start: calc(50% + 4px); }
+  .settings-tabs [role="tab"] .nav-badge { margin-inline-start: 6px; }
+
+  /* header: notifications, settings, account */
+  .header-actions { gap: 2px; padding: 0 6px; }
+  .account-menu { position: relative; display: flex; }
+  .account-menu__panel {
+    position: absolute; inset-inline-end: 0; top: calc(100% + 10px); z-index: 1000; width: 268px; box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 2px; padding: 8px; border-radius: var(--r-lg); border: 1px solid var(--edge);
+    background: color-mix(in srgb, var(--surface) 96%, transparent);
+    backdrop-filter: var(--blur-pop); -webkit-backdrop-filter: var(--blur-pop); box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
+  }
+  .account-menu__panel[hidden] { display: none; }
+  .account-menu__who { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px 10px; min-width: 0; }
+  .account-menu__who strong { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .account-menu__who span { font-size: 12.5px; color: var(--dim); }
+  .account-menu__panel button[role^="menuitem"] {
+    display: flex; align-items: center; gap: 12px; width: 100%; min-height: 42px; padding: 0 12px; box-sizing: border-box;
+    border: none; border-radius: 14px; background: transparent; color: var(--text);
+    font: inherit; font-size: 14.5px; font-weight: 600; text-align: start; cursor: pointer;
+  }
+  .account-menu__panel button[role^="menuitem"][hidden] { display: none; }
+  .account-menu__panel button[role^="menuitem"] > span:not(.switch) { flex: 1; }
+  .account-menu__panel button[role^="menuitem"]:hover, .account-menu__panel [role^="menuitem"]:focus-visible { background: var(--track); }
+  .account-menu__panel .icon { width: 18px; height: 18px; color: var(--dim); }
+  .account-menu__sep { height: 1px; margin: 4px 8px; background: var(--track); }
+  .switch { width: 34px; height: 20px; flex: none; border-radius: 10px; background: var(--track); position: relative; transition: background-color var(--t-fast) ease; }
+  .switch::after {
+    content: ''; position: absolute; top: 3px; inset-inline-start: 3px; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--surface); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25); transition: transform var(--t-fast) var(--ease-calm);
+  }
+  [aria-checked="true"] > .switch { background: var(--short); }
+  [aria-checked="true"] > .switch::after { transform: translateX(14px); }
+  [dir="rtl"] [aria-checked="true"] > .switch::after { transform: translateX(-14px); }
+  .account-menu__legal { display: none; }
+
+  /* mini-timer and Ask AI float above the page */
+  .mini-timer {
+    position: fixed; z-index: 40; inset-inline-start: 24px; bottom: 24px;
+    display: flex; align-items: center; gap: 10px; padding: 6px; padding-inline-start: 16px; border-radius: var(--r-pill);
+  }
+  .mini-timer[hidden] { display: none; }
+  .mini-timer__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-pomodoro); flex: none; }
+  .mini-timer[data-mode="shortBreak"] .mini-timer__dot { background: var(--accent-shortBreak); }
+  .mini-timer[data-mode="longBreak"] .mini-timer__dot { background: var(--accent-longBreak); }
+  .mini-timer__open { display: flex; flex-direction: column; line-height: 1.15; min-width: 62px; color: var(--text); text-decoration: none; border-radius: 8px; }
+  .mini-timer__mode { font-size: 12px; font-weight: 600; color: var(--dim); }
+  .mini-timer__time { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
+  .mini-timer__btn { width: 40px; height: 40px; flex: none; display: grid; place-items: center; border: none; border-radius: 50%; background: var(--acc); color: var(--on-acc); cursor: pointer; }
+  .mini-timer__btn .icon { width: 16px; height: 16px; }
+  .ai-fab {
+    position: fixed; z-index: 40; inset-inline-end: 24px; bottom: 24px;
+    display: inline-flex; align-items: center; gap: 8px; height: 48px; padding: 0 20px 0 16px; border-radius: var(--r-pill);
+    border: 1px solid var(--edge); background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: var(--blur-pop); -webkit-backdrop-filter: var(--blur-pop); box-shadow: var(--shadow);
+    color: var(--text); font: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
+  }
+  .ai-fab[hidden] { display: none; }
+  .ai-fab .icon { color: var(--acc); }
+  .ai-fab[aria-expanded="true"] { background: var(--glass-active); }
+  .ai-panel { right: auto; inset-inline-end: 16px; }
+  .ai-panel[hidden] { display: none; }
+  .ai-panel__head { gap: 10px; margin-bottom: 12px; }
+  .ai-panel__head h2 { margin: 0; margin-inline-end: auto; }
+  #ai-panel #ai-chat { flex: 1; min-height: 0; padding: 0; border: none; border-radius: 0; background: none; box-shadow: none; display: flex; flex-direction: column; gap: 12px; }
+  #ai-panel .ai-chat__messages { flex: 1; min-height: 0; overflow-y: auto; }
+
+  /* one empty state, wherever an account is needed */
+  .empty-state { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; padding: clamp(28px, 6vw, 44px) 24px; border-radius: var(--r-lg); margin-bottom: var(--space-5); }
+  .empty-state[hidden] { display: none; }
+  .empty-state__icon { width: 56px; height: 56px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, var(--acc) 14%, transparent); color: var(--acc); }
+  .empty-state__icon .icon { width: 26px; height: 26px; }
+  .empty-state__text { margin: 0; max-width: 44ch; font-size: 15.5px; font-weight: 600; color: var(--text); }
+  .empty-state__actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+  .profile-cta { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px; border-radius: 20px; background: var(--glass-hi); text-align: center; }
+  .profile-cta[hidden] { display: none; }
+  .profile-cta p { margin: 0; font-weight: 600; }
+
+  /* Timer page: the timer and today's tasks side by side, stacked when narrow. Mode pills always on one line:
+     they shrink with the card (container units) rather than wrap. */
+  .timer-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(300px, 1fr); gap: var(--space-6); align-items: start; }
+  @media (max-width: 899px) { .timer-layout { grid-template-columns: minmax(0, 1fr); } }
+  .hero { container-type: inline-size; padding-inline: clamp(12px, 4vw, 40px); }
+  .timer-ring-wrap { width: min(420px, 78vw, 92cqi); height: min(420px, 78vw, 92cqi); }
+  .mode-tabs { flex-wrap: nowrap; max-width: 100%; box-sizing: border-box; }
+  .mode-tab {
+    flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-size: clamp(11px, 4.4cqi, 15px); padding: 0 clamp(6px, 2.6cqi, 20px);
+  }
+  #tasks h3 { font-size: 22px; font-weight: 800; letter-spacing: -0.6px; margin: 0; }
+
+  /* Progress */
+  #view-reports #stats-dashboard { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); margin-bottom: var(--space-5); }
+  .progress-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5); align-items: start; }
+  .progress-grid .week-card { grid-column: 1 / -1; }
+  .week-card .reports-summary { gap: 12px; }
+  .week-card .stat-tile { background: var(--glass-hi); padding: 16px 18px; border-radius: 20px; box-shadow: none; }
+  .week-card #reports-chart { padding: 8px 4px 0; border-radius: 0; background: none; box-shadow: none; border: none; }
+  .best-days .leaderboard-list { margin: 0; padding: 0; background: none; box-shadow: none; border: none; }
+  @media (max-width: 899px) { .progress-grid { grid-template-columns: minmax(0, 1fr); } }
+
+  /* Social */
+  #social-room, #social-friends { display: flex; flex-direction: column; gap: var(--space-5); }
+  #social-room[hidden], #social-friends[hidden] { display: none; }
+  .lounge-active-header__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  /* At the very bottom of a page, the footer leaves room for whatever floats over that corner. */
+  @media (min-width: 768px) {
+    body.has-ai-fab .site-footer, body.has-mini-timer .site-footer { padding-bottom: 88px; }
+  }
+
+  /* Help & guides */
+  .help-contact { margin: var(--space-5) 0 0; color: var(--dim); font-size: 14px; }
+  .help-contact a { color: var(--acc); font-weight: 600; }
+
+  /* Settings: a section list on the left (desktop), a full-screen sheet with all six sections visible (phones). */
+  .settings-header { display: flex; align-items: center; gap: 10px; padding: 18px 20px 14px 24px; border-bottom: 1px solid var(--track); }
+  .settings-saved { font-size: 12.5px; font-weight: 700; padding: 4px 10px; border-radius: var(--r-pill); color: var(--success); background: color-mix(in srgb, var(--success) 14%, transparent); }
+  .settings-saved.is-shown { animation: fade-in var(--t-med) ease both; }
+  .settings-saved[hidden] { display: none; }
+  .settings-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 210px minmax(0, 1fr); }
+  #settings-tablist.settings-nav {
+    flex-direction: column; align-items: stretch; gap: 2px; margin: 0; padding: 14px 10px 14px 16px;
+    border-radius: 0; background: none; overflow: visible; border-inline-end: 1px solid var(--track);
+  }
+  #settings-tablist.settings-nav [role="tab"] { justify-content: flex-start; text-align: start; height: auto; min-height: 42px; padding: 8px 14px; border-radius: 14px; white-space: normal; }
+  .settings-panels { overflow-y: auto; padding: 16px 24px 28px; min-height: 0; }
+  .settings-actions-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+  .settings-actions-row[hidden] { display: none; }
+  .settings-links { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 14px; font-size: 14px; }
+  .settings-links a { color: var(--acc); font-weight: 600; }
+  #settings .profile-privacy { margin: 0 0 20px; }
+
+  @media (max-width: 767px) {
+    main { padding-bottom: calc(var(--tabbar-space) + 76px); }
+    html { scroll-padding-bottom: calc(var(--tabbar-space) + 64px); }
+    :root { --consent-bottom: calc(var(--tabbar-space) + 8px); }
+    .site-footer { display: none; } /* its links live in the account menu on phones */
+    .account-menu__legal { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; padding: 8px 12px 4px; border-top: 1px solid var(--track); }
+    .account-menu__legal a { font-size: 13px; color: var(--dim); text-decoration: none; padding: 6px 0; }
+    .account-menu__panel { width: min(300px, calc(100vw - 24px)); max-height: calc(100dvh - 110px); overflow-y: auto; }
+    .mini-timer { inset-inline-start: 12px; bottom: calc(var(--tabbar-space) + 10px); }
+    .ai-fab { inset-inline-end: 12px; bottom: calc(var(--tabbar-space) + 10px); height: 44px; padding: 0 16px 0 12px; font-size: 14px; }
+    .ai-panel { top: auto; inset-inline: 0; bottom: 0; width: 100%; height: min(78dvh, 620px); border-radius: var(--r-lg) var(--r-lg) 0 0; padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--surface); } /* phones have no blur: a solid sheet */
+    #view-reports #stats-dashboard { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    dialog#settings { width: 100vw; height: 100dvh; max-width: 100vw; max-height: 100dvh; margin: 0; border-radius: 0; border: none; background: var(--surface); } /* a full page: nothing shows through */
+    .settings-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+    #settings-tablist.settings-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 12px 16px; border-inline-end: none; border-bottom: 1px solid var(--track); }
+    #settings-tablist.settings-nav [role="tab"] { justify-content: center; text-align: center; font-size: 13px; padding: 6px 8px; min-height: 40px; }
+    .settings-panels { padding: 16px 16px 28px; }
+  }

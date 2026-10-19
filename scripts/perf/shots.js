@@ -33,6 +33,7 @@ async function shot(page, name) { await page.addStyleTag({ content: HIDE_DYNAMIC
   await page.evaluate(() => UI.selectView('leaderboard')); await settle(page, 600); await shot(page, '04-leaderboard');
   await page.evaluate(() => UI.selectView('lounge')); await settle(page, 600); await shot(page, '05-lounge');
   await page.evaluate(() => UI.selectView('guides')); await settle(page, 1200); await shot(page, '06-guides');
+  await page.evaluate(() => UI.selectView('methods')); await page.waitForSelector('.sm-hub'); await settle(page, 600); await shot(page, '06b-methods');
   await page.evaluate(() => UI.selectView('dashboard'));
   for (const tab of ['timer', 'background', 'music', 'appearance', 'ai']) {
     await page.evaluate((t) => { UI.openSettings(); UI.selectSettingsTab(t); }, tab); await settle(page, 500); await shot(page, `07-settings-${tab}`);

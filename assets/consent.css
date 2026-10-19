@@ -1,16 +1,23 @@
 /* Cookie banner + shared footer. Uses the site's Liquid Glass tokens (--glass-pop, --edge, --acc ...); the
    fallbacks only matter on pages that don't define them. */
+/* A slim bar along the bottom: one line of text, then Manage / Reject / Accept. Pages with a bottom tab bar lift
+   it above the bar through --consent-bottom (app.css). */
 .cookie-banner {
   position: fixed;
-  left: 50%;
-  bottom: 16px;
-  transform: translateX(-50%);
+  left: 12px;
+  right: 12px;
+  bottom: var(--consent-bottom, 12px);
   z-index: 100;
-  width: min(680px, calc(100vw - 24px));
+  max-width: 1080px;
+  margin: 0 auto;
   max-height: calc(100vh - 32px);
   overflow-y: auto;
   box-sizing: border-box;
-  padding: 20px 22px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 10px 10px 10px 20px;
   border-radius: var(--r-lg, 30px);
   color: var(--text, #14100c);
   background: var(--glass-pop, rgba(255, 255, 255, 0.78));
@@ -25,10 +32,10 @@
 @supports not (backdrop-filter: blur(1px)) {
   .cookie-banner { background: var(--base, var(--bg, #fdfbf8)); }
 }
-.cookie-banner__title { margin: 0 0 6px; font-size: 17px; font-weight: 800; letter-spacing: -0.01em; }
-.cookie-banner__text { margin: 0 0 14px; color: var(--dim, var(--text-muted, #6b625c)); }
+.cookie-banner__title { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } /* named for screen readers; the bar stays one line */
+.cookie-banner__text { margin: 0; flex: 1 1 340px; color: var(--dim, var(--text-muted, #6b625c)); }
 .cookie-banner__text a { color: var(--acc, #ff5533); font-weight: 600; }
-.cookie-banner__actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+.cookie-banner__actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-inline-start: auto; }
 .cookie-btn {
   font: inherit;
   font-weight: 600;
@@ -47,41 +54,58 @@
 /* Accept and Reject carry equal visual weight on purpose; "primary" only colours the confirming action. */
 .cookie-btn--primary { background: var(--acc, #ff5533); color: var(--on-acc, #fff); border: none; box-shadow: 0 10px 24px color-mix(in srgb, var(--acc, #ff5533) 33%, transparent); }
 .cookie-btn--primary:hover { background: var(--acc, #ff5533); filter: brightness(1.05); }
-.cookie-banner__manage { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--track, rgba(0, 0, 0, 0.1)); display: flex; flex-direction: column; gap: 14px; }
+/* Reject and Accept: the same button, so neither is the "easy" choice. Manage is a plain text button. */
+.cookie-btn--choice { min-width: 104px; background: var(--glass-active, rgba(255, 255, 255, 0.92)); border-color: color-mix(in srgb, var(--text, #14100c) 24%, transparent); }
+.cookie-btn--quiet { background: none; border-color: transparent; padding-inline: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.cookie-btn--quiet:hover { background: var(--glass-hi, rgba(255, 255, 255, 0.66)); transform: none; }
+.cookie-banner__manage { flex-basis: 100%; margin-top: 4px; padding-top: 14px; border-top: 1px solid var(--track, rgba(0, 0, 0, 0.1)); display: flex; flex-direction: column; gap: 14px; }
 .cookie-banner__manage[hidden] { display: none; }
 .cookie-row { display: flex; gap: 12px; align-items: flex-start; cursor: pointer; }
 .cookie-row input { width: 20px; height: 20px; margin: 2px 0 0; flex-shrink: 0; accent-color: var(--acc, #ff5533); }
 .cookie-row strong { display: block; }
 .cookie-row__desc { display: block; color: var(--dim, var(--text-muted, #6b625c)); font-size: 13px; }
 @media (max-width: 520px) {
-  .cookie-banner { bottom: 8px; padding: 16px; }
+  .cookie-banner { padding: 14px; }
   .cookie-banner__actions { justify-content: stretch; }
   .cookie-banner__actions .cookie-btn { flex: 1 1 auto; }
 }
 @media (prefers-reduced-motion: reduce) { .cookie-btn { transition: none; } }
 
-/* Footer shared by the app and the legal pages. */
+/* Footer shared by the app and the legal pages: one glass card with three groups -- who we are, the policies
+   (quiet text links) and the two things you can do (pill buttons). A row on wide screens, centred and stacked on
+   phones. Logical properties, so it mirrors for right-to-left. */
 .site-footer {
   max-width: 1280px;
   margin: 0 auto;
   padding: 8px clamp(16px, 4vw, 32px) 28px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--dim, var(--text-muted, #6b625c));
 }
-.site-footer a, .site-footer button {
-  font: inherit;
-  color: inherit;
-  background: none;
-  border: none;
-  padding: 6px 2px;
-  cursor: pointer;
-  text-decoration: none;
-  border-radius: 8px;
+.site-footer__inner {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px clamp(16px, 3vw, 32px);
+  padding: 18px clamp(18px, 3vw, 28px); border-radius: var(--r-xl, 32px);
 }
-.site-footer a:hover, .site-footer button:hover { color: var(--text, #14100c); text-decoration: underline; }
+.site-footer__brand { display: flex; align-items: center; gap: 12px; margin-inline-end: auto; min-width: 0; }
+.site-footer__mark { width: 34px; height: 34px; flex: none; color: var(--acc, #ff5533); }
+.site-footer__mark svg { display: block; width: 100%; height: 100%; }
+.site-footer__id { display: flex; flex-direction: column; line-height: 1.35; }
+.site-footer__id strong { color: var(--text, #14100c); font-size: 15px; font-weight: 700; }
+.site-footer__id span { font-size: 13px; }
+.site-footer__links { display: flex; flex-wrap: wrap; align-items: center; gap: 0 20px; }
+.site-footer__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.site-footer a, .site-footer button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; text-decoration: none; }
+.site-footer__links a { padding: 10px 2px; border-radius: 8px; }
+.site-footer__links a:hover { color: var(--text, #14100c); text-decoration: underline; text-underline-offset: 3px; }
+.site-footer__actions a, .site-footer__actions button {
+  display: inline-flex; align-items: center; min-height: 40px; padding: 0 16px; border-radius: var(--r-pill, 999px);
+  border: 1px solid var(--edge, rgba(20, 16, 12, 0.1)); background: var(--glass-hi, rgba(255, 255, 255, 0.7));
+  color: var(--text, #14100c); font-size: 13px; font-weight: 600;
+}
+.site-footer__actions a:hover, .site-footer__actions button:hover { background: var(--glass-active, #ffffff); }
 .site-footer a:focus-visible, .site-footer button:focus-visible { outline: 2px solid var(--acc, #ff5533); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .site-footer__inner { flex-direction: column; text-align: center; gap: 14px; padding: 22px 18px; }
+  .site-footer__brand { margin-inline-end: 0; flex-direction: column; gap: 8px; }
+  .site-footer__links { justify-content: center; gap: 0 18px; }
+  .site-footer__actions { justify-content: center; }
+}

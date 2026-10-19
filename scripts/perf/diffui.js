@@ -72,7 +72,7 @@ const errors = [];
 
   // --- settings
   await click('#settings-btn'); await snap('settings open');
-  for (const t of ['timer', 'background', 'music', 'appearance', 'ai']) { await ev((tab) => UI.selectSettingsTab(tab), t); await snap('settings tab ' + t); }
+  for (const t of ['timer', 'music', 'background', 'appearance', 'ai', 'account']) { await ev((tab) => UI.selectSettingsTab(tab), t); await snap('settings tab ' + t); }
   await ev(() => UI.selectSettingsTab('timer'));
   await ev(() => { const i = document.querySelector('#settings-form input[type=number]'); i.value = '30'; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); });
   await snap('pomodoro length 30');
@@ -91,7 +91,7 @@ const errors = [];
   for (const v of ['reports', 'leaderboard', 'lounge', 'guides', 'dashboard']) { await ev((view) => UI.selectView(view), v); await sleep(500); await snap('view ' + v); }
 
   // --- profile edit (guest)
-  await click('#user-avatar'); await snap('profile open');
+  await click('#user-avatar'); await click('[data-account="profile"]'); await snap('profile open');
   await click('#profile-modal-edit-btn'); await type('#profile-edit-username', 'Tester Tim'); await type('#profile-edit-bio', 'I like focus.');
   await click('#profile-edit-save'); await sleep(400); await snap('profile saved');
 
@@ -104,16 +104,15 @@ const errors = [];
   await click('#auth-tab-signup');
   await type('#auth-signup-username', 'diff_tester'); await type('#auth-signup-email', 'diff@example.com'); await type('#auth-signup-password', 'correct-horse-battery');
   await click('#auth-signup-consent'); await sleep(3500); await click('#auth-signup-submit'); await sleep(2500); await snap('registered');
-  await click('#friends-drawer-toggle'); await snap('friends drawer');
+  await ev(() => Router.go('/social/friends')); await sleep(500); await snap('social friends');
   await type('#friend-search-input', 'zz'); await ev(() => document.getElementById('friend-search-form').requestSubmit()); await sleep(600); await snap('friend search');
-  await ev(() => document.getElementById('friends-drawer-close').click());
-  await ev(() => UI.selectView('lounge')); await sleep(500);
+  await ev(() => UI.selectSocialSection('room')); await sleep(500);
   const createBtn = await ev(() => { const b = Array.from(document.querySelectorAll('#view-lounge button')).find((x) => /create/i.test(x.textContent)); if (b) { b.click(); return b.textContent.trim(); } return null; });
   log.push({ label: 'clicked create room', createBtn }); await sleep(1200); await snap('room created');
   if (await ev(() => !!document.getElementById('lounge-chat-input'))) { await type('#lounge-chat-input', 'hello room'); await page.keyboard.press('Enter'); await sleep(900); await snap('room chat message'); }
   await ev(() => { const b = Array.from(document.querySelectorAll('#view-lounge button')).find((x) => /leave/i.test(x.textContent)); if (b) b.click(); }); await sleep(800); await snap('left room');
   await ev(() => UI.selectView('leaderboard')); await sleep(800); await snap('leaderboard (signed in)');
-  await click('#user-avatar'); await sleep(300); await snap('profile (signed in)');
+  await click('#user-avatar'); await click('[data-account="profile"]'); await sleep(300); await snap('profile (signed in)');
   await ev(() => document.getElementById('profile-modal').close());
   await ev(() => Auth.logout()); await sleep(600); await snap('logged out');
 

@@ -251,6 +251,148 @@ const Storage = {
     } catch { return []; }
   },
   saveDailyHistory(history) { safeSet('dailyHistory', history.slice(-DAILY_HISTORY_MAX)); },
+
+  // Language and motion (Appearance). assets/boot.js reads them before the first paint too.
+  loadUIPrefs() {
+    const raw = safeParse('uiPrefs') || {};
+    return { lang: ['en', 'fr', 'ar'].includes(raw.lang) ? raw.lang : 'en', motion: ['reduced', 'off'].includes(raw.motion) ? raw.motion : '' };
+  },
+  saveUIPrefs(patch) { safeSet('uiPrefs', { ...Storage.loadUIPrefs(), ...patch }); },
+};
+
+/* ============================== I18n (English, French, Arabic) ==============================
+   English is written directly in the page and the code, and doubles as the key. assets/i18n-fr.js and i18n-ar.js map
+   each English string to its translation (`strings`), plus `patterns` for text with a number or a name in it.
+   translateTree() rewrites the text and the placeholder / aria-label / title / alt of everything in the page that
+   matches, and a MutationObserver does the same for whatever the app renders afterwards -- so new UI text only needs
+   a dictionary entry, not a change at every call site. Anything inside [data-i18n-skip] (task names, chat messages,
+   flashcards, notes...) is never touched, and nothing is ever sent anywhere to be translated. The few places that
+   compare text they wrote themselves (the timer) call I18n.t() directly. Switching language never reloads the page,
+   so a running timer and everything on screen carry on. assets/boot.js requests a saved language's dictionary
+   before the first paint and keeps the page hidden until it has been applied. */
+const I18n = {
+  LANGS: {
+    en: { dir: 'ltr', locale: 'en' },
+    fr: { dir: 'ltr', locale: 'fr' },
+    ar: { dir: 'rtl', locale: 'ar-u-nu-latn' }, // Arabic day and month names, with Western digits
+  },
+  ATTRS: ['placeholder', 'aria-label', 'title', 'alt'],
+  SKIP: 'script, style, [data-i18n-skip]', // and a textarea's own text (its placeholder is still translated)
+  lang: 'en',
+  dict: null,
+  _cache: new Map(),
+  _texts: new WeakMap(), // Text node -> the English it showed before it was translated
+  _attrs: new WeakMap(), // Element -> { attribute: English }
+  _observer: null,
+  _waiting: null,
+
+  locale() { return I18n.LANGS[I18n.lang].locale; },
+  /** The current language's version of an English UI string (the string itself when there's none). */
+  t(s) {
+    if (!I18n.dict || typeof s !== 'string') return s;
+    const key = s.trim();
+    if (!/[A-Za-z]/.test(key)) return s; // numbers, times, emoji: nothing to translate
+    let out = I18n._cache.get(key);
+    if (out === undefined) {
+      out = Object.prototype.hasOwnProperty.call(I18n.dict.strings, key) ? I18n.dict.strings[key] : null;
+      if (out === null) for (const [re, to] of I18n.dict.patterns) if (re.test(key)) { out = key.replace(re, to); break; }
+      if (out === null && key.includes(' · ')) { // "Lv. 3 · Novice", "12 cards · 5 to study now": part by part
+        const parts = key.split(' · ').map((p) => I18n.t(p));
+        if (parts.join(' · ') !== key) out = parts.join(' · ');
+      }
+      if (I18n._cache.size > 3000) I18n._cache.clear();
+      I18n._cache.set(key, out);
+    }
+    if (out === null) return s;
+    return key === s ? out : s.replace(key, out);
+  },
+  _skipped(node) { const el = node.nodeType === 1 ? node : node.parentElement; return !el || !!el.closest(I18n.SKIP) || (node.nodeType === 3 && el.tagName === 'TEXTAREA'); },
+  _text(node) {
+    const english = I18n._texts.has(node) ? I18n._texts.get(node) : node.data;
+    const shown = I18n.t(english);
+    if (shown === node.data) return;
+    if (shown === english) I18n._texts.delete(node); else I18n._texts.set(node, english);
+    node.data = shown;
+  },
+  _attr(el, name) {
+    if (!el.hasAttribute(name)) return;
+    let saved = I18n._attrs.get(el);
+    const english = saved && name in saved ? saved[name] : el.getAttribute(name);
+    const shown = I18n.t(english);
+    if (shown === el.getAttribute(name)) return;
+    if (!saved) { saved = {}; I18n._attrs.set(el, saved); }
+    if (shown === english) delete saved[name]; else saved[name] = english;
+    el.setAttribute(name, shown);
+  },
+  /** Translates (or, back in English, restores) a node and everything under it. */
+  translateTree(root) {
+    if (!root || I18n._skipped(root)) return;
+    if (root.nodeType === 3) { I18n._text(root); return; }
+    if (root.nodeType !== 1) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: (n) => (n.nodeType === 1 && n.matches(I18n.SKIP) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    });
+    for (let n = root; n; n = walker.nextNode()) {
+      if (n.nodeType === 3) { if (n.data.trim() && n.parentNode.nodeName !== 'TEXTAREA') I18n._text(n); } else for (const a of I18n.ATTRS) I18n._attr(n, a);
+    }
+  },
+  _watch(on) {
+    if (on && !I18n._observer) {
+      I18n._observer = new MutationObserver((records) => {
+        for (const r of records) {
+          if (r.type === 'childList') r.addedNodes.forEach((n) => I18n.translateTree(n));
+          else if (I18n._skipped(r.target)) continue;
+          else if (r.type === 'characterData') { I18n._texts.delete(r.target); I18n._text(r.target); }
+          else { const saved = I18n._attrs.get(r.target); if (saved) delete saved[r.attributeName]; I18n._attr(r.target, r.attributeName); }
+        }
+        I18n._observer.takeRecords(); // the rewrites just made above
+      });
+      I18n._observer.observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: I18n.ATTRS });
+    } else if (!on && I18n._observer) {
+      I18n._observer.disconnect();
+      I18n._observer = null;
+    }
+  },
+  _activate(lang) {
+    I18n.lang = lang;
+    I18n.dict = lang === 'en' ? null : window.PomoLang[lang];
+    I18n._cache.clear();
+    const root = document.documentElement;
+    root.lang = lang;
+    root.dir = I18n.LANGS[lang].dir;
+    I18n.translateTree(document.body);
+    I18n._watch(!!I18n.dict);
+    if (I18n._observer) I18n._observer.takeRecords();
+    UI.onLanguageChange();
+    root.removeAttribute('data-i18n-pending');
+  },
+  _load(lang) {
+    return new Promise((resolve, reject) => {
+      const src = document.documentElement.getAttribute(`data-i18n-${lang}-src`);
+      if (!src) { reject(new Error('no dictionary')); return; }
+      const script = document.createElement('script');
+      script.src = src;
+      script.onload = () => (window.PomoLang && window.PomoLang[lang] ? resolve() : reject(new Error('empty dictionary')));
+      script.onerror = () => { script.remove(); reject(new Error('dictionary failed to load')); };
+      document.head.appendChild(script);
+    });
+  },
+  setLanguage(lang) {
+    if (!I18n.LANGS[lang] || (lang === I18n.lang && !I18n._waiting)) return;
+    Storage.saveUIPrefs({ lang });
+    I18n._waiting = null;
+    const ready = lang === 'en' || (window.PomoLang && window.PomoLang[lang]) ? Promise.resolve() : I18n._load(lang);
+    ready.then(() => UI.withViewTransition(() => I18n._activate(lang)))
+      .catch(() => showToast(I18n.t('Couldn’t load that language. Check your connection and try again.'), 'error'));
+  },
+  init() {
+    const { lang } = Storage.loadUIPrefs();
+    if (lang === 'en') return;
+    if (window.PomoLang && window.PomoLang[lang]) I18n._activate(lang);
+    else I18n._waiting = lang; // boot.js already asked for it; loaded() takes over when it arrives
+  },
+  /** Called by assets/i18n-*.js as soon as its dictionary is defined. */
+  loaded(lang) { if (I18n._waiting === lang) { I18n._waiting = null; I18n._activate(lang); } },
 };
 
 /* ============================== Sound ============================== */
@@ -473,7 +615,7 @@ const Timer = {
       const tabIndex = active ? 0 : -1;
       if (tab.tabIndex !== tabIndex) tab.tabIndex = tabIndex;
     });
-    const modeLabel = Timer.MODE_LABELS[state.timer.mode].replace('!', '');
+    const modeLabel = I18n.t(Timer.MODE_LABELS[state.timer.mode].replace('!', ''));
     Timer._setText(document.getElementById('timer-mode-name'), modeLabel);
 
     const ring = document.getElementById('timer-ring-fill');
@@ -505,7 +647,7 @@ const Timer = {
     if (endsAtEl) {
       if (state.timer.running) {
         const end = new Date(Date.now() + state.timer.remainingMs);
-        Timer._setText(endsAtEl, `Ends at ${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`);
+        Timer._setText(endsAtEl, I18n.t(`Ends at ${String(end.getHours()).padStart(2, '0')}:${String(end.getMinutes()).padStart(2, '0')}`));
       } else {
         Timer._setText(endsAtEl, '');
       }
@@ -524,13 +666,14 @@ const Timer = {
         }
         Timer._dotsPos = posInCycle;
       }
-      Timer._setText(sessionLabel, `Session ${posInCycle + 1} · long break after 4`);
+      Timer._setText(sessionLabel, I18n.t(`Session ${posInCycle + 1} · long break after 4`));
     }
 
     const title = state.timer.running
       ? `${Timer.formatTime(state.timer.remainingMs)} · ${modeLabel} — Pomodoro`
-      : 'Pomodoro App';
+      : Router.title();
     if (document.title !== title) document.title = title;
+    UI.renderMiniTimer();
   },
 };
 
@@ -1313,7 +1456,7 @@ const Leaderboard = {
       avatar.className = 'podium-card__avatar';
       Avatars.render(avatar, entry.user);
       const name = document.createElement('div');
-      name.className = 'podium-card__name';
+      name.className = 'podium-card__name'; name.dataset.i18nSkip = ''; // a username
       name.textContent = entry.user.displayName;
       const h = Math.floor(entry.totalMinutes / 60), m = entry.totalMinutes % 60;
       const hrs = document.createElement('div');
@@ -1340,7 +1483,7 @@ const Leaderboard = {
       const body = document.createElement('span');
       body.className = 'leaderboard-item__body';
       const name = document.createElement('span');
-      name.className = 'leaderboard-item__date';
+      name.className = 'leaderboard-item__date'; name.dataset.i18nSkip = ''; // a username
       name.textContent = entry.user.displayName;
       const bar = document.createElement('span');
       bar.className = 'leaderboard-item__bar';
@@ -2261,16 +2404,21 @@ const Theme = {
     forest:     { bg:'#f1f6ee', surface:'#ffffff', text:'#1e2b1a', textMuted:'#5c6e54', border:'#1e2b1a', primary:'#3f7d47', accentPomodoro:'#c9622f', accentShortBreak:'#4c9a5b', accentLongBreak:'#5a7a3f', success:'#2f9e57', warning:'#c98a1f', danger:'#c0392b' },
     sunset:     { bg:'#1c1420', surface:'#2a1f30', text:'#fbeee6', textMuted:'#c9a9b6', border:'#fbeee6', primary:'#ff7a59', accentPomodoro:'#ff7a59', accentShortBreak:'#f3a24c', accentLongBreak:'#c65b9e', success:'#4ade80', warning:'#facc15', danger:'#f87171' },
     lavender:   { bg:'#f6f2fb', surface:'#ffffff', text:'#2f2540', textMuted:'#7c6f92', border:'#2f2540', primary:'#8b6fd6', accentPomodoro:'#d67ba0', accentShortBreak:'#7bb7c9', accentLongBreak:'#8b6fd6', success:'#2f9e57', warning:'#c98a1f', danger:'#c0392b' },
-    minimal:    { bg:'#fafafa', surface:'#ffffff', text:'#1a1a1a', textMuted:'#7a7a7a', border:'#1a1a1a', primary:'#1a1a1a', accentPomodoro:'#4a4a4a', accentShortBreak:'#6b6b6b', accentLongBreak:'#2e2e2e', success:'#2f9e57', warning:'#c98a1f', danger:'#c0392b' },
+    minimal:    { bg:'#fafafa', surface:'#ffffff', text:'#1a1a1a', textMuted:'#737373', border:'#1a1a1a', primary:'#1a1a1a', accentPomodoro:'#4a4a4a', accentShortBreak:'#6b6b6b', accentLongBreak:'#2e2e2e', success:'#2f9e57', warning:'#c98a1f', danger:'#c0392b' },
     cyberpunk:  { bg:'#0a0a12', surface:'#15121f', text:'#f2f0ff', textMuted:'#9d94c9', border:'#f2f0ff', primary:'#ff2e9a', accentPomodoro:'#ff2e9a', accentShortBreak:'#00f0ff', accentLongBreak:'#a742ff', success:'#39ff8f', warning:'#ffe157', danger:'#ff4d6a' },
-    warm:       { bg:'#fbf1e6', surface:'#ffffff', text:'#3a2a1c', textMuted:'#8a7360', border:'#3a2a1c', primary:'#c9793a', accentPomodoro:'#c9793a', accentShortBreak:'#a68a4c', accentLongBreak:'#8c5a3c', success:'#2f9e57', warning:'#c98a1f', danger:'#c0392b' },
+    warm:       { bg:'#fbf1e6', surface:'#ffffff', text:'#3a2a1c', textMuted:'#816b59', border:'#3a2a1c', primary:'#c9793a', accentPomodoro:'#c9793a', accentShortBreak:'#a68a4c', accentLongBreak:'#8c5a3c', success:'#2f9e57', warning:'#c98a1f', danger:'#c0392b' },
     monochrome: { bg:'#ffffff', surface:'#f2f2f2', text:'#000000', textMuted:'#666666', border:'#000000', primary:'#000000', accentPomodoro:'#333333', accentShortBreak:'#555555', accentLongBreak:'#111111', success:'#2f9e57', warning:'#c98a1f', danger:'#c0392b' },
     apex:       { bg:'#0c0c0e', surface:'#17171a', text:'#f5f5f6', textMuted:'#9a9aa0', border:'#f5f5f6', primary:'#e10600', accentPomodoro:'#e10600', accentShortBreak:'#c9cdd6', accentLongBreak:'#7c8592', success:'#3ddc84', warning:'#f5c94d', danger:'#e10600' },
     lofi:       { bg:'#332a3d', surface:'#3f3450', text:'#f7ece8', textMuted:'#cbb6c9', border:'#f7ece8', primary:'#e9a6a0', accentPomodoro:'#e9a6a0', accentShortBreak:'#9fc9c3', accentLongBreak:'#b79bd1', success:'#8fd6b4', warning:'#eecb8f', danger:'#e88f8a' },
-    coastal:    { bg:'#eef6f7', surface:'#ffffff', text:'#123044', textMuted:'#5c7d8a', border:'#123044', primary:'#1c6e8c', accentPomodoro:'#d98a5f', accentShortBreak:'#4fb3a9', accentLongBreak:'#2c4a6e', success:'#2f9e78', warning:'#c98a1f', danger:'#c0392b' },
+    coastal:    { bg:'#eef6f7', surface:'#ffffff', text:'#123044', textMuted:'#547582', border:'#123044', primary:'#1c6e8c', accentPomodoro:'#d98a5f', accentShortBreak:'#4fb3a9', accentLongBreak:'#2c4a6e', success:'#2f9e78', warning:'#c98a1f', danger:'#c0392b' },
     terminal:   { bg:'#050506', surface:'#0c0e0d', text:'#39ff9c', textMuted:'#4d9d6f', border:'#39ff9c', primary:'#39ff9c', accentPomodoro:'#39ff9c', accentShortBreak:'#22d3ee', accentLongBreak:'#c084fc', success:'#39ff9c', warning:'#f5d90a', danger:'#ff5f56' },
     deepmesh:   { bg:'#0b1026', surface:'#131a33', text:'#eef1ff', textMuted:'#9aa3c9', border:'#eef1ff', primary:'#6c63ff', accentPomodoro:'#6c63ff', accentShortBreak:'#3fd0c9', accentLongBreak:'#a463f2', success:'#3fd0c9', warning:'#f5c94d', danger:'#ff6b81' },
+    // Calmer, gently animated ones (backgrounds in app.css, section 22). Text keeps at least 6:1 on its surface.
+    paper:      { bg:'#f6efe2', surface:'#fffaf0', text:'#2b2118', textMuted:'#6e5d4b', border:'#2b2118', primary:'#b5532f', accentPomodoro:'#b5532f', accentShortBreak:'#4f7f6b', accentLongBreak:'#6b5b95', success:'#4f7f52', warning:'#a6741f', danger:'#a63d32' },
+    evening:    { bg:'#1b1a2b', surface:'#262438', text:'#efe9df', textMuted:'#b8afc8', border:'#efe9df', primary:'#f2a96d', accentPomodoro:'#f2a96d', accentShortBreak:'#8fcfb8', accentLongBreak:'#c2a6ef', success:'#8fd6a2', warning:'#e9c46a', danger:'#f08b80' },
+    sage:       { bg:'#eef1ea', surface:'#fbfcf8', text:'#1f2a23', textMuted:'#56655a', border:'#1f2a23', primary:'#4f7a5f', accentPomodoro:'#9a5a3a', accentShortBreak:'#4f7a5f', accentLongBreak:'#3f7484', success:'#3f7a4f', warning:'#9a6b1f', danger:'#a8453a' },
   },
+  NAMES: { default: 'Default', midnight: 'Midnight', ocean: 'Ocean', forest: 'Forest', sunset: 'Sunset', lavender: 'Lavender', minimal: 'Minimal', cyberpunk: 'Cyberpunk', warm: 'Warm', monochrome: 'Monochrome', apex: 'Apex Performance', lofi: 'Lo-Fi Nostalgia', coastal: 'Coastal Morning', terminal: 'Developer Terminal', deepmesh: 'Deep Mesh (Animated)', paper: 'Warm Paper', evening: 'Soft Evening', sage: 'Sage Mist' },
 
   apply(colors) {
     const root = document.documentElement.style;
@@ -2294,6 +2442,11 @@ const Theme = {
     // tints dark-and-muted instead of rendering as a bright white-pastel patch
     // -- e.g. the #background-layer glow and the decorative overlays that use
     // var(--accent-soft) directly, which is where that patch was visible.
+    // Text on accent-coloured buttons: white, unless the accent is so light that white drops below 3:1 (boot.js too).
+    const onAccent = (hex) => (Theme.contrastRatio('#ffffff', hex) >= 3 ? '#ffffff' : '#14100c');
+    root.setProperty('--on-accent-pomodoro', onAccent(colors.accentPomodoro));
+    root.setProperty('--on-accent-shortBreak', onAccent(colors.accentShortBreak));
+    root.setProperty('--on-accent-longBreak', onAccent(colors.accentLongBreak));
     root.setProperty('--accent-soft-pomodoro', mix(colors.accentPomodoro, colors.bg, 0.85));
     root.setProperty('--accent-soft-shortBreak', mix(colors.accentShortBreak, colors.bg, 0.85));
     root.setProperty('--accent-soft-longBreak', mix(colors.accentLongBreak, colors.bg, 0.85));
@@ -2371,9 +2524,75 @@ const Theme = {
   },
 };
 
+/* ============================== Router (one address per page) ==============================
+   Every page has its own URL -- /timer, /study (+ /study/<tool>), /progress (+ /progress/leaderboard), /social
+   (+ /social/friends) and /help -- kept with the History API, so back/forward, refresh and shared links all land on
+   the same page. server.js answers these paths with this same index.html; "/" becomes /timer. Links to pages are
+   <a data-route href="...">: a plain click stays in the app, a middle/ctrl-click opens a new tab as usual. */
+const Router = {
+  ROUTES: {
+    '/timer': { view: 'dashboard' },
+    '/study': { view: 'methods', sub: 'hub' },
+    '/study/active-recall': { view: 'methods', sub: 'recall' },
+    '/study/feynman': { view: 'methods', sub: 'feynman' },
+    '/study/blurting': { view: 'methods', sub: 'blurting' },
+    '/study/flashcards': { view: 'methods', sub: 'flash' },
+    '/progress': { view: 'reports' },
+    '/progress/leaderboard': { view: 'leaderboard' },
+    '/social': { view: 'lounge', sub: 'room' },
+    '/social/friends': { view: 'lounge', sub: 'friends' },
+    '/help': { view: 'guides' },
+  },
+  TITLES: { dashboard: 'Timer', methods: 'Study', reports: 'Progress', leaderboard: 'Progress', lounge: 'Social', guides: 'Help & guides' },
+  STUDY_PATHS: { hub: '/study', recall: '/study/active-recall', feynman: '/study/feynman', blurting: '/study/blurting', flash: '/study/flashcards' },
+  _applying: false,
+  /** The address of the page on screen. */
+  path() {
+    const v = state.currentView;
+    if (v === 'methods') return Router.STUDY_PATHS[UI._studyPage] || '/study';
+    if (v === 'lounge') return UI._socialSection === 'friends' ? '/social/friends' : '/social';
+    return { dashboard: '/timer', reports: '/progress', leaderboard: '/progress/leaderboard', guides: '/help' }[v] || '/timer';
+  },
+  title() { return `${I18n.t(Router.TITLES[state.currentView] || 'Timer')} · Pomodoro`; },
+  /** After the app changed page: record it in the address bar (not while replaying an address). */
+  sync() {
+    if (Router._applying) return;
+    const path = Router.path();
+    if (location.pathname !== path) history.pushState(null, '', path);
+    if (!state.timer.running) document.title = Router.title();
+  },
+  /** The address -> the page. Unknown or "/" -> /timer (the query string is kept, e.g. for sign-in results). */
+  apply() {
+    const route = Router.ROUTES[location.pathname.replace(/\/+$/, '')];
+    if (!route) { history.replaceState(null, '', '/timer' + location.search + location.hash); return Router.apply(); }
+    Router._applying = true;
+    try {
+      if (route.view === 'lounge') UI._socialSection = route.sub;
+      if (route.view === 'methods') UI._studyPage = route.sub;
+      UI.selectView(route.view);
+    } finally { Router._applying = false; }
+    if (!state.timer.running) document.title = Router.title();
+  },
+  go(path) {
+    if (location.pathname !== path) history.pushState(null, '', path);
+    UI._focusMain = true;
+    Router.apply();
+  },
+  init() {
+    window.addEventListener('popstate', () => Router.apply());
+    document.addEventListener('click', (e) => {
+      const a = e.target.closest('a[data-route]');
+      if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      Router.go(a.getAttribute('href'));
+    });
+    Router.apply();
+  },
+};
+
 /* ============================== UI ============================== */
 
-const SETTINGS_TABS = ['timer', 'background', 'music', 'appearance', 'ai'];
+const SETTINGS_TABS = ['timer', 'music', 'background', 'appearance', 'ai', 'account'];
 const APPEARANCE_KEYS = ['primary', 'bg', 'surface', 'text', 'textMuted', 'border', 'accentPomodoro', 'accentShortBreak', 'accentLongBreak'];
 
 function setFieldStatus(el, text, kind) {
@@ -3160,7 +3379,7 @@ const Voice = {
     const bar = document.createElement('div');
     bar.className = 'lounge-tile__bar';
     const name = document.createElement('span');
-    name.className = 'lounge-tile__name';
+    name.className = 'lounge-tile__name'; name.dataset.i18nSkip = ''; // a username
     const badges = document.createElement('span');
     badges.className = 'lounge-tile__badges';
     const fs = document.createElement('button');
@@ -3365,15 +3584,17 @@ const Chat = {
     const meta = document.createElement('div');
     meta.className = 'lounge-chat__meta';
     const name = document.createElement('strong');
+    name.dataset.i18nSkip = '';
     name.textContent = m.sender.displayName;
     const time = document.createElement('time');
     time.dateTime = new Date(m.createdAt).toISOString();
-    time.textContent = new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    time.textContent = new Date(m.createdAt).toLocaleTimeString(I18n.locale(), { hour: '2-digit', minute: '2-digit' });
     meta.append(name, time);
     body.appendChild(meta);
     if (m.text) {
       const text = document.createElement('div');
       text.className = 'lounge-chat__text';
+      text.dataset.i18nSkip = '';
       text.textContent = m.text;
       body.appendChild(text);
     }
@@ -3521,25 +3742,40 @@ const Chat = {
 Socket.on('room-message', (msg) => Chat.onMessage(msg));
 
 /* ============================== Guides (video tutorials) ==============================
-   The list lives in /guides/guides.json ({ order, file, title, description } per video) so it can be
-   edited without touching this code. Cards only ask for each video's metadata (first frame + duration);
-   the full file is fetched when it is played in the dialog. */
+   The list lives in /guides/guides.json ({ order, file, title, description, poster, duration, width, height }
+   per video) so it can be edited without touching this code. A card shows the poster -- a still of the video's
+   first frame -- and the duration from the list; the video file itself is only fetched when it is played in the
+   dialog. (A <video> thumbnail made the browser download roughly a megabyte of every file just to draw the
+   cards.) An entry without a poster falls back to that video thumbnail. */
 const Guides = {
   _loaded: false,
   _formatDuration(sec) {
     const s = Math.round(sec);
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   },
-  async load() {
-    if (Guides._loaded) return;
-    Guides._loaded = true;
+  _list: null,
+  async _fetch() {
+    if (Guides._list) return Guides._list;
     let list = [];
     try {
       const res = await fetch('/guides/guides.json');
       if (res.ok) list = await res.json();
-    } catch { /* falls through to the empty state */ }
-    list = (Array.isArray(list) ? list : []).filter((g) => g && typeof g.file === 'string' && typeof g.title === 'string')
+    } catch { return []; } // offline: try again next time
+    Guides._list = (Array.isArray(list) ? list : []).filter((g) => g && typeof g.file === 'string' && typeof g.title === 'string')
       .sort((a, b) => (a.order || 0) - (b.order || 0));
+    return Guides._list;
+  },
+  /** The "?" on a page: play that page's guide (or open Help & guides when there's no matching video). */
+  async openOrder(order) {
+    const g = (await Guides._fetch()).find((x) => x.order === order);
+    if (!g) { document.querySelectorAll('dialog[open]').forEach((d) => d.close()); Router.go('/help'); return; }
+    document.querySelectorAll('dialog[open]').forEach((d) => { if (d.id !== 'guide-dialog') d.close(); });
+    Guides.open(g, `/guides/${encodeURIComponent(g.file)}`);
+  },
+  async load() {
+    if (Guides._loaded) return;
+    Guides._loaded = true;
+    const list = await Guides._fetch();
     const grid = document.getElementById('guides-grid');
     grid.replaceChildren(...list.map(Guides._card));
     document.getElementById('guides-empty').hidden = list.length > 0;
@@ -3551,19 +3787,33 @@ const Guides = {
     card.className = 'glass guide-card';
     const thumb = document.createElement('div');
     thumb.className = 'guide-card__thumb';
-    const video = document.createElement('video');
-    video.muted = true; video.playsInline = true; video.preload = 'metadata'; // metadata only: no full download
-    video.src = `${url}#t=0.1`; // shows the first frame as the thumbnail
     const play = document.createElement('span');
     play.className = 'guide-card__play';
     play.innerHTML = '<svg class="icon icon--fill" viewBox="0 0 20 20" aria-hidden="true"><path d="M6.2 4.3v11.4c0 .6.7 1 1.2.7l9-5.7c.5-.3.5-1 0-1.3l-9-5.7c-.5-.3-1.2 0-1.2.6Z"/></svg>';
     const time = document.createElement('span');
     time.className = 'guide-card__time';
-    video.addEventListener('loadedmetadata', () => {
-      time.textContent = Guides._formatDuration(video.duration);
-      thumb.classList.toggle('guide-card__thumb--portrait', video.videoHeight > video.videoWidth);
-    });
-    thumb.append(video, play, time);
+    if (typeof g.poster === 'string' && g.poster) {
+      const img = document.createElement('img');
+      img.alt = ''; img.decoding = 'async'; img.loading = 'lazy';
+      if (g.width > 0 && g.height > 0) {
+        img.width = g.width; img.height = g.height;
+        thumb.classList.toggle('guide-card__thumb--portrait', g.height > g.width);
+      }
+      img.addEventListener('load', () => thumb.classList.toggle('guide-card__thumb--portrait', img.naturalHeight > img.naturalWidth));
+      img.src = `/guides/${encodeURIComponent(g.poster)}`;
+      if (g.duration > 0) time.textContent = Guides._formatDuration(g.duration);
+      thumb.appendChild(img);
+    } else {
+      const video = document.createElement('video');
+      video.muted = true; video.playsInline = true; video.preload = 'metadata';
+      video.src = `${url}#t=0.1`; // shows the first frame as the thumbnail
+      video.addEventListener('loadedmetadata', () => {
+        time.textContent = Guides._formatDuration(video.duration);
+        thumb.classList.toggle('guide-card__thumb--portrait', video.videoHeight > video.videoWidth);
+      });
+      thumb.appendChild(video);
+    }
+    thumb.append(play, time);
     const title = document.createElement('h3');
     title.textContent = g.title;
     card.append(thumb, title);
@@ -3574,6 +3824,7 @@ const Guides = {
   open(g, url) {
     const player = document.getElementById('guide-player');
     document.getElementById('guide-dialog-title').textContent = g.title;
+    if (typeof g.poster === 'string' && g.poster) player.poster = `/guides/${encodeURIComponent(g.poster)}`; else player.removeAttribute('poster');
     player.src = url;
     document.getElementById('guide-dialog').showModal();
     player.play().catch(() => {}); // the controls are there if autoplay is blocked
@@ -3594,6 +3845,48 @@ const Guides = {
     player.addEventListener('play', () => {
       if (MusicPlayer._playing) { MusicPlayer.pause(); if (typeof UI.renderMusicUI === 'function') UI.renderMusicUI(); }
     });
+  },
+};
+
+/* ============================== Methods (study methods, loaded on demand) ==============================
+   Active Recall, the Feynman Technique, Blurting and Apex Flash live in assets/study.js + assets/study.css. They
+   are fetched the first time the Methods view opens -- or a moment earlier, when its tab is hovered, focused or
+   touched -- so the dashboard's first paint never pays for them. The content-hashed URLs come from data
+   attributes on #view-methods (server/assets.js versions every /assets/ URL in the page). */
+const Methods = {
+  _ready: null,
+  load() {
+    if (Methods._ready) return Methods._ready;
+    const view = document.getElementById('view-methods');
+    const attach = (el) => new Promise((resolve, reject) => {
+      el.addEventListener('load', resolve, { once: true });
+      el.addEventListener('error', reject, { once: true });
+      document.head.appendChild(el);
+    });
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = view.dataset.styleHref;
+    const js = document.createElement('script');
+    js.src = view.dataset.scriptSrc;
+    Methods._ready = Promise.all([attach(css), attach(js)]).catch((err) => {
+      css.remove(); js.remove();
+      Methods._ready = null; // offline or a failed request: the next open tries again
+      throw err;
+    });
+    return Methods._ready;
+  },
+  open() {
+    const status = document.getElementById('methods-status');
+    if (status && !window.StudyMethods) setFieldStatus(status, 'Loading study methods…', '');
+    Methods.load()
+      .then(() => {
+        window.StudyMethods.onNavigate = (page) => { UI._studyPage = page; Router.sync(); };
+        window.StudyMethods.show(document.getElementById('methods-root'), UI._studyPage || 'hub');
+      })
+      .catch(() => {
+        if (!status || !status.isConnected) return;
+        setFieldStatus(status, 'Couldn’t load the study methods. Check your connection, then open Methods again.', 'error');
+      });
   },
 };
 
@@ -3734,9 +4027,7 @@ const UI = {
         const notifMenu = document.getElementById('notif-menu');
         const notifTrigger = document.getElementById('notif-trigger');
         if (notifMenu && !notifMenu.hidden) { notifMenu.hidden = true; notifTrigger.setAttribute('aria-expanded', 'false'); }
-        const drawer = document.getElementById('friends-drawer');
-        const drawerBackdrop = document.getElementById('friends-drawer-backdrop');
-        if (drawer && !drawer.hidden) { drawer.hidden = true; drawerBackdrop.hidden = true; }
+        UI.closeAccountMenu();
       }
     };
     dialogs.forEach((d) => {
@@ -3752,12 +4043,18 @@ const UI = {
     if (btn) {
       const running = state.timer.running;
       btn.innerHTML = (running ? Icons.pause : Icons.play) + `<span>${running ? 'Pause' : 'Start'}</span>`;
+      if (UI._wasRunning !== undefined && UI._wasRunning !== running) btn.firstElementChild.classList.add('pop');
+      UI._wasRunning = running;
     }
   },
 
   renderPomodoroCount() {
+    // A one-line summary under the timer that links to Progress (the full stats live there).
     const el = document.getElementById('pomodoro-count');
-    if (el) el.textContent = `Today's Pomodoros: ${state.stats.pomodorosCompletedToday}`;
+    if (!el) return;
+    const goal = Missions.DEFINITIONS[0].target;
+    const streak = state.stats.currentStreak;
+    el.textContent = `Today: ${state.stats.pomodorosCompletedToday}/${goal} pomodoros` + (streak > 0 ? ` · 🔥 ${streak}-day streak` : '');
   },
 
   _applyAvatarVisual(el, photoClass) {
@@ -3785,9 +4082,26 @@ const UI = {
     const avatar = document.getElementById('user-avatar');
     const nameDisplay = document.getElementById('user-name-display');
     UI._applyAvatarVisual(avatar, 'user-profile__avatar--photo');
-    if (nameDisplay) nameDisplay.textContent = state.profile.username;
+    if (nameDisplay) { nameDisplay.textContent = state.profile.username; nameDisplay.toggleAttribute('data-i18n-skip', state.profile.username !== 'You'); } // a chosen name is never translated
     avatar.title = state.profile.username;
     UI.renderProfileModalView();
+    UI.fitHeader();
+  },
+
+  /* The header row is capped at 1280px. With six tabs, a signed-in name close to the 24-character limit (next to the
+     notifications bell) can still run out of room; then the name pill goes, as it already does on narrower screens:
+     the avatar keeps the name as its tooltip and still opens the profile. Checked once per frame at most. */
+  fitHeader() {
+    if (UI._fitHeaderQueued) return;
+    UI._fitHeaderQueued = true;
+    requestAnimationFrame(() => {
+      UI._fitHeaderQueued = false;
+      const header = document.getElementById('site-header');
+      const row = header.querySelector('.site-header__row');
+      const actions = header.querySelector('.header-actions');
+      header.classList.remove('site-header--tight');
+      if (row.scrollWidth > row.clientWidth + 1 || actions.scrollWidth > actions.clientWidth + 1) header.classList.add('site-header--tight');
+    });
   },
 
   syncAuthUI() {
@@ -3797,13 +4111,20 @@ const UI = {
       loggedIn ? Auth.currentUser.displayName : state.profile.username;
     document.getElementById('user-avatar').title = document.getElementById('user-name-display').textContent;
     document.getElementById('profile-modal-logout-btn').hidden = !loggedIn;
-    document.getElementById('profile-modal-login-btn').hidden = loggedIn;
+    document.getElementById('profile-guest-cta').hidden = loggedIn;
     document.getElementById('profile-privacy').hidden = !loggedIn;
-    document.getElementById('friends-drawer-guest').hidden = loggedIn;
-    document.getElementById('friends-drawer-content').hidden = !loggedIn;
+    document.getElementById('settings-account-guest').hidden = loggedIn;
+    document.getElementById('settings-account-user').hidden = !loggedIn;
+    document.getElementById('settings-account-status').textContent = loggedIn
+      ? `Signed in as ${Auth.currentUser.username}. Friends, presence, and chat are saved online.`
+      : 'You\'re using Pomodoro as a guest. Your timer, tasks and stats stay on this device.';
+    UI.renderAccountMenu();
+    UI.fitHeader();
     Friends.refreshAll();
     Notifications.refreshAll();
     Lounge.refreshAll();
+    if (state.currentView === 'lounge') UI.renderLoungeView();
+    if (state.currentView === 'leaderboard') UI.renderLeaderboard();
   },
 
   renderProfileModalView() {
@@ -3815,14 +4136,16 @@ const UI = {
     document.getElementById('profile-modal-bio').textContent = state.profile.bio || 'No bio yet.';
     document.getElementById('profile-modal-title-badge').textContent = `Lv. ${level} · ${Lounge.titleForLevel(level)}`;
     document.getElementById('profile-stat-xp').textContent = String(state.stats.focusXP);
+    // Guests see only what this device knows (XP, hours, streak) and a way to log in; friends count only when signed in.
+    const loggedIn = Auth.isLoggedIn();
     document.getElementById('profile-stat-friends').textContent = String(Friends.list.length);
-    const followers = Math.max(0, level * 4 + state.stats.currentStreak * 2 + Friends.list.length);
-    document.getElementById('profile-stat-followers').textContent = String(followers);
+    document.getElementById('profile-stat-friends-wrap').hidden = !loggedIn;
+    document.getElementById('profile-stat-streak').textContent = String(state.stats.currentStreak);
     const hours = state.stats.totalFocusMinutes / 60;
     document.getElementById('profile-stat-hours').textContent = hours >= 10 ? String(Math.round(hours)) : hours.toFixed(1);
-    document.getElementById('profile-modal-account-hint').textContent = Auth.isLoggedIn()
-      ? `Signed in as ${Auth.currentUser.username}. Friends, presence, and chat are saved online.`
-      : 'Using this device as a guest — your timer, tasks, and stats stay local. Log in to add friends and sync across devices.';
+    const hint = document.getElementById('profile-modal-account-hint');
+    hint.hidden = !loggedIn;
+    hint.textContent = loggedIn ? `Signed in as ${Auth.currentUser.username}. Friends, presence, and chat are saved online.` : '';
   },
 
   openConsentModal() {
@@ -3855,7 +4178,7 @@ const UI = {
   },
 
   renderLoungeFriends() {
-    for (const listId of ['lounge-friends-list', 'lounge-friends-list-active', 'friends-drawer-list']) {
+    for (const listId of ['lounge-friends-list']) { // Social > Friends: the one friends list
       const list = document.getElementById(listId);
       if (!list) continue;
       const seen = new Set();
@@ -3869,7 +4192,7 @@ const UI = {
           const avatar = document.createElement('span');
           avatar.className = 'lounge-friend-item__avatar';
           const name = document.createElement('span');
-          name.className = 'lounge-friend-item__name';
+          name.className = 'lounge-friend-item__name'; name.dataset.i18nSkip = ''; // a username
           const status = document.createElement('span');
           status.className = 'lounge-friend-item__status';
           const chatBtn = document.createElement('button');
@@ -3905,7 +4228,7 @@ const UI = {
         inviteBtn.hidden = !inRoom;
         inviteBtn.disabled = !inRoom || !f.online || (state.lounge.room && state.lounge.room.members.some((m) => m.id === f.id));
       }
-      const emptyMsgId = { 'lounge-friends-list': 'lounge-friends-empty', 'friends-drawer-list': 'friends-drawer-empty' }[listId];
+      const emptyMsgId = { 'lounge-friends-list': 'lounge-friends-empty' }[listId];
       const emptyMsg = emptyMsgId && document.getElementById(emptyMsgId);
       if (emptyMsg) emptyMsg.hidden = Friends.list.length > 0;
       for (const li of [...list.children]) {
@@ -3931,7 +4254,7 @@ const UI = {
       avatar.className = 'lounge-friend-item__avatar';
       Avatars.render(avatar, u);
       const name = document.createElement('span');
-      name.className = 'lounge-friend-item__name';
+      name.className = 'lounge-friend-item__name'; name.dataset.i18nSkip = ''; // a username
       name.textContent = u.displayName;
       const actionBtn = document.createElement('button');
       actionBtn.type = 'button';
@@ -4012,6 +4335,7 @@ const UI = {
       li.append(name, cancelBtn);
       outgoingList.appendChild(li);
     }
+    UI.renderSocialBadge();
   },
 
   renderNotifications() {
@@ -4040,12 +4364,18 @@ const UI = {
         lounge_invite: `${who} invited you to a study room`,
       };
       text.textContent = copy[n.type] || 'New notification';
+      if (n.type === 'message') text.dataset.i18nSkip = ''; // a friend's own words
       const time = document.createElement('span');
       time.className = 'notif-item__time';
-      time.textContent = new Date(n.createdAt).toLocaleString();
+      time.textContent = new Date(n.createdAt).toLocaleString(I18n.locale());
       body.append(text, time);
       li.append(dot, body);
-      li.addEventListener('click', () => { if (!n.readAt) Notifications.markRead(n.id); });
+      li.addEventListener('click', () => {
+        if (!n.readAt) Notifications.markRead(n.id);
+        // Take them to where they can act on it: Social > Friends for requests, the room tab for an invite.
+        const to = { friend_request: '/social/friends', friend_accept: '/social/friends', lounge_invite: '/social' }[n.type];
+        if (to) { document.getElementById('notif-menu').hidden = true; document.getElementById('notif-trigger').setAttribute('aria-expanded', 'false'); Router.go(to); }
+      });
       list.appendChild(li);
     }
   },
@@ -4054,7 +4384,9 @@ const UI = {
     const room = state.lounge.room;
     if (!room) return;
     document.getElementById('lounge-room-code').textContent = room.code;
-    document.getElementById('lounge-room-goal').textContent = room.goal || 'No goal set.';
+    const goalEl = document.getElementById('lounge-room-goal');
+    goalEl.textContent = room.goal || 'No goal set.';
+    goalEl.toggleAttribute('data-i18n-skip', !!room.goal); // the goal is the members' own words
 
     const grid = document.getElementById('lounge-member-grid');
     // Cards are built once per member and updated in place: this runs every second (and on every voice
@@ -4096,7 +4428,7 @@ const UI = {
     badges.className = 'lounge-ring__badges';
     ring.append(svg, avatarEl, badges);
     const name = document.createElement('span');
-    name.className = 'lounge-grid-card__name';
+    name.className = 'lounge-grid-card__name'; name.dataset.i18nSkip = ''; // a username
     const status = document.createElement('span');
     status.className = 'lounge-grid-card__status';
     const metrics = document.createElement('span');
@@ -4116,7 +4448,7 @@ const UI = {
     r.fill.setAttribute('stroke-dashoffset', String(circumference * (1 - Lounge.phaseFraction(m))));
     const avatarKey = `${m.avatarUrl || ''}|${m.avatar || ''}|${m.displayName}`;
     if (r.avatarKey !== avatarKey) { r.avatarKey = avatarKey; Avatars.render(r.avatarEl, m); }
-    r.name.textContent = m.displayName + (m.isHost ? ' (Host)' : '');
+    r.name.textContent = m.displayName + (m.isHost ? ` (${I18n.t('Host')})` : '');
     if (!m.online) {
       r.status.textContent = 'Offline';
       r.status.dataset.status = 'idle';
@@ -4483,6 +4815,7 @@ const UI = {
       const li = document.createElement('li');
       li.className = `chat-dialog__message chat-dialog__message--${m.senderId === friendId ? 'friend' : 'me'}`;
       li.textContent = m.text;
+      li.dataset.i18nSkip = '';
       list.appendChild(li);
     }
     list.scrollTop = list.scrollHeight;
@@ -4494,13 +4827,14 @@ const UI = {
     if (!chip) return;
     const room = state.lounge.room;
     document.getElementById('site-header').classList.toggle('site-header--room', !!room);
+    UI.fitHeader();
     if (!room) { chip.hidden = true; return; }
     chip.hidden = false;
     const activeCount = room.members.filter((m) => m.status !== 'idle').length;
-    const text = `Group: ${room.code} · ${activeCount} active`;
+    const text = I18n.t(`Group: ${room.code} · ${activeCount} active`);
     const textEl = document.getElementById('lounge-chip-text');
     if (textEl.textContent !== text) textEl.textContent = text;
-    const title = `${document.getElementById('live-users-count').textContent} online · ${text}`;
+    const title = `${document.getElementById('live-users-count').textContent} ${I18n.t('online')} · ${text}`;
     if (chip.title !== title) chip.title = title;
   },
 
@@ -4510,8 +4844,17 @@ const UI = {
     if (!lobbyGrid || !active) return;
     UI.renderLoungeFriends();
     const loggedIn = Auth.isLoggedIn();
+    // Guests get one friendly sign-in card instead of the two sections.
     document.getElementById('lounge-guest-hint').hidden = loggedIn;
     document.getElementById('lounge-lobby').hidden = !loggedIn;
+    document.getElementById('social-tabs').hidden = !loggedIn;
+    const section = UI._socialSection === 'friends' ? 'friends' : 'room';
+    ['room', 'friends'].forEach((sec) => {
+      const tab = document.getElementById(`social-tab-${sec}`);
+      tab.setAttribute('aria-selected', String(sec === section));
+      tab.tabIndex = sec === section ? 0 : -1;
+      document.getElementById(`social-${sec}`).hidden = !loggedIn || sec !== section;
+    });
     const inRoom = loggedIn && !!state.lounge.room;
     lobbyGrid.hidden = inRoom;
     active.hidden = !inRoom;
@@ -4537,7 +4880,7 @@ const UI = {
       joinBtn.type = 'button'; joinBtn.className = 'btn btn-primary'; joinBtn.textContent = 'Join';
       joinBtn.addEventListener('click', () => {
         joinBtn.disabled = true;
-        Lounge.acceptInvite(invite.id).then(() => UI.selectView('lounge')).catch((err) => {
+        Lounge.acceptInvite(invite.id).then(() => { UI._socialSection = 'room'; UI.selectView('lounge'); }).catch((err) => {
           setFieldStatus(document.getElementById('friend-search-status'), err.message, 'error');
           joinBtn.disabled = false;
         });
@@ -4548,44 +4891,77 @@ const UI = {
       li.append(avatar, name, joinBtn, declineBtn);
       list.appendChild(li);
     }
+    UI.renderSocialBadge();
   },
 
+  // Dark mode and music mute: labelled switches in the account menu and in Settings, kept in step.
   renderDarkModeToggle() {
-    const btn = document.getElementById('darkmode-toggle');
-    if (!btn) return;
     const dark = Theme.isDark();
-    btn.innerHTML = dark ? Icons.sun : Icons.moon;
-    btn.setAttribute('aria-label', dark ? 'Switch to light mode' : 'Switch to dark mode');
+    const quick = document.getElementById('quick-dark');
+    if (quick) quick.setAttribute('aria-checked', String(dark));
+    const box = document.getElementById('setting-dark-mode');
+    if (box) box.checked = dark;
   },
 
   renderMuteToggle() {
-    const btn = document.getElementById('mute-toggle');
-    if (!btn) return;
-    const muted = state.musicSettings.muted;
-    btn.innerHTML = muted ? Icons.volumeMute : Icons.volumeOn;
-    btn.setAttribute('aria-pressed', String(muted));
-    btn.setAttribute('aria-label', muted ? 'Unmute background music' : 'Mute background music');
+    const muted = !!state.musicSettings.muted;
+    const quick = document.getElementById('quick-mute');
+    if (quick) quick.setAttribute('aria-checked', String(muted));
+    const box = document.getElementById('setting-music-muted');
+    if (box) box.checked = muted;
   },
 
   selectView(view) {
+    // Progress is one tab with two sections, Overview ("reports") and Leaderboard; it reopens the last one used.
+    if (view === 'progress') view = UI._progressSection || 'reports';
+    const previous = state.currentView;
     state.currentView = view;
-    ['dashboard', 'reports', 'leaderboard', 'lounge', 'guides'].forEach((v) => {
+    const inProgress = view === 'reports' || view === 'leaderboard';
+    if (inProgress) UI._progressSection = view;
+    const tab = inProgress ? 'progress' : view;
+    ['dashboard', 'methods', 'progress', 'lounge', 'guides'].forEach((v) => {
       const panel = document.getElementById(`view-${v}`);
       const link = document.getElementById(`nav-${v}`);
       const bottomLink = document.getElementById(`navbar-${v}`);
-      if (panel) panel.hidden = v !== view;
+      if (panel) panel.hidden = v !== tab;
       [link, bottomLink].forEach((el) => {
         if (!el) return;
-        if (v === view) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
+        if (v === tab) el.setAttribute('aria-current', 'page'); else el.removeAttribute('aria-current');
       });
     });
+    const section = UI._progressSection || 'reports';
+    ['reports', 'leaderboard'].forEach((v) => {
+      document.getElementById(`view-${v}`).hidden = v !== section;
+      const t = document.getElementById(`progress-tab-${v}`);
+      t.setAttribute('aria-selected', String(v === section));
+      t.tabIndex = v === section ? 0 : -1;
+    });
+    if (previous !== view) {
+      const switchingSection = inProgress && (previous === 'reports' || previous === 'leaderboard');
+      const el = document.getElementById(switchingSection ? `view-${view}` : `view-${tab}`);
+      const cls = tab === 'dashboard' ? 'view-enter-children' : 'view-enter';
+      el.classList.remove(cls);
+      void el.offsetWidth; // restart the animation
+      el.classList.add(cls);
+    }
     if (view === 'reports') UI.renderReports();
     if (view === 'leaderboard') UI.renderLeaderboard();
     if (view === 'lounge') UI.renderLoungeView();
     if (view === 'guides') Guides.load();
+    if (view === 'methods') Methods.open();
+    // "Ask AI" floats on the Timer and Study pages; the mini-timer on every other page while a session runs.
+    const withAI = tab === 'dashboard' || tab === 'methods';
+    document.getElementById('ai-fab').hidden = !withAI;
+    document.body.classList.toggle('has-ai-fab', withAI);
+    if (!withAI) UI.closeAIPanel();
+    UI.renderMiniTimer();
+    if (previous !== undefined && previous !== view && !(inProgress && (previous === 'reports' || previous === 'leaderboard'))) window.scrollTo(0, 0);
+    if (UI._focusMain) { UI._focusMain = false; document.getElementById('main').focus({ preventScroll: true }); }
+    Router.sync();
   },
 
   renderReports() {
+    UI.renderBestDays();
     const chart = document.getElementById('reports-chart');
     if (!chart) return;
     const days = [];
@@ -4598,7 +4974,8 @@ const UI = {
         date: key,
         pomodoros: entry ? entry.pomodoros : 0,
         focusMinutes: entry ? entry.focusMinutes : 0,
-        label: d.toLocaleDateString(undefined, { weekday: 'short' }),
+        label: d.toLocaleDateString(I18n.locale(), { weekday: 'short' }),
+        narrow: d.toLocaleDateString(I18n.locale(), { weekday: 'narrow' }),
       });
     }
     const weekTotal = days.reduce((s, d) => s + d.pomodoros, 0);
@@ -4624,14 +5001,16 @@ const UI = {
       bar.title = `${d.label}: ${d.pomodoros} pomodoros, ${d.focusMinutes}m focus`;
       const label = document.createElement('span');
       label.className = 'bar-chart__label';
-      label.textContent = d.label.slice(0, 1);
+      label.textContent = d.narrow;
       col.append(minuteLabel, bar, label);
       chart.appendChild(col);
     });
   },
 
-  renderLeaderboard() {
-    Leaderboard.refresh();
+  renderLeaderboard() { Leaderboard.refresh(); },
+
+  /* Your best days (from this device's history) -- part of Progress > Overview. */
+  renderBestDays() {
     const list = document.getElementById('leaderboard-list');
     if (!list) return;
     list.replaceChildren();
@@ -4651,7 +5030,7 @@ const UI = {
       rank.textContent = `#${i + 1}`;
       const date = document.createElement('span');
       date.className = 'leaderboard-item__date';
-      date.textContent = d.date;
+      date.textContent = new Date(d.date + 'T00:00').toLocaleDateString(I18n.locale(), { day: 'numeric', month: 'short', year: 'numeric' });
       const count = document.createElement('span');
       count.className = 'leaderboard-item__count';
       count.textContent = `${d.pomodoros} pomodoros`;
@@ -4775,7 +5154,8 @@ const UI = {
     if (!dot) return;
     const connected = AIChat.hasKey();
     dot.className = 'ai-chat__status-dot' + (connected ? ' is-connected' : '');
-    text.textContent = connected ? 'Connected' : 'Not connected';
+    text.textContent = 'Connected';
+    document.getElementById('ai-chat-status').hidden = !connected; // no "Not connected": the panel explains instead
     input.disabled = !connected;
     send.disabled = !connected;
     form.hidden = !connected;
@@ -4791,7 +5171,7 @@ const UI = {
     if (!AIChat.hasKey() && state.chatHistory.length === 0) {
       const bubble = document.createElement('div');
       bubble.className = 'chat-bubble chat-bubble--assistant';
-      bubble.textContent = 'Hello! Please add your API key in the settings to activate me.';
+      bubble.textContent = 'The assistant uses your own Google Gemini API key, which stays in this browser. Add one in Settings to start chatting.';
       list.appendChild(bubble);
       return;
     }
@@ -4799,6 +5179,7 @@ const UI = {
     for (const m of state.chatHistory) {
       const bubble = document.createElement('div');
       bubble.className = 'chat-bubble ' + (m.role === 'user' ? 'chat-bubble--user' : 'chat-bubble--assistant');
+      bubble.dataset.i18nSkip = '';
       bubble.textContent = m.text;
       list.appendChild(bubble);
     }
@@ -4857,12 +5238,14 @@ const UI = {
 
       const textSpan = document.createElement('span');
       textSpan.className = 'task__text';
+      textSpan.dataset.i18nSkip = '';
       textSpan.textContent = task.text;
 
       let projectTag = null;
       if (task.project) {
         projectTag = document.createElement('span');
         projectTag.className = 'task__project';
+        projectTag.dataset.i18nSkip = '';
         projectTag.textContent = task.project;
       }
 
@@ -4888,7 +5271,7 @@ const UI = {
 
     const activeDisplay = document.getElementById('active-task-display');
     const active = state.tasks.find(t => t.id === state.activeTaskId);
-    activeDisplay.textContent = active ? `Currently focusing on: ${active.text}` : 'Choose a task to focus on';
+    activeDisplay.textContent = active ? `Focusing on: ${active.text}` : 'Choose a task to focus on';
   },
 
   toggleBgFields(type) {
@@ -5002,10 +5385,14 @@ const UI = {
       tabBtn.tabIndex = active ? 0 : -1;
       panel.hidden = !active;
     });
+    // the tab row scrolls sideways on narrow screens: keep the chosen tab fully in view (next frame: the dialog may only now be opening)
+    requestAnimationFrame(() => { const tab = document.getElementById(`tab-${id}`); if (tab && tab.offsetParent) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
   },
 
-  openSettings() {
-    UI.selectSettingsTab('timer');
+  openSettings(tab = 'timer') {
+    UI.closeAccountMenu();
+    UI.closeAIPanel();
+    UI.selectSettingsTab(tab);
     document.getElementById('setting-pomodoro').value = state.settings.pomodoro;
     document.getElementById('setting-short-break').value = state.settings.shortBreak;
     document.getElementById('setting-long-break').value = state.settings.longBreak;
@@ -5025,16 +5412,145 @@ const UI = {
     });
     if (typeof UI.renderAppearanceUI === 'function') UI.renderAppearanceUI();
     if (typeof UI.renderMusicUI === 'function') UI.renderMusicUI();
+    UI.renderMuteToggle();
+    UI.renderDarkModeToggle();
+    UI.syncAuthUIInSettings();
     document.getElementById('settings').showModal();
   },
   closeSettings() { document.getElementById('settings').close(); },
+  syncAuthUIInSettings() {
+    const loggedIn = Auth.isLoggedIn();
+    document.getElementById('settings-account-guest').hidden = loggedIn;
+    document.getElementById('settings-account-user').hidden = !loggedIn;
+  },
 
-  async saveSettingsFromForm(event) {
-    event.preventDefault();
+  /** A small "Saved" next to the Settings title: settings apply as you change them. */
+  flashSaved() {
+    const el = document.getElementById('settings-saved');
+    if (!el) return;
+    el.hidden = false;
+    el.classList.remove('is-shown');
+    void el.offsetWidth;
+    el.classList.add('is-shown');
+    clearTimeout(UI._savedTimer);
+    UI._savedTimer = setTimeout(() => { el.hidden = true; }, 1800);
+  },
+
+  /* Mini-timer: on every page except Timer while a session is under way (running, or paused part-way). */
+  renderMiniTimer() {
+    const chip = document.getElementById('mini-timer');
+    if (!chip) return;
+    const t = state.timer;
+    const show = state.currentView !== 'dashboard' && (t.running || t.remainingMs < Timer.durationMs(t.mode));
+    if (chip.hidden === show) chip.hidden = !show;
+    document.body.classList.toggle('has-mini-timer', show);
+    if (!show) return;
+    chip.dataset.mode = t.mode;
+    const mode = I18n.t(Timer.MODE_LABELS[t.mode].replace('!', ''));
+    const modeEl = document.getElementById('mini-timer-mode');
+    if (modeEl.textContent !== mode) modeEl.textContent = mode;
+    const timeEl = document.getElementById('mini-timer-time');
+    const time = Timer.formatTime(t.remainingMs);
+    if (timeEl.textContent !== time) timeEl.textContent = time;
+    const btn = document.getElementById('mini-timer-toggle');
+    if (btn.dataset.running !== String(t.running)) {
+      const changed = btn.dataset.running !== undefined;
+      btn.dataset.running = String(t.running);
+      btn.innerHTML = t.running ? Icons.pause : Icons.play;
+      if (changed) btn.firstElementChild.classList.add('pop');
+      const label = t.running ? 'Pause the Pomodoro timer' : 'Start the Pomodoro timer';
+      btn.setAttribute('aria-label', label);
+      btn.title = label;
+    }
+  },
+
+  /* Account menu (the avatar): profile, settings, help, quick switches, privacy, log in/out. */
+  renderAccountMenu() {
+    const loggedIn = Auth.isLoggedIn();
+    const login = document.getElementById('account-login');
+    if (!login) return;
+    login.hidden = loggedIn;
+    document.getElementById('account-logout').hidden = !loggedIn;
+    const status = document.getElementById('account-status');
+    status.textContent = loggedIn ? `@${Auth.currentUser.username}` : 'Guest · saved on this device';
+    status.toggleAttribute('data-i18n-skip', loggedIn);
+    UI.renderMuteToggle();
+    UI.renderDarkModeToggle();
+  },
+  closeAccountMenu(refocus) {
+    const panel = document.getElementById('account-panel');
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    document.getElementById('user-avatar').setAttribute('aria-expanded', 'false');
+    if (refocus) document.getElementById('user-avatar').focus();
+  },
+  openAccountMenu() {
+    UI.renderAccountMenu();
+    document.getElementById('account-panel').hidden = false;
+    document.getElementById('user-avatar').setAttribute('aria-expanded', 'true');
+    const first = [...document.querySelectorAll('#account-panel [role^="menuitem"]')].find((el) => el.offsetParent);
+    if (first) first.focus();
+  },
+
+  /* Ask AI: a side panel instead of a permanent card. */
+  openAIPanel() {
+    const panel = document.getElementById('ai-panel');
+    panel.hidden = false;
+    document.getElementById('ai-fab').setAttribute('aria-expanded', 'true');
+    UI.renderChat();
+    (AIChat.hasKey() ? document.getElementById('ai-chat-input') : document.getElementById('ai-chat-goto-settings')).focus();
+  },
+  closeAIPanel(refocus) {
+    const panel = document.getElementById('ai-panel');
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    document.getElementById('ai-fab').setAttribute('aria-expanded', 'false');
+    if (refocus) document.getElementById('ai-fab').focus();
+  },
+
+  /** Sign-in, from any "Log in" / "Sign up" button: never on top of another window. */
+  openAuth(view = 'login') {
+    document.querySelectorAll('dialog[open]').forEach((d) => { if (d.id !== 'auth-modal' && !d.dataset.locked) d.close(); });
+    UI.closeAccountMenu();
+    UI.closeAIPanel();
+    setAuthView(view === 'signup' ? 'signup' : 'login');
+    const modal = document.getElementById('auth-modal');
+    if (!modal.open) modal.showModal();
+  },
+
+  toggleMute() {
+    MusicPlayer.setMuted(!state.musicSettings.muted);
+    UI.renderMuteToggle();
+    if (typeof UI.renderMusicUI === 'function') UI.renderMusicUI();
+  },
+
+  /* Social: two sections (Room, Friends) and a badge for what needs an answer (friend requests + room invites). */
+  selectSocialSection(section) {
+    UI._socialSection = section === 'friends' ? 'friends' : 'room';
+    if (state.currentView !== 'lounge') { UI.selectView('lounge'); return; }
+    UI.renderLoungeView();
+    Router.sync();
+  },
+  renderSocialBadge() {
+    const requests = Friends.incoming.length;
+    const total = requests + Lounge.pendingInvites.length;
+    for (const id of ['nav-social-badge', 'navbar-social-badge']) {
+      const b = document.getElementById(id);
+      if (!b) continue;
+      b.hidden = total === 0;
+      b.textContent = String(total);
+      b.setAttribute('aria-label', `${total} waiting`);
+    }
+    const fb = document.getElementById('social-friends-badge');
+    if (fb) { fb.hidden = requests === 0; fb.textContent = String(requests); fb.setAttribute('aria-label', `${requests} waiting`); }
+  },
+
+  /** Applies the whole Settings form (they save as you go). Returns false if a duration is invalid. */
+  async saveSettingsFromForm() {
     const pomo = validateDuration('setting-pomodoro', 'error-pomodoro', 1, 180);
     const short = validateDuration('setting-short-break', 'error-short-break', 1, 90);
     const long = validateDuration('setting-long-break', 'error-long-break', 1, 180);
-    if (pomo === null || short === null || long === null) return;
+    if (pomo === null || short === null || long === null) return false;
 
     const oldSettings = state.settings;
     state.settings = {
@@ -5043,7 +5559,11 @@ const UI = {
       autoStartPomodoros: document.getElementById('setting-auto-pomodoro').checked,
     };
     Storage.saveSettings(state.settings);
-    if (!state.timer.running) {
+    // Settings save on every change now, so only touch the timer when the current mode's length really changed
+    // (a paused session survives a change of background, music or break length).
+    if (state.settings[state.timer.mode] === oldSettings[state.timer.mode]) {
+      // nothing to do for the timer
+    } else if (!state.timer.running) {
       Timer.reset();
     } else {
       // "On-the-fly" edit: a running timer keeps its elapsed progress, but the
@@ -5077,6 +5597,11 @@ const UI = {
       bgType = 'youtube';
     }
 
+    // A background type whose URL or file isn't filled in yet is left for later (no half-made background).
+    const incomplete = (bgType === 'image' && !imageUrl) || (bgType === 'video' && !videoUrl) || (bgType === 'youtube' && !youtubeRaw)
+      || (bgType === 'localImage' && state.mediaSettings.localImageId == null && !UI._pendingLocalMedia.image)
+      || (bgType === 'localVideo' && state.mediaSettings.localVideoId == null && !UI._pendingLocalMedia.video);
+    if (!incomplete) {
     let localImageId = state.mediaSettings.localImageId;
     let localVideoId = state.mediaSettings.localVideoId;
     let typeChanged = bgType !== state.mediaSettings.type
@@ -5109,6 +5634,7 @@ const UI = {
     };
     Storage.saveMediaSettings(state.mediaSettings);
     if (typeChanged) Media.applyBackground();
+    }
 
     const musicSource = document.getElementById('setting-music-source').value;
     if (musicSource === 'url') {
@@ -5138,8 +5664,7 @@ const UI = {
       Storage.saveChatSettings(state.chatSettings);
       UI.renderChat();
     }
-
-    UI.closeSettings();
+    return true;
   },
 
   syncMediaControls() {
@@ -5199,8 +5724,106 @@ const UI = {
     else UI._musicRAF = null;
   },
 
+  /* Theme gallery: one swatch per preset (its background, a card and the three timer colours), applied and saved
+     on click like the old dropdown, with a cross-fade. Arrow keys move through it (see UI.radioKeys). */
+  renderThemeGrid() {
+    const grid = document.getElementById('theme-grid');
+    if (!grid) return;
+    if (!grid.childElementCount) {
+      for (const [id, c] of Object.entries(Theme.PRESETS)) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'theme-swatch';
+        btn.setAttribute('role', 'radio');
+        btn.dataset.preset = id;
+        const preview = document.createElement('span');
+        preview.className = 'theme-swatch__preview';
+        preview.setAttribute('aria-hidden', 'true');
+        preview.style.cssText = `--sw-bg:${c.bg};--sw-surface:${c.surface};--sw-accent:${c.accentPomodoro};--sw-short:${c.accentShortBreak};--sw-long:${c.accentLongBreak}`;
+        const name = document.createElement('span');
+        name.className = 'theme-swatch__name';
+        name.textContent = Theme.NAMES[id];
+        btn.append(preview, name);
+        btn.addEventListener('click', () => {
+          if (state.themeSettings.preset === id) return;
+          UI.withViewTransition(() => { Theme.applyPreset(id); UI.renderAppearanceUI(); });
+        });
+        grid.appendChild(btn);
+      }
+      UI.radioKeys(grid);
+    }
+    let any = false;
+    grid.querySelectorAll('.theme-swatch').forEach((b) => {
+      const on = b.dataset.preset === state.themeSettings.preset;
+      any = any || on;
+      b.setAttribute('aria-checked', String(on));
+      b.tabIndex = on ? 0 : -1;
+    });
+    if (!any) grid.firstElementChild.tabIndex = 0; // custom colours: nothing selected, still reachable
+  },
+
+  /* Arrow keys move the selection through a role="radiogroup" (one tab stop), mirrored in right-to-left. */
+  radioKeys(group) {
+    group.addEventListener('keydown', (e) => {
+      const steps = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+      if (!(e.key in steps)) return;
+      e.preventDefault();
+      const items = [...group.querySelectorAll('[role="radio"]')];
+      let step = steps[e.key];
+      if (document.documentElement.dir === 'rtl' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) step = -step;
+      const next = items[(items.indexOf(document.activeElement) + step + items.length) % items.length];
+      next.focus();
+      next.click();
+    });
+  },
+
+  renderLanguageUI() {
+    document.querySelectorAll('#setting-language [data-lang]').forEach((b) => {
+      const on = b.dataset.lang === I18n.lang;
+      b.setAttribute('aria-checked', String(on));
+      b.tabIndex = on ? 0 : -1;
+    });
+  },
+
+  renderMotionUI() {
+    const current = document.documentElement.dataset.motion || '';
+    document.querySelectorAll('#setting-motion [data-motion]').forEach((b) => {
+      const on = b.dataset.motion === current;
+      b.setAttribute('aria-checked', String(on));
+      b.tabIndex = on ? 0 : -1;
+    });
+    document.getElementById('motion-system-hint').hidden = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  },
+
+  setMotion(value) {
+    if (value) document.documentElement.dataset.motion = value; else delete document.documentElement.dataset.motion;
+    Storage.saveUIPrefs({ motion: value });
+    UI.renderMotionUI();
+  },
+
+  /* Theme and language changes cross-fade where the browser has View Transitions -- unless motion is off. */
+  withViewTransition(fn) {
+    const still = document.documentElement.dataset.motion === 'off' || window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (still || !document.startViewTransition || document.hidden) { fn(); return; }
+    const t = document.startViewTransition(fn);
+    t.ready.catch(() => {}); // skipped (e.g. the window was resized mid-fade): the change itself has still been applied
+  },
+
+  /* After a language switch: refresh the text the code writes itself (timer labels, dates, title, header). */
+  onLanguageChange() {
+    Timer.updateTimerDisplay();
+    UI.renderLoungeChip();
+    if (state.currentView === 'reports') UI.renderReports();
+    if (state.currentView === 'leaderboard') UI.renderLeaderboard();
+    if (state.lounge.room) UI.renderLoungeRoom(); // "(Host)" is written with I18n.t
+    UI.renderLanguageUI();
+    UI.fitHeader();
+  },
+
   renderAppearanceUI() {
-    document.getElementById('setting-theme-preset').value = state.themeSettings.preset;
+    UI.renderThemeGrid();
+    UI.renderLanguageUI();
+    UI.renderMotionUI();
     APPEARANCE_KEYS.forEach((key) => {
       const hex = state.themeSettings.colors[key];
       document.getElementById(`color-${key}`).value = hex;
@@ -5219,6 +5842,7 @@ const UI = {
 
   init() {
     State.init();
+    I18n.init();
     UI.initDialogCoordination();
     // Deliberately not awaited: the timer/tasks/settings below are fully local
     // and must render and become interactive immediately, even if the backend
@@ -5234,7 +5858,7 @@ const UI = {
       const afterCookieChoice = (fn) => (window.PomoConsent ? window.PomoConsent.whenDecided(fn) : fn());
       if (Auth.isLoggedIn()) {
         if (Auth.consentRequired) afterCookieChoice(() => UI.openConsentModal());
-      } else if (pendingMessage || !safeParseGlobal('pomodoroGuestChoice')) {
+      } else if (pendingMessage) { // only after a failed sign-in attempt -- guests land straight on the Timer
         afterCookieChoice(() => {
           document.getElementById('auth-modal').showModal();
           if (pendingMessage) setFieldStatus(document.getElementById('status-auth-login'), pendingMessage, 'error');
@@ -5258,24 +5882,114 @@ const UI = {
     Media.applyBackground();
     UI.renderMusicUI();
 
-    ['dashboard', 'reports', 'leaderboard', 'lounge', 'guides'].forEach((v) => {
-      document.getElementById(`nav-${v}`).addEventListener('click', () => UI.selectView(v));
-      const bottomLink = document.getElementById(`navbar-${v}`);
-      if (bottomLink) bottomLink.addEventListener('click', () => UI.selectView(v));
+    // Pages are links (a[data-route], see Router); Progress and Social have two sections each.
+    ['reports', 'leaderboard'].forEach((v) => document.getElementById(`progress-tab-${v}`).addEventListener('click', () => UI.selectView(v)));
+    ['room', 'friends'].forEach((sec) => document.getElementById(`social-tab-${sec}`).addEventListener('click', () => UI.selectSocialSection(sec)));
+    document.getElementById('social-tabs').addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const next = UI._socialSection === 'friends' ? 'room' : 'friends';
+      UI.selectSocialSection(next);
+      document.getElementById(`social-tab-${next}`).focus();
+    });
+    document.getElementById('progress-tabs').addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      e.preventDefault();
+      const next = UI._progressSection === 'leaderboard' ? 'reports' : 'leaderboard';
+      UI.selectView(next);
+      document.getElementById(`progress-tab-${next}`).focus();
+    });
+    document.querySelectorAll('#setting-language [data-lang]').forEach((b) => b.addEventListener('click', () => I18n.setLanguage(b.dataset.lang)));
+    document.querySelectorAll('#setting-motion [data-motion]').forEach((b) => b.addEventListener('click', () => UI.setMotion(b.dataset.motion)));
+    window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => UI.renderMotionUI());
+    // The tab, mode or option you just picked settles into place (app.css .settle). Arrow keys pick by clicking too.
+    document.addEventListener('click', (e) => {
+      const el = e.target.closest('.nav-link, .bottom-tab, .mode-tab, [role="tab"], .choice-pills button');
+      if (!el) return;
+      requestAnimationFrame(() => {
+        if (el.getAttribute('aria-current') !== 'page' && el.getAttribute('aria-selected') !== 'true' && el.getAttribute('aria-checked') !== 'true') return;
+        el.classList.remove('settle');
+        void el.offsetWidth; // restart
+        el.classList.add('settle');
+        el.addEventListener('animationend', () => el.classList.remove('settle'), { once: true });
+      });
+    });
+    UI.radioKeys(document.getElementById('setting-language'));
+    UI.radioKeys(document.getElementById('setting-motion'));
+    UI.renderLanguageUI();
+    window.addEventListener('resize', () => UI.fitHeader());
+    if (document.fonts) document.fonts.ready.then(() => UI.fitHeader());
+    // Start fetching the study tools as soon as someone heads for the Methods tab, so they're usually ready by the click.
+    ['nav-methods', 'navbar-methods'].forEach((id) => {
+      const prefetch = () => { Methods.load().catch(() => {}); };
+      for (const type of ['pointerenter', 'focus', 'touchstart']) document.getElementById(id).addEventListener(type, prefetch, { once: true, passive: true });
     });
 
-    document.getElementById('darkmode-toggle').addEventListener('click', () => Theme.toggleDarkMode());
-    document.getElementById('mute-toggle').addEventListener('click', () => {
-      MusicPlayer.setMuted(!state.musicSettings.muted);
-      UI.renderMuteToggle();
-      if (typeof UI.renderMusicUI === 'function') UI.renderMusicUI();
+    // ---- "?" on each page: the matching guide video (Study, which has its own how-tos, opens Help & guides) ----
+    document.addEventListener('click', (e) => {
+      const help = e.target.closest('.page-help[data-guide]');
+      if (help) Guides.openOrder(Number(help.dataset.guide));
+    });
+    // ---- Any "Log in" / "Sign up" button (empty states, profile, settings) ----
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-auth]');
+      if (b) { e.preventDefault(); UI.openAuth(b.dataset.auth); }
+    });
+    // ---- Mini-timer ----
+    document.getElementById('mini-timer-toggle').addEventListener('click', () => (state.timer.running ? Timer.pause() : Timer.start()));
+    // ---- Space starts/pauses the timer, except while typing, on a control Space already presses, or in a dialog ----
+    document.addEventListener('keydown', (e) => {
+      if ((e.key !== ' ' && e.code !== 'Space') || e.defaultPrevented || e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.target.closest && e.target.closest('input, textarea, select, button, a, summary, video, audio, [contenteditable], [role="tab"], [role="radio"], [role^="menuitem"], [role="slider"]')) return;
+      if (document.querySelector('dialog[open]')) return;
+      e.preventDefault();
+      if (state.timer.running) Timer.pause(); else Timer.start();
+    });
+    // ---- Ask AI panel ----
+    document.getElementById('ai-fab').addEventListener('click', () => (document.getElementById('ai-panel').hidden ? UI.openAIPanel() : UI.closeAIPanel(true)));
+    document.getElementById('ai-panel-close').addEventListener('click', () => UI.closeAIPanel(true));
+    // ---- Account menu ----
+    const accountBtn = document.getElementById('user-avatar');
+    const accountPanel = document.getElementById('account-panel');
+    accountBtn.addEventListener('click', () => (accountPanel.hidden ? UI.openAccountMenu() : UI.closeAccountMenu()));
+    accountBtn.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown') { e.preventDefault(); UI.openAccountMenu(); } });
+    accountPanel.addEventListener('keydown', (e) => {
+      const items = [...accountPanel.querySelectorAll('[role^="menuitem"]')].filter((el) => el.offsetParent);
+      const i = items.indexOf(document.activeElement);
+      const go = (j) => { e.preventDefault(); items[(j + items.length) % items.length].focus(); };
+      if (e.key === 'ArrowDown') go(i + 1);
+      else if (e.key === 'ArrowUp') go(i - 1);
+      else if (e.key === 'Home') go(0);
+      else if (e.key === 'End') go(items.length - 1);
+      else if (e.key === 'Tab') UI.closeAccountMenu();
+    });
+    accountPanel.addEventListener('click', (e) => {
+      if (e.target.closest('#quick-mute')) { UI.toggleMute(); return; }
+      if (e.target.closest('#quick-dark')) { UI.withViewTransition(() => Theme.toggleDarkMode()); return; }
+      const item = e.target.closest('[data-account]');
+      if (!item) return;
+      UI.closeAccountMenu();
+      const act = item.dataset.account;
+      if (act === 'profile') UI.openProfileModal();
+      else if (act === 'settings') UI.openSettings();
+      else if (act === 'help') Router.go('/help');
+      else if (act === 'privacy') UI.openSettings('account');
+      else if (act === 'login') UI.openAuth('login');
+      else if (act === 'logout') Auth.logout();
+    });
+    document.addEventListener('click', (e) => { if (!document.getElementById('account-menu').contains(e.target)) UI.closeAccountMenu(); });
+    // Escape closes whichever panel is open and gives focus back to what opened it.
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (!accountPanel.hidden) { e.preventDefault(); UI.closeAccountMenu(true); }
+      else if (!document.getElementById('ai-panel').hidden && !document.querySelector('dialog[open]')) { e.preventDefault(); UI.closeAIPanel(true); }
     });
 
     // ---- Notifications ----
     const notifMenu = document.getElementById('notif-menu');
     const notifTrigger = document.getElementById('notif-trigger');
     const openNotifMenu = () => {
-      closeFriendsDrawer();
+      UI.closeAccountMenu();
       notifMenu.hidden = false;
       notifTrigger.setAttribute('aria-expanded', 'true');
     };
@@ -5294,19 +6008,12 @@ const UI = {
     });
 
     // ---- Profile modal ----
-    document.getElementById('user-avatar').addEventListener('click', () => UI.openProfileModal());
-    document.getElementById('user-name-display').addEventListener('click', () => UI.openProfileModal());
     document.getElementById('profile-modal-close').addEventListener('click', () => document.getElementById('profile-modal').close());
     document.getElementById('profile-modal-edit-btn').addEventListener('click', () => UI.openProfileEdit());
     document.getElementById('profile-modal-logout-btn').addEventListener('click', () => {
       document.getElementById('profile-modal').close();
       Auth.logout();
       clearAuthModalInputs();
-      document.getElementById('auth-modal').showModal();
-    });
-    document.getElementById('profile-modal-login-btn').addEventListener('click', () => {
-      document.getElementById('profile-modal').close();
-      document.getElementById('auth-modal').showModal();
     });
     document.getElementById('profile-edit-cancel').addEventListener('click', () => {
       if (UI._pendingAvatarPhoto instanceof File) ObjectURLRegistry.revoke('profile-avatar-preview');
@@ -5398,7 +6105,6 @@ const UI = {
     document.getElementById('consent-modal-logout').addEventListener('click', () => {
       document.getElementById('consent-modal').close();
       Auth.logout();
-      document.getElementById('auth-modal').showModal();
     });
 
     // ---- Privacy & data: download / delete ----
@@ -5629,8 +6335,7 @@ const UI = {
     });
 
     document.getElementById('ai-chat-goto-settings').addEventListener('click', () => {
-      UI.openSettings();
-      UI.selectSettingsTab('ai');
+      UI.openSettings('ai');
       document.getElementById('setting-ai-api-key').focus();
     });
 
@@ -5692,7 +6397,27 @@ const UI = {
 
     document.getElementById('settings-btn').addEventListener('click', () => UI.openSettings());
     document.getElementById('settings-close').addEventListener('click', () => UI.closeSettings());
-    document.getElementById('settings-form').addEventListener('submit', (e) => UI.saveSettingsFromForm(e));
+    // Settings save themselves: each change is applied a moment later and confirmed with a small "Saved".
+    let autoSaveTimer = null;
+    const autoSave = () => {
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = setTimeout(async () => { if (await UI.saveSettingsFromForm()) UI.flashSaved(); }, 300);
+    };
+    const settingsForm = document.getElementById('settings-form');
+    settingsForm.addEventListener('change', (e) => {
+      if (e.target.closest('[data-instant], .color-rows, input[type="file"]')) return; // these apply on their own
+      autoSave();
+    });
+    settingsForm.addEventListener('submit', (e) => { e.preventDefault(); autoSave(); });
+    document.getElementById('setting-music-muted').addEventListener('change', (e) => {
+      if (e.target.checked !== !!state.musicSettings.muted) UI.toggleMute();
+      UI.flashSaved();
+    });
+    document.getElementById('setting-dark-mode').addEventListener('change', (e) => {
+      if (e.target.checked !== Theme.isDark()) UI.withViewTransition(() => Theme.toggleDarkMode());
+      UI.flashSaved();
+    });
+    document.getElementById('settings-logout').addEventListener('click', () => { Auth.logout(); UI.syncAuthUIInSettings(); });
     document.getElementById('setting-bg-type').addEventListener('change', (e) => UI.toggleBgFields(e.target.value));
 
     document.getElementById('preview-bg-image-url').addEventListener('click', () => UI.previewBackgroundUrl('image'));
@@ -5714,12 +6439,12 @@ const UI = {
     SETTINGS_TABS.forEach((t) => {
       document.getElementById(`tab-${t}`).addEventListener('click', () => UI.selectSettingsTab(t));
     });
-    document.querySelector('.settings-tabs').addEventListener('keydown', (e) => {
+    document.getElementById('settings-tablist').addEventListener('keydown', (e) => {
       const idx = SETTINGS_TABS.indexOf(document.activeElement.id.replace('tab-', ''));
       if (idx === -1) return;
       let nextIdx = null;
-      if (e.key === 'ArrowRight') nextIdx = (idx + 1) % SETTINGS_TABS.length;
-      else if (e.key === 'ArrowLeft') nextIdx = (idx - 1 + SETTINGS_TABS.length) % SETTINGS_TABS.length;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') nextIdx = (idx + 1) % SETTINGS_TABS.length;
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') nextIdx = (idx - 1 + SETTINGS_TABS.length) % SETTINGS_TABS.length;
       else if (e.key === 'Home') nextIdx = 0;
       else if (e.key === 'End') nextIdx = SETTINGS_TABS.length - 1;
       if (nextIdx !== null) {
@@ -5841,10 +6566,6 @@ const UI = {
     });
 
     // ---- Appearance tab ----
-    document.getElementById('setting-theme-preset').addEventListener('change', (e) => {
-      Theme.applyPreset(e.target.value);
-      UI.renderAppearanceUI();
-    });
     document.getElementById('reset-theme').addEventListener('click', () => {
       Theme.resetToDefault();
       UI.renderAppearanceUI();
@@ -5897,14 +6618,7 @@ const UI = {
     document.getElementById('lounge-leave-room').addEventListener('click', () => {
       Lounge.leaveRoom();
     });
-    document.getElementById('lounge-chip').addEventListener('click', () => UI.selectView('lounge'));
-    const more = document.getElementById('header-more');
-    const moreToggle = document.getElementById('header-more-toggle');
-    const setMore = (open) => { more.classList.toggle('is-open', open); moreToggle.setAttribute('aria-expanded', String(open)); };
-    moreToggle.addEventListener('click', (e) => { e.stopPropagation(); setMore(!more.classList.contains('is-open')); });
-    document.addEventListener('click', (e) => { if (!more.contains(e.target)) setMore(false); });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setMore(false); });
-    document.getElementById('header-more-menu').addEventListener('click', () => setMore(false));
+    document.getElementById('lounge-chip').addEventListener('click', () => Router.go('/social'));
 
     // ---- Leaderboard range ----
     [['daily', 'leaderboard-tab-daily'], ['weekly', 'leaderboard-tab-weekly'], ['alltime', 'leaderboard-tab-alltime']].forEach(([range, id]) => {
@@ -5919,27 +6633,7 @@ const UI = {
       });
     });
 
-    // ---- Friends drawer ----
-    const openFriendsDrawer = () => {
-      closeNotifMenu();
-      document.getElementById('friends-drawer').hidden = false;
-      document.getElementById('friends-drawer-backdrop').hidden = false;
-    };
-    const closeFriendsDrawer = () => {
-      document.getElementById('friends-drawer').hidden = true;
-      document.getElementById('friends-drawer-backdrop').hidden = true;
-    };
-    document.getElementById('friends-drawer-toggle').addEventListener('click', openFriendsDrawer);
-    document.getElementById('lounge-manage-friends-btn').addEventListener('click', openFriendsDrawer);
-    document.getElementById('friends-drawer-close').addEventListener('click', closeFriendsDrawer);
-    document.getElementById('friends-drawer-backdrop').addEventListener('click', closeFriendsDrawer);
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !document.getElementById('friends-drawer').hidden) closeFriendsDrawer();
-    });
-    document.getElementById('friends-drawer-login-btn').addEventListener('click', () => {
-      closeFriendsDrawer();
-      document.getElementById('auth-modal').showModal();
-    });
+    // ---- Friends (Social > Friends) ----
     document.getElementById('friend-search-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const input = document.getElementById('friend-search-input');
@@ -5992,6 +6686,7 @@ const UI = {
       const li = document.createElement('li');
       li.className = 'chat-dialog__message chat-dialog__message--friend';
       li.textContent = message.text;
+      li.dataset.i18nSkip = ''; // a friend's own words
       list.appendChild(li);
       list.scrollTop = list.scrollHeight;
       Api.post(`/api/conversations/${message.senderId}/read`);
@@ -6001,6 +6696,9 @@ const UI = {
     UI.renderLoungeFriends();
 
     UI.renderAppearanceUI();
+    UI.renderAccountMenu();
+    UI.renderSocialBadge();
+    Router.init(); // opens the page in the address bar (/ -> /timer)
   },
 };
 

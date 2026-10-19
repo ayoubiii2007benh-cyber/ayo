@@ -1622,6 +1622,11 @@ app.get('/site.webmanifest', (req, res) => {
 });
 
 app.get('/', (req, res) => Assets.sendPage(req, res, INDEX_HTML_PATH, ROOT_DIR));
+// The app's own pages (each has its own address; the app reads it and opens that page). A fixed whitelist, like
+// the legal pages below -- keep in step with Router.ROUTES in assets/app.js.
+const APP_ROUTES = ['/timer', '/study', '/study/active-recall', '/study/feynman', '/study/blurting', '/study/flashcards',
+  '/progress', '/progress/leaderboard', '/social', '/social/friends', '/help'];
+app.get(APP_ROUTES.flatMap((p) => [p, `${p}/`]), (req, res) => Assets.sendPage(req, res, INDEX_HTML_PATH, ROOT_DIR));
 
 // Legal pages -- a fixed whitelist, never a path taken from the request.
 for (const page of ['privacy', 'terms', 'cookies']) {
