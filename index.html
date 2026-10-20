@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- Cookie consent + Google Analytics (G-Y0B0W7YJ78). Consent Mode v2 starts fully denied, and gtag.js is only
-     downloaded after the visitor accepts analytics -- see assets/consent.js. This is the page's only Google tag. -->
+     downloaded after the visitor accepts analytics -- see assets/consent.js. The only other Google tag is the inert AdSense one below. -->
 <title>Pomodoro App</title>
 <meta name="description" content="A calm, focused Pomodoro timer and daily planner.">
 <link rel="icon" href="/favicon/favicon.svg" type="image/svg+xml">
@@ -23,6 +23,12 @@
 <!-- app.js: cacheable and deferred. blocking="render" (Chrome/Edge) keeps the first paint waiting for it, as the old
      inline script did, so nobody sees the page before it is filled in; other browsers ignore the attribute. -->
 <script src="/assets/app.js" defer blocking="render"></script>
+<!-- Google AdSense. Kept inert (type="text/plain": the browser doesn't download it) and switched on once by
+     assets/ads.js, only when an ad-unit ID is configured there AND the visitor agreed to advertising. -->
+<meta name="google-adsense-account" content="ca-pub-3653628480137313">
+<script type="text/plain" id="adsense-lib" async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3653628480137313"
+     crossorigin="anonymous"></script>
+<script src="/assets/ads.js" defer></script>
 </head>
 <body>
 
@@ -210,6 +216,7 @@
       <p id="task-empty-state">No tasks yet — add one above to start focusing.</p>
       <ul id="task-list" aria-label="Task list"></ul>
     </section>
+    <aside class="ad-slot ad-slot--timer" data-ad-placement="timer" aria-label="Advertisement" hidden><span class="ad-slot__label">Advertisement</span><div class="ad-slot__body" data-i18n-skip></div></aside>
   </div>
 </div>
 
@@ -218,6 +225,7 @@
     <div class="page-head"><div class="page-head__text"><h2 class="page-title">Study</h2><p class="page-desc">Four ways to study, each with a short how-to and a tool to try it right here.</p></div></div>
     <p class="field-hint" id="methods-status">Loading study methods…</p>
   </div>
+  <aside class="ad-slot ad-slot--wide" data-ad-placement="study" aria-label="Advertisement" hidden><span class="ad-slot__label">Advertisement</span><div class="ad-slot__body" data-i18n-skip></div></aside>
 </div>
 
 <div id="view-progress" class="view" hidden>
@@ -287,6 +295,7 @@
         <ol class="leaderboard-list" id="leaderboard-list"></ol>
       </section>
     </div>
+    <aside class="ad-slot ad-slot--progress" data-ad-placement="progress" aria-label="Advertisement" hidden><span class="ad-slot__label">Advertisement</span><div class="ad-slot__body" data-i18n-skip></div></aside>
   </div>
   <div id="view-leaderboard" role="tabpanel" aria-labelledby="progress-tab-leaderboard" hidden>
     <div class="empty-state glass" id="leaderboard-guest-hint" hidden>
@@ -418,6 +427,9 @@
       <p class="field-hint" id="lounge-friends-empty" hidden>No friends yet — search for a username above to send a request.</p>
     </section>
   </div>
+  <!-- Wide screens: rails in the page margins on either side. Smaller screens: the left one becomes the single ad below the content. -->
+  <aside class="ad-slot ad-slot--rail ad-slot--rail-left" data-ad-placement="socialLeft" aria-label="Advertisement" hidden><span class="ad-slot__label">Advertisement</span><div class="ad-slot__body" data-i18n-skip></div></aside>
+  <aside class="ad-slot ad-slot--rail ad-slot--rail-right" data-ad-placement="socialRight" aria-label="Advertisement" hidden><span class="ad-slot__label">Advertisement</span><div class="ad-slot__body" data-i18n-skip></div></aside>
 </div>
 
 <div id="view-guides" class="view" aria-label="Help &amp; guides" hidden>

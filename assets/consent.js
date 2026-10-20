@@ -1,9 +1,13 @@
-/* Cookie consent + Google Analytics loader, shared by the app and the legal pages.
+/* Cookie consent + Google Analytics loader, shared by the app and the legal pages. Also holds the advertising
+   (Google AdSense) choice that assets/ads.js waits for.
 
    - Google Consent Mode v2 is initialised with EVERYTHING denied before anything else happens.
    - Google Analytics (gtag.js) is not even downloaded until the visitor accepts analytics. Reject, or
      doing nothing, means no Google script, no analytics cookies, no analytics requests.
-   - The choice is remembered in this browser (localStorage, key "pomoCookieConsent") and re-asked after 12 months.
+   - Advertising is a separate choice: until the visitor says yes, ad_storage / ad_user_data / ad_personalization stay
+     "denied" and assets/ads.js loads no AdSense code. Every change is announced with a "pomo:consentchange" event.
+   - The choice is remembered in this browser (localStorage, key "pomoCookieConsent") and re-asked after 12 months, or
+     once when it predates the advertising choice (v1 records have no `ads`).
    - Anything with data-cookie-settings (the footer link) re-opens the choices so they can be changed or withdrawn. */
 (function () {
   'use strict';
@@ -31,14 +35,17 @@
       var raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return null;
       var c = JSON.parse(raw);
-      if (!c || typeof c.analytics !== 'boolean' || typeof c.at !== 'number') return null;
+      if (!c || typeof c.analytics !== 'boolean' || typeof c.ads !== 'boolean' || typeof c.at !== 'number') return null;
       if (Date.now() - c.at > MAX_AGE_MS) return null;
       return c;
     } catch (e) { return null; }
   }
-  function writeChoice(analytics) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ analytics: analytics, at: Date.now(), v: 1 })); } catch (e) { /* storage blocked: choice lasts for this page only */ }
+  var pageChoice = null; // used when storage is blocked: the choice then lasts for this page only
+  function writeChoice(analytics, ads) {
+    pageChoice = { analytics: analytics, ads: ads, at: Date.now(), v: 2 };
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(pageChoice)); } catch (e) { /* storage blocked */ }
   }
+  function currentChoice() { return readChoice() || pageChoice; }
 
   var gaLoaded = false;
   function enableAnalytics() {
@@ -72,7 +79,15 @@
     gtag('consent', 'update', { analytics_storage: 'denied' });
     deleteAnalyticsCookies();
   }
-  function apply(analytics) { if (analytics) enableAnalytics(); else disableAnalytics(); }
+  function applyAds(ads) {
+    var v = ads ? 'granted' : 'denied';
+    gtag('consent', 'update', { ad_storage: v, ad_user_data: v, ad_personalization: v });
+  }
+  function apply(choice) {
+    if (choice.analytics) enableAnalytics(); else disableAnalytics();
+    applyAds(choice.ads);
+    try { document.dispatchEvent(new CustomEvent('pomo:consentchange', { detail: { analytics: choice.analytics, ads: choice.ads } })); } catch (e) { /* very old browser */ }
+  }
 
   // Lets the app hold back its own pop-ups (e.g. the first-visit sign-in window) until a choice exists,
   // because an open modal dialog would make the banner unclickable.
@@ -104,9 +119,9 @@
     banner = null;
     if (returnFocus && lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (e) { /* element gone */ } }
   }
-  function decide(analytics) {
-    writeChoice(analytics);
-    apply(analytics);
+  function decide(analytics, ads) {
+    writeChoice(analytics, ads);
+    apply(pageChoice);
     close(true);
     markDecided();
   }
@@ -114,12 +129,12 @@
   function open(startInManage) {
     if (banner) return;
     lastFocus = document.activeElement;
-    var current = readChoice();
+    var current = currentChoice();
 
     var title = el('h2', { id: 'cookie-banner-title', class: 'cookie-banner__title', text: 'Your privacy choices' });
     var intro = el('p', { class: 'cookie-banner__text' });
     // One short line: the bar stays slim. The full story is one click away.
-    intro.appendChild(document.createTextNode('We use essential storage to run the app. Analytics only if you accept — no ads, no selling data. '));
+    intro.appendChild(document.createTextNode('We use essential storage to run the app. Analytics and ads only if you accept — no selling data. '));
     intro.appendChild(el('a', { href: '/cookies', text: 'Cookie Policy' }));
 
     // Reject and Accept look exactly alike (equal weight); Manage is a quieter text button.
@@ -130,6 +145,8 @@
 
     var analyticsBox = el('input', { type: 'checkbox', id: 'cookie-analytics' });
     analyticsBox.checked = !!(current && current.analytics);
+    var adsBox = el('input', { type: 'checkbox', id: 'cookie-ads' });
+    adsBox.checked = !!(current && current.ads);
     var necessaryBox = el('input', { type: 'checkbox', id: 'cookie-necessary', checked: 'checked', disabled: 'disabled' });
     var save = el('button', { type: 'button', class: 'cookie-btn cookie-btn--primary', text: 'Save choices' });
     var manageBox = el('div', { id: 'cookie-manage', class: 'cookie-banner__manage', hidden: 'hidden' }, [
@@ -147,14 +164,21 @@
           el('span', { class: 'cookie-row__desc', text: 'Anonymous statistics about visits and usage so we can improve the site. Sets the _ga cookies. Off unless you turn it on.' }),
         ]),
       ]),
+      el('label', { class: 'cookie-row', for: 'cookie-ads' }, [
+        adsBox,
+        el('span', {}, [
+          el('strong', { text: 'Advertising (Google AdSense)' }),
+          el('span', { class: 'cookie-row__desc', text: 'Lets Google show ads that keep the site free. Google may use cookies and your data to choose and measure ads, including personalised ads. Never inside rooms or private chats. Off unless you turn it on.' }),
+        ]),
+      ]),
       el('div', { class: 'cookie-banner__actions' }, [save]),
     ]);
 
     banner = el('div', { id: 'cookie-banner', class: 'cookie-banner', role: 'dialog', 'aria-modal': 'false', 'aria-labelledby': 'cookie-banner-title' }, [title, intro, actions, manageBox]);
 
-    accept.addEventListener('click', function () { decide(true); });
-    reject.addEventListener('click', function () { decide(false); });
-    save.addEventListener('click', function () { decide(analyticsBox.checked); });
+    accept.addEventListener('click', function () { decide(true, true); });
+    reject.addEventListener('click', function () { decide(false, false); });
+    save.addEventListener('click', function () { decide(analyticsBox.checked, adsBox.checked); });
     manage.addEventListener('click', function () {
       var show = manageBox.hasAttribute('hidden');
       if (show) manageBox.removeAttribute('hidden'); else manageBox.setAttribute('hidden', 'hidden');
@@ -162,7 +186,7 @@
     });
     banner.addEventListener('keydown', function (e) {
       // Escape closes only when a choice already exists (otherwise closing would silently mean "no answer").
-      if (e.key === 'Escape' && readChoice()) close(true);
+      if (e.key === 'Escape' && currentChoice()) close(true);
     });
 
     document.body.appendChild(banner);
@@ -178,7 +202,7 @@
     // Anyone who visited before consent existed may still carry Google Analytics cookies from the old,
     // unconditional tag. Without a "yes" on record they are removed.
     if (!choice || !choice.analytics) deleteAnalyticsCookies();
-    if (choice) { apply(choice.analytics); markDecided(); } // stays denied unless they said yes
+    if (choice) { apply(choice); markDecided(); } // stays denied unless they said yes
     else open(false);
     document.addEventListener('click', function (e) {
       var t = e.target && e.target.closest ? e.target.closest('[data-cookie-settings]') : null;
@@ -189,7 +213,7 @@
     });
   }
 
-  window.PomoConsent = { open: function () { open(true); }, get: readChoice, whenDecided: whenDecided };
+  window.PomoConsent = { open: function () { open(true); }, get: currentChoice, whenDecided: whenDecided };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();

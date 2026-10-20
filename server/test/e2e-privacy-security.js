@@ -200,7 +200,7 @@ async function main() {
   assert(exp.status === 200 && /attachment/.test(exp.headers.get('content-disposition') || ''), 'export downloads as a file');
   const data = exp.json;
   assert(data && data.account.username === aliceName && data.account.email === `${aliceName}@example.com`, 'export has the account');
-  assert(data.account.agreedToTermsAndPrivacyVersion === '2026-09-30' && data.account.agreedAt, 'export shows the recorded consent (version + time)');
+  assert(data.account.agreedToTermsAndPrivacyVersion === '2026-10-20' && data.account.agreedAt, 'export shows the recorded consent (version + time)');
   assert(data.friends.length === 1 && data.directMessages[0].messages[0].text === 'hello bob', 'export has friends and direct messages');
   assert(!/password|hash|token_version/i.test(exp.text.replace(/"about"[^\n]*\n/, '')), 'export never contains password hashes or tokens');
   assert((await new Client().call('GET', '/api/account/export')).status === 401, 'export needs a session');

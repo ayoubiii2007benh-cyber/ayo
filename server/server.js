@@ -22,7 +22,7 @@ const PORT = Number(process.env.PORT) || 3000;
 /* Version of the Terms of Service + Privacy Policy users agree to. Bump this (to the new "last updated"
    date) whenever either document changes in a way users must re-accept; every account whose stored
    consent_version differs is asked to accept again. Keep in sync with legal/*.html. */
-const POLICY_VERSION = '2026-09-30';
+const POLICY_VERSION = '2026-10-20';
 const CONTACT_EMAIL = 'help.pomodorofocus@gmail.com';
 const allowedOrigins = (process.env.ALLOWED_ORIGIN || '').split(',').map((s) => s.trim()).filter(Boolean);
 // Must exactly match the redirect URI registered with each OAuth provider's
@@ -83,16 +83,23 @@ app.use((req, res, next) => {
 /* Content-Security-Policy: no page has an inline <script> any more (the app's JavaScript is a separate,
    cacheable file), so script-src needs no nonce and no 'unsafe-inline' -- only our own files plus the few
    listed hosts may run script, which is what stops injected markup from executing. Applied to every response. */
+/* Google AdSense needs broad Google hosts (Google's own CSP guidance for AdSense), so they are only allowed once ads are
+   switched on with ADS_ENABLED=1 -- after ad-unit IDs are set in assets/ads.js and visitors can consent to advertising. */
+const ADS_CSP = process.env.ADS_ENABLED === '1' ? {
+  script: ' https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.google.com https://*.gstatic.com https://*.doubleclick.net https://*.googleadservices.com https://*.adtrafficquality.google',
+  frame: ' https://googleads.g.doubleclick.net https://*.doubleclick.net https://tpc.googlesyndication.com https://*.googlesyndication.com https://*.google.com https://*.adtrafficquality.google',
+  connect: ' https://pagead2.googlesyndication.com https://*.googlesyndication.com https://*.google.com https://*.doubleclick.net https://*.adtrafficquality.google',
+} : { script: '', frame: '', connect: '' };
 function buildCsp(secure) {
   const directives = [
     "default-src 'self'",
-    "script-src 'self' https://www.youtube.com https://challenges.cloudflare.com https://www.googletagmanager.com",
+    "script-src 'self' https://www.youtube.com https://challenges.cloudflare.com https://www.googletagmanager.com" + ADS_CSP.script,
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
     "img-src 'self' data: blob: https:",
     "media-src 'self' data: blob: https:",
-    'frame-src https://www.youtube.com https://www.youtube-nocookie.com https://challenges.cloudflare.com',
-    "connect-src 'self' https://generativelanguage.googleapis.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com",
+    'frame-src https://www.youtube.com https://www.youtube-nocookie.com https://challenges.cloudflare.com' + ADS_CSP.frame,
+    "connect-src 'self' https://generativelanguage.googleapis.com https://*.google-analytics.com https://*.analytics.google.com https://www.googletagmanager.com" + ADS_CSP.connect,
     "manifest-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",
@@ -1619,6 +1626,10 @@ app.use('/assets/fonts', express.static(path.join(ROOT_DIR, 'assets', 'fonts'), 
 app.use('/guides', express.static(path.join(__dirname, '..', 'guides'), { maxAge: '1d' }));
 app.get('/site.webmanifest', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'site.webmanifest'), { maxAge: '1d' });
+});
+// Authorised ad sellers (IAB ads.txt) for Google AdSense; must live at the site root.
+app.get('/ads.txt', (req, res) => {
+  res.type('text/plain').sendFile(path.join(__dirname, '..', 'ads.txt'), { maxAge: '1d' });
 });
 
 app.get('/', (req, res) => Assets.sendPage(req, res, INDEX_HTML_PATH, ROOT_DIR));

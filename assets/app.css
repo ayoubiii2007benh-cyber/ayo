@@ -1850,3 +1850,50 @@
     #settings-tablist.settings-nav [role="tab"] { justify-content: center; text-align: center; font-size: 13px; padding: 6px 8px; min-height: 40px; }
     .settings-panels { padding: 16px 16px 28px; }
   }
+
+  /* ==================== Advertising (AdSense) ====================
+     Containers only (assets/ads.js fills them); Google's ad itself is never styled. Labelled, tinted and edged so
+     an ad never reads as one of the app's cards or buttons. Space is reserved up front (min-height) to limit layout
+     shift; nothing is fixed or sticky. */
+  .ad-slot {
+    --ad-tint: #9B2C55; /* burgundy-pink, only for the ad frame */
+    display: flex; flex-direction: column; gap: 8px; box-sizing: border-box; min-width: 0; max-width: 100%;
+    padding: 10px 12px 12px; border-radius: var(--r-md);
+    background: color-mix(in srgb, var(--ad-tint) 7%, var(--glass));
+    border: 1px solid color-mix(in srgb, var(--ad-tint) 22%, var(--edge));
+  }
+  .ad-slot[hidden], #view-lounge.ads-off .ad-slot, #view-methods.ads-off .ad-slot, .ads-paused .ad-slot { display: none !important; }
+  .ad-slot__label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--dim); padding-inline: 4px; }
+  .ad-slot__body { min-height: 250px; min-width: 0; }
+  /* Local preview without an ad-unit ID: a plain, non-clickable stand-in of the same size. */
+  .ad-slot[data-ad-state="placeholder"] .ad-slot__body {
+    display: grid; place-items: center; border-radius: var(--r-sm); pointer-events: none; user-select: none;
+    border: 1px dashed color-mix(in srgb, var(--ad-tint) 30%, transparent); color: var(--dim); font-size: 13px; text-align: center; padding: 8px;
+  }
+  .ad-slot[data-ad-state="placeholder"] .ad-slot__body::after { content: 'Ad placeholder · local preview'; }
+
+  /* Timer: under "Today" in the right column; below the tasks once the layout is one column. */
+  @media (min-width: 900px) {
+    .timer-layout.has-ad { grid-template-rows: auto 1fr; }
+    .timer-layout.has-ad > #timer { grid-row: 1 / span 2; }
+    .timer-layout.has-ad > .ad-slot--timer { grid-column: 2; grid-row: 2; }
+  }
+  /* Progress: below the cards, in the left column's width (full width when the cards stack). */
+  .ad-slot--progress { margin-top: var(--space-5); }
+  @media (min-width: 900px) { .ad-slot--progress { width: calc((100% - var(--space-5)) / 2); } }
+  /* Study: below the four method cards, above the footer. */
+  .ad-slot--wide { margin-top: var(--space-6); }
+  @media (min-width: 768px) { .ad-slot--wide .ad-slot__body, .ad-slot--rail .ad-slot__body { min-height: 120px; } }
+  /* Social: one ad below the lobby on smaller screens (the left rail's element), and on wide screens two 160x600
+     rails in the page margins outside the 1280px column (main's 32px padding + a 16px gap), clear of the header and footer. */
+  #view-lounge { position: relative; }
+  .ad-slot--rail { margin-top: var(--space-6); }
+  .ad-slot--rail-right { display: none; }
+  @media (min-width: 1680px) {
+    .ad-slot--rail { position: absolute; top: 0; width: 162px; margin: 0; padding: 8px 0 10px; border-radius: var(--r-sm); }
+    .ad-slot--rail .ad-slot__label { padding-inline: 10px; }
+    .ad-slot--rail .ad-slot__body { width: 160px; min-height: 600px; }
+    .ad-slot--rail[data-ad-state="placeholder"] .ad-slot__body { margin-inline: 6px; width: auto; }
+    .ad-slot--rail-left { left: calc(-32px - 16px - 162px); }
+    .ad-slot--rail-right { right: calc(-32px - 16px - 162px); display: flex; }
+  }

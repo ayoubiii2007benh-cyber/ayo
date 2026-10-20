@@ -157,7 +157,7 @@
       'Background media controls': 'أدوات التحكم بوسائط الخلفية', 'Play or pause background media': 'تشغيل وسائط الخلفية أو إيقافها مؤقتًا', 'Mute or unmute background media': 'كتم وسائط الخلفية أو إلغاء كتمها',
       'Background media volume': 'مستوى صوت وسائط الخلفية', 'Loading…': 'جارٍ التحميل…', 'Home': 'الرئيسية', 'Files': 'الملفات', 'Label': 'التسمية', 'Custom…': 'مخصّص…', 'Untitled': 'بلا عنوان',
       // footer, cookies
-      'Terms of Service ': 'شروط الخدمة', 'Cookie Policy': 'سياسة ملفات تعريف الارتباط', 'Cookie settings': 'إعدادات ملفات تعريف الارتباط', 'Contact': 'تواصل معنا',
+      'Terms of Service ': 'شروط الخدمة', 'Cookie Policy': 'سياسة ملفات تعريف الارتباط', 'Cookie settings': 'إعدادات ملفات تعريف الارتباط', 'Advertisement': 'إعلان', 'Contact': 'تواصل معنا',
       'Your privacy choices': 'خيارات خصوصيتك', 'We use essential storage to keep the app working and you signed in. With your permission we also use Google Analytics to count visits and see which parts of the site are used. No advertising, no selling of data. See our': 'نستخدم تخزينًا أساسيًا لتشغيل التطبيق وإبقائك مسجّلًا. وبإذنك نستخدم أيضًا Google Analytics لإحصاء الزيارات ومعرفة أجزاء الموقع المستخدمة. لا إعلانات ولا بيع للبيانات. اطّلع على',
       'Reject': 'رفض', 'Manage': 'إدارة', 'Accept': 'قبول', 'Strictly necessary': 'ضرورية تمامًا', 'Keeps you signed in, protects forms against abuse and remembers your settings on this device. Always on.': 'تُبقيك مسجّلًا وتحمي النماذج من إساءة الاستخدام وتتذكر إعداداتك على هذا الجهاز. مفعّلة دائمًا.',
       'Analytics (Google Analytics)': 'التحليلات (Google Analytics)', 'Anonymous statistics about visits and usage so we can improve the site. Sets the _ga cookies. Off unless you turn it on.': 'إحصاءات مجهولة الهوية عن الزيارات والاستخدام لنحسّن الموقع. تضع ملفات _ga. متوقفة ما لم تفعّلها.',
@@ -326,7 +326,7 @@
       'You\'re using Pomodoro as a guest. Your timer, tasks and stats stay on this device.': 'تستخدم بومودورو كضيف. يبقى مؤقّتك ومهامك وإحصاءاتك على هذا الجهاز.',
       'Cookies & legal': 'ملفات الارتباط والشؤون القانونية',
       'Log in to add friends and sync across devices.': 'سجّل الدخول لإضافة أصدقاء والمزامنة بين الأجهزة.',
-      'We use essential storage to run the app. Analytics only if you accept — no ads, no selling data.': 'نستخدم تخزينًا أساسيًا لتشغيل التطبيق. لا تحليلات إلا بموافقتك — لا إعلانات ولا بيع للبيانات.', 'Host': 'المضيف', 'Focus timer and study tools': 'مؤقّت للتركيز وأدوات للدراسة', 'Legal': 'المعلومات القانونية', 'toUserId is required.': 'المستلم مطلوب.',
+      'We use essential storage to run the app. Analytics and ads only if you accept — no selling data.': 'نستخدم تخزينًا أساسيًا لتشغيل التطبيق. لا تحليلات ولا إعلانات إلا بموافقتك — ولا بيع للبيانات.', 'Advertising (Google AdSense)': 'الإعلانات (Google AdSense)', 'Lets Google show ads that keep the site free. Google may use cookies and your data to choose and measure ads, including personalised ads. Never inside rooms or private chats. Off unless you turn it on.': 'تسمح لـ Google بعرض إعلانات تُبقي الموقع مجانيًا. قد تستخدم Google ملفات تعريف الارتباط وبياناتك لاختيار الإعلانات وقياسها، بما فيها الإعلانات المخصّصة. لا تظهر أبدًا داخل الغرف أو المحادثات الخاصة. معطّلة ما لم تفعّلها.', 'Host': 'المضيف', 'Focus timer and study tools': 'مؤقّت للتركيز وأدوات للدراسة', 'Legal': 'المعلومات القانونية', 'toUserId is required.': 'المستلم مطلوب.',
     },
     patterns: [
       [/^Today's Pomodoros: (\d+)$/, 'بومودورو اليوم: $1'],
