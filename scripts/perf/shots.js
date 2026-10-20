@@ -13,7 +13,7 @@ async function newPage(browser, { mobile = false, theme = null, consent = true, 
   await page.evaluateOnNewDocument((o) => {
     try {
       // localStorage is shared by every page of this browser, so each state sets OR clears each key
-      if (o.consent) localStorage.setItem('pomoCookieConsent', JSON.stringify({ analytics: false, at: Date.now(), v: 1 })); else localStorage.removeItem('pomoCookieConsent');
+      if (o.consent) localStorage.setItem('pomoCookieConsent', JSON.stringify({ analytics: false, ads: false, at: Date.now(), v: 2 })); else localStorage.removeItem('pomoCookieConsent');
       if (o.guest) localStorage.setItem('pomodoroGuestChoice', 'true'); else localStorage.removeItem('pomodoroGuestChoice');
       if (o.theme) localStorage.setItem('themeSettings', JSON.stringify({ preset: o.theme, colors: undefined })); else localStorage.removeItem('themeSettings');
     } catch (e) {}

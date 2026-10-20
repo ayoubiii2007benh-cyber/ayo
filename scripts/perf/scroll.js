@@ -9,7 +9,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const cdp = await page.createCDPSession();
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: form === 'mobile' ? 4 : 1 });
   await cdp.send('Performance.enable');
-  await page.evaluateOnNewDocument(() => { localStorage.setItem('pomoCookieConsent', JSON.stringify({ analytics: false, at: Date.now(), v: 1 })); localStorage.setItem('pomodoroGuestChoice', 'true'); });
+  await page.evaluateOnNewDocument(() => { localStorage.setItem('pomoCookieConsent', JSON.stringify({ analytics: false, ads: false, at: Date.now(), v: 2 })); localStorage.setItem('pomodoroGuestChoice', 'true'); });
   await page.goto(url, { waitUntil: 'load' });
   if (css) await page.addStyleTag({ content: css });
   await sleep(1500);

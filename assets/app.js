@@ -1086,6 +1086,8 @@ const Auth = {
         migrated = true;
       }
       Auth._applySession(session);
+      Auth._syncProfile(session.user);
+      if (typeof UI !== 'undefined') UI.renderProfile();
       if (migrated) Socket.connect(); // the socket opened before this browser had a cookie
     } catch (err) {
       // Only a real rejection (expired/invalid/account gone) should sign the user out. A network hiccup or a
@@ -1118,11 +1120,16 @@ const Auth = {
     const user = session.user;
     safeSetGlobal('pomodoroGuestChoice', null);
     Socket.connect();
+    Auth._syncProfile(user);
+    if (typeof UI !== 'undefined') { UI.renderProfile(); UI.syncAuthUI(); }
+    if (typeof Friends !== 'undefined') Friends.refreshAll();
+  },
+  /* The account is the source of truth for the name and avatar the header and profile show -- also when a session is
+     resumed from the cookie, or this device would keep showing "You" or a name changed on another device. */
+  _syncProfile(user) {
     state.profile.username = user.displayName;
     state.profile.avatar = user.avatar || state.profile.avatar;
     Storage.saveProfile(state.profile);
-    if (typeof UI !== 'undefined') { UI.renderProfile(); UI.syncAuthUI(); }
-    if (typeof Friends !== 'undefined') Friends.refreshAll();
   },
   continueAsGuest() {
     safeSetGlobal('pomodoroGuestChoice', true);

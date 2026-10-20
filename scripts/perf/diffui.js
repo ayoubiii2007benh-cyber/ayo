@@ -25,7 +25,7 @@ const errors = [];
   await page.evaluateOnNewDocument(() => {
     try {
       localStorage.clear();
-      localStorage.setItem('pomoCookieConsent', JSON.stringify({ analytics: false, at: Date.now(), v: 1 }));
+      localStorage.setItem('pomoCookieConsent', JSON.stringify({ analytics: false, ads: false, at: Date.now(), v: 2 }));
       localStorage.setItem('pomodoroGuestChoice', 'true');
     } catch (e) { /* ignore */ }
     let seed = 12345;

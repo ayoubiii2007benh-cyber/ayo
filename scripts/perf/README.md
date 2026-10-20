@@ -13,5 +13,6 @@ database on `PORT`, default 3100 -- it never touches a real database).
 | `node shots.js http://localhost:3101 old && node shots.js http://localhost:3100 new && node diff.js old new` | pixel-compares 22 screens (dashboard desktop/mobile, every view incl. Methods, settings tabs, dialogs, themes, cookie banner, legal page); animations are frozen with `prefers-reduced-motion` |
 | `node diffui.js <base> out.json` (run for old and new, then diff the JSON) | a 58-step scripted tour (tasks, timer, all themes, settings, views, profile, sign-up, friends, room, chat, logout) recording page text, title, theme attributes, localStorage, open dialogs |
 | `node themeparity.js <base>` | `assets/boot.js` produces exactly the same CSS variables as `Theme.apply` for every preset |
+| `node regressions.js <base>` (local server only: it makes throw-away accounts) | browser checks for fixed bugs: notifications menu stays on screen (LTR/RTL, 320-1440px), a resumed session shows the account name, unknown addresses open the app with a 404 |
 | `node scroll.js <base> mobile|desktop label` | main-thread cost per second while a timer runs, and frame times while scrolling (Chrome, CPU throttled 4x for mobile) |
 | `bash lighthouse.sh <url> <label> 3` then `node lighthouse-summary.js <label>` | Lighthouse (mobile + desktop), median of N runs |

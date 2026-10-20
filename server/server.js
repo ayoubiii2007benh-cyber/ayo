@@ -1649,6 +1649,16 @@ app.get('/.well-known/security.txt', (req, res) => {
   res.type('text/plain').send(`Contact: mailto:${CONTACT_EMAIL}\nPreferred-Languages: en\nCanonical: ${BASE_URL}/.well-known/security.txt\n`);
 });
 
+// Unknown addresses. API callers get JSON like every other API error; a person who follows an old or mistyped link
+// gets the app (whose router opens the Timer) with a real 404 status, instead of Express's bare "Cannot GET" page.
+// Files (anything with an extension, e.g. a missing /assets/x.js) keep the plain 404.
+app.use('/api', (req, res) => res.status(404).json({ error: 'Not found.' }));
+app.use((req, res, next) => {
+  if ((req.method !== 'GET' && req.method !== 'HEAD') || path.extname(req.path) || !req.accepts('html')) return next();
+  res.status(404);
+  return Assets.sendPage(req, res, INDEX_HTML_PATH, ROOT_DIR);
+});
+
 app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
   // body-parser reports malformed/oversized request bodies as errors with a
   // 4xx status attached -- those are client mistakes, not server failures.

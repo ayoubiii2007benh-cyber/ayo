@@ -249,6 +249,15 @@ async function main() {
   const start = await fetch(BASE + '/api/auth/google/start', { redirect: 'manual' });
   assert(start.status === 404, 'unconfigured provider stays hidden');
 
+  console.log('12. unknown addresses');
+  const lost = await fetch(BASE + '/study/no-such-tool', { headers: { Accept: 'text/html' } });
+  const lostHtml = await lost.text();
+  assert(lost.status === 404 && /id="view-dashboard"/.test(lostHtml) && !/Cannot GET/.test(lostHtml), 'an unknown page is a 404 that still opens the app (not a bare error page)');
+  const lostApi = await fetch(BASE + '/api/no-such-endpoint');
+  assert(lostApi.status === 404 && /json/.test(lostApi.headers.get('content-type') || '') && (await lostApi.json()).error, 'an unknown API address is a JSON 404');
+  const lostAsset = await fetch(BASE + '/assets/no-such-file.js');
+  assert(lostAsset.status === 404 && !/id="view-dashboard"/.test(await lostAsset.text()), 'a missing file is a plain 404, not the app page');
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);
 }
